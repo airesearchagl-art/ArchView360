@@ -76,6 +76,44 @@
 
       <!-- ビューワーラップ -->
       <div class="viewer-wrap">
+
+        <!-- 比較コントロールバー -->
+        <div id="compare-controls" class="compare-controls hidden">
+          <div class="compare-sel-group">
+            <span class="compare-badge compare-badge-a">A</span>
+            <select id="compare-select-a" class="compare-select"></select>
+          </div>
+          <div class="compare-sel-group">
+            <span class="compare-badge compare-badge-b">B</span>
+            <select id="compare-select-b" class="compare-select"></select>
+          </div>
+          <button id="compare-autorotate-btn" class="icon-btn" title="自動回転">▶</button>
+          <button id="compare-reset-btn" class="icon-btn" title="視点リセット">↺</button>
+          <button id="compare-layout-btn" class="icon-btn" title="レイアウト切替">⊟</button>
+          <button id="compare-fullscreen-btn" class="icon-btn" title="全画面">⛶</button>
+          <button id="exit-compare-btn" class="icon-btn" title="通常モードに戻る">✕ 比較終了</button>
+        </div>
+
+        <!-- 比較コンテナ -->
+        <div id="compare-container" class="compare-container hidden">
+          <div class="compare-pane" id="compare-pane-a">
+            <div class="compare-header">
+              <span class="compare-badge compare-badge-a">A</span>
+              <span id="compare-name-a" class="compare-pane-name"></span>
+            </div>
+            <canvas id="canvas-a"></canvas>
+            <div id="loading-a" class="compare-loading hidden"><div class="spinner-sm"></div></div>
+          </div>
+          <div class="compare-pane" id="compare-pane-b">
+            <div class="compare-header">
+              <span class="compare-badge compare-badge-b">B</span>
+              <span id="compare-name-b" class="compare-pane-name"></span>
+            </div>
+            <canvas id="canvas-b"></canvas>
+            <div id="loading-b" class="compare-loading hidden"><div class="spinner-sm"></div></div>
+          </div>
+        </div>
+
         <div id="viewer-container" class="viewer-container">
           <canvas id="viewer-canvas"></canvas>
 
@@ -101,6 +139,10 @@
 
           <!-- コントロールUI -->
           <div class="viewer-controls">
+            <button id="compare-mode-btn" class="ctrl-btn" title="比較モードに切り替え">
+              <span class="ctrl-icon">⊞</span>
+              <span class="ctrl-label">比較</span>
+            </button>
             <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
               <span class="ctrl-icon">▶</span>
               <span class="ctrl-label">自動回転</span>
