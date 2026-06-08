@@ -246,15 +246,17 @@ body {
 .viewer-section {
   flex: 1;
   display: flex;
+  flex-direction: column; /* viewer-container が height: 100% で解決できるよう */
 }
 
 .viewer-container {
+  flex: 1;               /* viewer-section の残り高さをすべて使う */
   position: relative;
   width: 100%;
   border-radius: var(--radius);
   overflow: hidden;
   background: #000;
-  min-height: 60vh;
+  min-height: 60vh;      /* flex が効かない環境向けのフォールバック */
   box-shadow: var(--shadow);
 }
 

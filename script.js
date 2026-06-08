@@ -75,6 +75,18 @@ function initThree() {
 
   renderer = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // WebGL コンテキストが失われた場合（タブ切替・GPU障害等）にエラーを表示
+  viewerCanvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    stopRender();
+    showError('WebGLコンテキストが失われました。画像を再度読み込んでください。');
+  }, false);
+
+  viewerCanvas.addEventListener('webglcontextrestored', () => {
+    // コンテキスト復元時は全リソースを作り直すため、アップロード画面へ戻す
+    showUpload();
+  }, false);
 }
 
 function fitCanvasToContainer() {
@@ -208,8 +220,16 @@ function showUpload() {
     currentBlobUrl = null;
   }
 
-  // 全画面解除
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  // 全画面解除（webkit prefix 対応）
+  const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+  if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs) {
+    exitFs.call(document).catch(() => {});
+  }
+
+  // 自動回転状態をリセット（戻った後に再び開いた時に混乱しないよう）
+  autoRotate = false;
+  autorotateBtn.classList.remove('ctrl-btn-active');
+  autorotateBtn.title = '自動回転をON';
 
   viewerSection.classList.add('hidden');
   uploadSection.classList.remove('hidden');
@@ -419,26 +439,39 @@ autorotateBtn.addEventListener('click', () => {
   if (autoRotate) showToast('自動回転 ON');
 });
 
-// 全画面
+// 全画面（Safari webkit prefix 対応）
+const supportsFullscreen = !!(
+  viewerContainer.requestFullscreen || viewerContainer.webkitRequestFullscreen
+);
+
+// 非対応ブラウザ（主に iOS Safari）ではボタンを非表示
+if (!supportsFullscreen) {
+  fullscreenBtn.classList.add('hidden');
+}
+
 fullscreenBtn.addEventListener('click', () => {
-  if (!document.fullscreenElement) {
-    viewerContainer.requestFullscreen().catch((err) => {
-      showGlobalError(`全画面表示に失敗しました: ${err.message}`);
-    });
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!isFs) {
+    const req = viewerContainer.requestFullscreen || viewerContainer.webkitRequestFullscreen;
+    if (req) {
+      req.call(viewerContainer).catch((err) => {
+        showGlobalError(`全画面表示に失敗しました: ${err.message}`);
+      });
+    }
   } else {
-    document.exitFullscreen();
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) exit.call(document).catch(() => {});
   }
 });
 
-document.addEventListener('fullscreenchange', () => {
-  const isFs = !!document.fullscreenElement;
+function onFullscreenChange() {
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
   fullscreenIcon.textContent = isFs ? '✕' : '⛶';
   fullscreenBtn.title = isFs ? '全画面を終了' : '全画面表示';
-  // 全画面切り替え後にキャンバスサイズを再計算
-  if (renderer) {
-    requestAnimationFrame(() => fitCanvasToContainer());
-  }
-});
+  if (renderer) requestAnimationFrame(() => fitCanvasToContainer());
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 // ============================================================
 // リサイズ対応
