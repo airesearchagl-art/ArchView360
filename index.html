@@ -50,13 +50,15 @@
         </ul>
         <table class="shortcut-table">
           <tbody>
-            <tr><td class="shortcut-key">← →</td><td>前のシーン / 次のシーン</td></tr>
+            <tr><td class="shortcut-key">← →</td><td>前のシーン / 次のシーン（通常モード）</td></tr>
             <tr><td class="shortcut-key">R</td><td>視点リセット</td></tr>
             <tr><td class="shortcut-key">A</td><td>自動回転 ON / OFF</td></tr>
             <tr><td class="shortcut-key">F</td><td>全画面切り替え</td></tr>
+            <tr><td class="shortcut-key">C</td><td>比較モード ON / OFF</td></tr>
+            <tr><td class="shortcut-key">V</td><td>比較レイアウト切替（左右 ↔ 上下）</td></tr>
           </tbody>
         </table>
-        <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。</p>
+        <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。左右が逆に見える場合は「左右反転」ボタンで補正できます。</p>
       </div>
     </section>
 
@@ -77,24 +79,88 @@
       <!-- ビューワーラップ -->
       <div class="viewer-wrap">
 
-        <!-- 比較コントロールバー -->
-        <div id="compare-controls" class="compare-controls hidden">
+        <!-- 通常モード コントロールバー（viewer-containerの外に配置） -->
+        <div id="normal-controls" class="ctrl-bar hidden">
+          <button id="compare-mode-btn" class="ctrl-btn" title="比較モードに切り替え（シーンが2つ以上必要）">
+            <span class="ctrl-icon">⊞</span>
+            <span class="ctrl-label">比較</span>
+          </button>
+          <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
+            <span class="ctrl-icon">▶</span>
+            <span class="ctrl-label">自動回転</span>
+          </button>
+          <button id="flip-btn" class="ctrl-btn" title="画像を左右反転">
+            <span class="ctrl-icon">↔</span>
+            <span class="ctrl-label">左右反転</span>
+          </button>
+          <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
+            <span class="ctrl-icon">↺</span>
+            <span class="ctrl-label">リセット</span>
+          </button>
+          <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
+            <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
+            <span class="ctrl-label">全画面</span>
+          </button>
+          <button id="back-btn" class="ctrl-btn" title="アップロード画面へ">
+            <span class="ctrl-icon">📂</span>
+            <span class="ctrl-label">画像変更</span>
+          </button>
+        </div>
+
+        <!-- 比較モード コントロールバー -->
+        <div id="compare-controls" class="ctrl-bar compare-ctrl-bar hidden">
           <div class="compare-sel-group">
             <span class="compare-badge compare-badge-a">A</span>
             <select id="compare-select-a" class="compare-select"></select>
+            <button id="flip-a-btn" class="icon-btn" title="A画像を左右反転">↔ A反転</button>
           </div>
           <div class="compare-sel-group">
             <span class="compare-badge compare-badge-b">B</span>
             <select id="compare-select-b" class="compare-select"></select>
+            <button id="flip-b-btn" class="icon-btn" title="B画像を左右反転">↔ B反転</button>
           </div>
-          <button id="compare-autorotate-btn" class="icon-btn" title="自動回転">▶</button>
-          <button id="compare-reset-btn" class="icon-btn" title="視点リセット">↺</button>
-          <button id="compare-layout-btn" class="icon-btn" title="レイアウト切替">⊟</button>
-          <button id="compare-fullscreen-btn" class="icon-btn" title="全画面">⛶</button>
-          <button id="exit-compare-btn" class="icon-btn" title="通常モードに戻る">✕ 比較終了</button>
+          <div class="compare-ctrl-sep"></div>
+          <button id="compare-autorotate-btn" class="icon-btn" title="自動回転">▶ 自動回転</button>
+          <button id="compare-reset-btn" class="icon-btn" title="視点リセット">↺ リセット</button>
+          <button id="compare-layout-btn" class="icon-btn" title="レイアウト切替">⊟ レイアウト</button>
+          <button id="compare-fullscreen-btn" class="icon-btn" title="全画面">⛶ 全画面</button>
+          <button id="exit-compare-btn" class="icon-btn icon-btn-exit" title="通常モードに戻る">✕ 比較終了</button>
         </div>
 
-        <!-- 比較コンテナ -->
+        <!-- 通常モード ビューワー -->
+        <div id="viewer-container" class="viewer-container">
+          <canvas id="viewer-canvas"></canvas>
+
+          <!-- シーン名バー -->
+          <div class="scene-name-bar">
+            <span id="current-scene-name" class="current-scene-name"></span>
+          </div>
+
+          <!-- ローディングオーバーレイ（初期は非表示） -->
+          <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <p id="loading-message">画像を読み込み中…</p>
+          </div>
+
+          <!-- エラーオーバーレイ -->
+          <div id="error-overlay" class="error-overlay hidden">
+            <div class="error-content">
+              <span class="error-icon">⚠️</span>
+              <p id="error-message">エラーが発生しました。</p>
+              <button id="error-back-btn" class="btn btn-secondary">戻る</button>
+            </div>
+          </div>
+
+          <!-- ステータスバー（FOVのみ） -->
+          <div class="status-bar">
+            <span id="status-fov">FOV: 75°</span>
+          </div>
+
+          <!-- トーストヒント -->
+          <div id="toast" class="toast hidden" aria-live="polite"></div>
+        </div>
+
+        <!-- 比較モード ビューワー -->
         <div id="compare-container" class="compare-container hidden">
           <div class="compare-pane" id="compare-pane-a">
             <div class="compare-header">
@@ -114,61 +180,6 @@
           </div>
         </div>
 
-        <div id="viewer-container" class="viewer-container">
-          <canvas id="viewer-canvas"></canvas>
-
-          <!-- シーン名バー -->
-          <div class="scene-name-bar">
-            <span id="current-scene-name" class="current-scene-name"></span>
-          </div>
-
-          <!-- ローディングオーバーレイ -->
-          <div id="loading-overlay" class="loading-overlay">
-            <div class="spinner"></div>
-            <p id="loading-message">画像を読み込み中…</p>
-          </div>
-
-          <!-- エラーオーバーレイ -->
-          <div id="error-overlay" class="error-overlay hidden">
-            <div class="error-content">
-              <span class="error-icon">⚠️</span>
-              <p id="error-message">エラーが発生しました。</p>
-              <button id="error-back-btn" class="btn btn-secondary">戻る</button>
-            </div>
-          </div>
-
-          <!-- コントロールUI -->
-          <div class="viewer-controls">
-            <button id="compare-mode-btn" class="ctrl-btn" title="比較モードに切り替え">
-              <span class="ctrl-icon">⊞</span>
-              <span class="ctrl-label">比較</span>
-            </button>
-            <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
-              <span class="ctrl-icon">▶</span>
-              <span class="ctrl-label">自動回転</span>
-            </button>
-            <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
-              <span class="ctrl-icon">↺</span>
-              <span class="ctrl-label">リセット</span>
-            </button>
-            <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
-              <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
-              <span class="ctrl-label">全画面</span>
-            </button>
-            <button id="back-btn" class="ctrl-btn" title="アップロード画面へ">
-              <span class="ctrl-icon">📂</span>
-              <span class="ctrl-label">画像変更</span>
-            </button>
-          </div>
-
-          <!-- ステータスバー（FOVのみ） -->
-          <div class="status-bar">
-            <span id="status-fov">FOV: 75°</span>
-          </div>
-
-          <!-- トーストヒント -->
-          <div id="toast" class="toast hidden" aria-live="polite"></div>
-        </div>
       </div>
     </div>
 
@@ -185,11 +196,20 @@
     <p>ArchView360 &mdash; 360° Panorama Viewer for Architecture</p>
   </footer>
 
-  <!-- Three.js r128 CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
-    crossorigin="anonymous"
-    referrerpolicy="no-referrer"
-    id="threejs-script">
+  <!-- Three.js r128 CDN（失敗時はローカルフォールバック） -->
+  <script>
+    (function() {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+      s.crossOrigin = 'anonymous';
+      s.referrerPolicy = 'no-referrer';
+      s.onerror = function() {
+        var fb = document.createElement('script');
+        fb.src = 'three.min.js';
+        document.head.appendChild(fb);
+      };
+      document.head.appendChild(s);
+    })();
   </script>
 
   <!-- ファイルインプット（body末尾に配置、label for="file-input" で参照） -->
@@ -201,6 +221,6 @@
     class="visually-hidden"
   />
 
-  <script src="script.js"></script>
+  <script src="script.js" defer></script>
 </body>
 </html>
