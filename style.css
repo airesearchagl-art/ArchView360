@@ -81,11 +81,12 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 32px 24px;
+  padding: 0;
 }
 
 /* ===== Upload Section ===== */
 .upload-section {
+  padding: 32px 24px;
   max-width: 680px;
   width: 100%;
   margin: 0 auto;
@@ -234,6 +235,30 @@ body {
   flex-shrink: 0;
 }
 
+/* ===== Shortcut Table ===== */
+.shortcut-table {
+  margin-top: 8px;
+  margin-left: 38px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.shortcut-table td {
+  padding: 3px 10px 3px 0;
+  vertical-align: middle;
+}
+
+.shortcut-key {
+  font-family: 'Courier New', Courier, monospace;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px !important;
+  font-size: 0.8rem;
+  color: var(--accent-hover);
+  white-space: nowrap;
+}
+
 .usage-note {
   margin-top: 16px;
   font-size: 0.78rem;
@@ -242,35 +267,196 @@ body {
   padding-top: 12px;
 }
 
-/* ===== Viewer Section ===== */
-.viewer-section {
+/* ===== Viewer Layout (scene panel + viewer wrap) ===== */
+.viewer-layout {
   flex: 1;
   display: flex;
-  flex-direction: column; /* viewer-container が height: 100% で解決できるよう */
+  flex-direction: row;
+  min-height: 0;
 }
 
+/* ===== Scene Panel ===== */
+.scene-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.scene-panel-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.scene-counter {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.scene-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.icon-btn-danger:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.scene-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  padding: 6px 0;
+  min-height: 0;
+}
+
+/* ===== Scene Item ===== */
+.scene-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 2px 6px;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+}
+
+.scene-item.active {
+  background: rgba(79,124,255,0.18);
+  border-left: 2px solid var(--accent);
+}
+
+.scene-item:hover {
+  background: var(--surface-2);
+}
+
+.scene-num {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.scene-name {
+  flex: 1;
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 3px;
+  padding: 1px 3px;
+  min-width: 0;
+}
+
+.scene-name.editing {
+  background: var(--surface-2);
+  outline: 1px solid var(--accent);
+  white-space: normal;
+  overflow: visible;
+}
+
+.scene-delete-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.scene-item:hover .scene-delete-btn {
+  opacity: 1;
+}
+
+.scene-delete-btn:hover {
+  color: var(--error);
+}
+
+/* ===== Viewer Wrap ===== */
+.viewer-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ===== Viewer Container ===== */
 .viewer-container {
-  flex: 1;               /* viewer-section の残り高さをすべて使う */
+  flex: 1;
   position: relative;
-  width: 100%;
-  border-radius: var(--radius);
   overflow: hidden;
   background: #000;
-  min-height: 60vh;      /* flex が効かない環境向けのフォールバック */
-  box-shadow: var(--shadow);
+  min-height: 0;
 }
 
 /* 全画面時はボーダー不要 */
 .viewer-container:fullscreen,
 .viewer-container:-webkit-full-screen {
   border-radius: 0;
-  min-height: 100vh;
 }
 
 #viewer-canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* ===== Scene Name Bar ===== */
+.scene-name-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.current-scene-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.35);
+  padding: 4px 12px;
+  border-radius: 4px;
+  backdrop-filter: blur(2px);
 }
 
 /* ===== Loading Overlay ===== */
@@ -386,13 +572,6 @@ body {
   pointer-events: none;
 }
 
-.status-filename {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ===== Toast ===== */
 .toast {
   position: absolute;
@@ -453,20 +632,12 @@ body {
     gap: 6px;
   }
 
-  .main {
+  .upload-section {
     padding: 20px 16px;
   }
 
   .drop-zone {
     padding: 36px 20px;
-  }
-
-  .viewer-container {
-    min-height: 50vh;
-  }
-
-  .status-filename {
-    max-width: 120px;
   }
 
   .ctrl-label {
@@ -475,5 +646,60 @@ body {
 
   .ctrl-btn {
     padding: 8px 10px;
+  }
+
+  /* Viewer layout stacks vertically on mobile */
+  .viewer-layout {
+    flex-direction: column;
+  }
+
+  .scene-panel {
+    width: 100%;
+    height: 110px;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    order: 2;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .scene-list {
+    flex-direction: row;
+    padding: 4px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 4px;
+    display: flex !important;
+  }
+
+  .scene-item {
+    flex-direction: column;
+    min-width: 64px;
+    max-width: 100px;
+    margin: 2px 0;
+    text-align: center;
+    flex-shrink: 0;
+    border-left: 2px solid transparent;
+  }
+
+  .scene-item.active {
+    border-left: none;
+    border-bottom: 2px solid var(--accent);
+  }
+
+  .scene-name {
+    font-size: 0.72rem;
+    text-align: center;
+  }
+
+  .scene-delete-btn {
+    opacity: 1;
+    font-size: 0.75rem;
+  }
+
+  .viewer-wrap {
+    order: 1;
+    flex: 1;
+    min-height: 0;
   }
 }

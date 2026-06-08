@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 — 360° Panorama Viewer
+ * ArchView360 v1.1 — 360° Panorama Viewer with Scene Management
  * Three.js r128 CDN
  * ============================================================ */
 
@@ -12,112 +12,329 @@ if (typeof THREE === 'undefined') {
   throw new Error('Three.js の読み込みに失敗しました。');
 }
 
-// ----- DOM -----
-const uploadSection   = document.getElementById('upload-section');
-const viewerSection   = document.getElementById('viewer-section');
-const dropZone        = document.getElementById('drop-zone');
-const fileInput       = document.getElementById('file-input');
-const viewerCanvas    = document.getElementById('viewer-canvas');
-const viewerContainer = document.getElementById('viewer-container');
-const loadingOverlay  = document.getElementById('loading-overlay');
-const loadingMessage  = document.getElementById('loading-message');
-const errorOverlay    = document.getElementById('error-overlay');
-const errorMessage    = document.getElementById('error-message');
-const errorBackBtn    = document.getElementById('error-back-btn');
-const resetBtn        = document.getElementById('reset-btn');
-const backBtn         = document.getElementById('back-btn');
-const autorotateBtn   = document.getElementById('autorotate-btn');
-const fullscreenBtn   = document.getElementById('fullscreen-btn');
-const fullscreenIcon  = document.getElementById('fullscreen-icon');
-const statusFov       = document.getElementById('status-fov');
-const statusFilename  = document.getElementById('status-filename');
-const globalError     = document.getElementById('global-error');
-const toast           = document.getElementById('toast');
+// ---- DOM ----
+const uploadSection      = document.getElementById('upload-section');
+const viewerLayout       = document.getElementById('viewer-layout');
+const dropZone           = document.getElementById('drop-zone');
+const fileInput          = document.getElementById('file-input');
+const viewerCanvas       = document.getElementById('viewer-canvas');
+const viewerContainer    = document.getElementById('viewer-container');
+const loadingOverlay     = document.getElementById('loading-overlay');
+const loadingMessage     = document.getElementById('loading-message');
+const errorOverlay       = document.getElementById('error-overlay');
+const errorMessage       = document.getElementById('error-message');
+const errorBackBtn       = document.getElementById('error-back-btn');
+const resetBtn           = document.getElementById('reset-btn');
+const backBtn            = document.getElementById('back-btn');
+const autorotateBtn      = document.getElementById('autorotate-btn');
+const fullscreenBtn      = document.getElementById('fullscreen-btn');
+const fullscreenIcon     = document.getElementById('fullscreen-icon');
+const statusFov          = document.getElementById('status-fov');
+const currentSceneNameEl = document.getElementById('current-scene-name');
+const sceneListEl        = document.getElementById('scene-list');
+const sceneCounter       = document.getElementById('scene-counter');
+const addSceneBtn        = document.getElementById('add-scene-btn');
+const clearAllBtn        = document.getElementById('clear-all-btn');
+const globalError        = document.getElementById('global-error');
+const toast              = document.getElementById('toast');
 
-// ----- Three.js objects -----
-let renderer, scene, camera, sphere;
+// ---- Three.js ----
+let renderer, threeScene, camera, sphere;
 let animFrameId = null;
-let currentBlobUrl = null;
 
-// ----- Camera state -----
+// ---- Camera state ----
 const DEFAULT_FOV   = 75;
 const MIN_FOV       = 30;
 const MAX_FOV       = 100;
 const DEFAULT_PHI   = Math.PI / 2;
 const DEFAULT_THETA = 0;
-
 let phi   = DEFAULT_PHI;
 let theta = DEFAULT_THETA;
 let fov   = DEFAULT_FOV;
 
-// ----- Auto-rotate -----
+// ---- Auto-rotate ----
 let autoRotate = false;
-const AUTO_ROTATE_SPEED = 0.0015; // rad/frame
+const AUTO_ROTATE_SPEED = 0.0015;
 
-// ----- Drag state -----
+// ---- Drag / touch ----
 let isDragging    = false;
 let lastX         = 0;
 let lastY         = 0;
 let lastTouches   = null;
 let lastPinchDist = null;
 
-// ----- Toast timer -----
+// ---- Toast ----
 let toastTimer = null;
 
 // ============================================================
-// Three.js 初期化
+// Scene model:  [{id, name, blobUrl}]
+// ============================================================
+let scenes     = [];
+let currentIdx = -1;
+
+function genId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+// ============================================================
+// Three.js init
 // ============================================================
 function initThree() {
   if (renderer) return;
 
-  scene  = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
-
-  renderer = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
+  threeScene = new THREE.Scene();
+  camera     = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
+  renderer   = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-  // WebGL コンテキストが失われた場合（タブ切替・GPU障害等）にエラーを表示
   viewerCanvas.addEventListener('webglcontextlost', (e) => {
     e.preventDefault();
     stopRender();
-    showError('WebGLコンテキストが失われました。画像を再度読み込んでください。');
-  }, false);
-
+    showError('WebGLコンテキストが失われました。ページを再読み込みしてください。');
+  });
   viewerCanvas.addEventListener('webglcontextrestored', () => {
-    // コンテキスト復元時は全リソースを作り直すため、アップロード画面へ戻す
-    showUpload();
-  }, false);
+    clearAllAndShowUpload();
+  });
 }
 
 function fitCanvasToContainer() {
   const w = viewerContainer.clientWidth  || window.innerWidth;
-  const h = viewerContainer.clientHeight || Math.round(window.innerHeight * 0.8);
+  const h = viewerContainer.clientHeight || Math.round(window.innerHeight * 0.75);
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
 // ============================================================
-// パノラマ読み込みと球体生成
+// Scene management
 // ============================================================
-function loadPanorama(src, filename) {
-  showLoading(true, '画像を読み込み中…');
+
+/** Validate files, create scenes, start viewer */
+function handleFiles(fileList) {
+  const allowed  = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  const maxBytes = 100 * 1024 * 1024;
+
+  const valid = Array.from(fileList).filter(f =>
+    allowed.has(f.type) && f.size <= maxBytes
+  );
+
+  if (valid.length === 0) {
+    showGlobalError(
+      fileList.length > 0
+        ? '有効なファイルがありません。JPEG・PNG・WebP（各100MB以下）を選択してください。'
+        : ''
+    );
+    return;
+  }
+
+  const skipped = fileList.length - valid.length;
+  if (skipped > 0) {
+    showGlobalError(`${skipped} 件をスキップしました（対応外の形式または100MB超）。`);
+  }
+
+  const wasEmpty = scenes.length === 0;
+  const firstNewIdx = scenes.length;
+
+  valid.forEach(f => {
+    scenes.push({
+      id:      genId(),
+      name:    f.name.replace(/\.[^.]+$/, ''),
+      blobUrl: URL.createObjectURL(f),
+    });
+  });
+
+  if (wasEmpty) {
+    showViewerLayout();
+    initThree();
+    fitCanvasToContainer();
+    switchToScene(0);
+  } else {
+    renderSceneList();
+    showToast(`${valid.length} 件のシーンを追加しました`);
+    // scroll the newly added item into view
+    const items = sceneListEl.querySelectorAll('.scene-item');
+    items[firstNewIdx]?.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+/** Switch the active panorama */
+function switchToScene(idx) {
+  if (idx < 0 || idx >= scenes.length) return;
+  currentIdx = idx;
+
+  const s = scenes[idx];
+  currentSceneNameEl.textContent = s.name;
+  renderSceneList();
+  loadPanorama(s.blobUrl, s.name);
+}
+
+function prevScene() {
+  if (!scenes.length) return;
+  switchToScene((currentIdx - 1 + scenes.length) % scenes.length);
+}
+
+function nextScene() {
+  if (!scenes.length) return;
+  switchToScene((currentIdx + 1) % scenes.length);
+}
+
+/** Delete one scene by index */
+function deleteScene(idx) {
+  if (idx < 0 || idx >= scenes.length) return;
+
+  URL.revokeObjectURL(scenes[idx].blobUrl);
+
+  const wasCurrent = idx === currentIdx;
+  if (wasCurrent) stopRender();
+
+  scenes.splice(idx, 1);
+
+  if (scenes.length === 0) {
+    disposeCurrentSphere();
+    clearAllAndShowUpload();
+    return;
+  }
+
+  // Determine which scene to show next
+  let nextIdx = currentIdx;
+  if (wasCurrent) {
+    nextIdx = Math.min(idx, scenes.length - 1);
+  } else if (idx < currentIdx) {
+    nextIdx = currentIdx - 1;
+  }
+
+  currentIdx = -1;          // force re-load
+  switchToScene(nextIdx);
+}
+
+/** Dispose GPU sphere + textures */
+function disposeCurrentSphere() {
+  if (sphere) {
+    sphere.geometry.dispose();
+    if (sphere.material.map) sphere.material.map.dispose();
+    sphere.material.dispose();
+    if (threeScene) threeScene.remove(sphere);
+    sphere = null;
+  }
+}
+
+/** Clear everything and return to upload screen */
+function clearAllAndShowUpload() {
+  stopRender();
+  hideToast();
+  disposeCurrentSphere();
+
+  scenes.forEach(s => URL.revokeObjectURL(s.blobUrl));
+  scenes     = [];
+  currentIdx = -1;
+
+  autoRotate = false;
+  autorotateBtn.classList.remove('ctrl-btn-active');
+  autorotateBtn.title = '自動回転をON';
+
+  const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+  if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs) {
+    exitFs.call(document).catch(() => {});
+  }
+
+  viewerLayout.classList.add('hidden');
+  uploadSection.classList.remove('hidden');
+}
+
+/** Rebuild the scene list DOM */
+function renderSceneList() {
+  sceneListEl.innerHTML = '';
+
+  scenes.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
+
+    const numEl = document.createElement('span');
+    numEl.className = 'scene-num';
+    numEl.textContent = i + 1;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'scene-name';
+    nameEl.textContent = s.name;
+    nameEl.title = s.name;
+
+    // Double-click → edit inline
+    nameEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      nameEl.contentEditable = 'true';
+      nameEl.classList.add('editing');
+      const range = document.createRange();
+      range.selectNodeContents(nameEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    nameEl.addEventListener('blur', () => {
+      nameEl.contentEditable = 'false';
+      nameEl.classList.remove('editing');
+      const newName = nameEl.textContent.trim();
+      s.name = newName || s.name;
+      nameEl.textContent = s.name;
+      if (i === currentIdx) currentSceneNameEl.textContent = s.name;
+    });
+
+    nameEl.addEventListener('keydown', (e) => {
+      e.stopPropagation();               // prevent global keyboard shortcuts while editing
+      if (e.key === 'Enter')  { e.preventDefault(); nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = s.name; nameEl.blur(); }
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'scene-delete-btn';
+    delBtn.title = 'このシーンを削除';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteScene(i);
+    });
+
+    li.appendChild(numEl);
+    li.appendChild(nameEl);
+    li.appendChild(delBtn);
+
+    li.addEventListener('click', () => {
+      if (nameEl.contentEditable === 'true') return;
+      if (i !== currentIdx) switchToScene(i);
+    });
+
+    sceneListEl.appendChild(li);
+  });
+
+  // Update counter
+  sceneCounter.textContent = scenes.length > 0
+    ? `${currentIdx + 1} / ${scenes.length}`
+    : '0 / 0';
+
+  // Scroll active item into view
+  const activeEl = sceneListEl.querySelector('.scene-item.active');
+  activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+// ============================================================
+// Panorama load + sphere build
+// ============================================================
+function loadPanorama(src, name) {
+  showLoading(true, `「${name}」を読み込み中…`);
   hideError();
 
-  const loader = new THREE.TextureLoader();
-  loader.load(
+  new THREE.TextureLoader().load(
     src,
     (texture) => {
       buildSphere(texture);
       showLoading(false);
-      statusFilename.textContent = filename || '';
       startRender();
       showToast('ドラッグで自由に見回せます 🖱️');
     },
     (progress) => {
       if (progress.total > 0) {
-        const pct = Math.round((progress.loaded / progress.total) * 100);
-        showLoading(true, `画像を読み込み中… ${pct}%`);
+        const pct = Math.round(progress.loaded / progress.total * 100);
+        showLoading(true, `「${name}」を読み込み中… ${pct}%`);
       }
     },
     () => {
@@ -128,37 +345,24 @@ function loadPanorama(src, filename) {
 }
 
 function buildSphere(texture) {
-  // 既存の球体とテクスチャを完全に解放
-  if (sphere) {
-    sphere.geometry.dispose();
-    if (sphere.material.map) sphere.material.map.dispose();
-    sphere.material.dispose();
-    scene.remove(sphere);
-    sphere = null;
-  }
-
-  // BackSide で球体の内面を描画（正距円筒図法パノラマの正しい貼り付け方）
+  disposeCurrentSphere();
   const geo = new THREE.SphereGeometry(500, 60, 40);
   const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
   sphere = new THREE.Mesh(geo, mat);
-  scene.add(sphere);
-
+  threeScene.add(sphere);
   resetView();
 }
 
 // ============================================================
-// レンダーループ
+// Render loop
 // ============================================================
 function startRender() {
   if (animFrameId !== null) return;
-
   function loop() {
     animFrameId = requestAnimationFrame(loop);
-    if (autoRotate && !isDragging) {
-      theta += AUTO_ROTATE_SPEED;
-    }
+    if (autoRotate && !isDragging) theta += AUTO_ROTATE_SPEED;
     updateCamera();
-    renderer.render(scene, camera);
+    renderer.render(threeScene, camera);
   }
   loop();
 }
@@ -171,14 +375,15 @@ function stopRender() {
 }
 
 function updateCamera() {
-  const x = Math.sin(phi) * Math.cos(theta);
-  const y = Math.cos(phi);
-  const z = Math.sin(phi) * Math.sin(theta);
-  camera.lookAt(x, y, z);
+  camera.lookAt(
+    Math.sin(phi) * Math.cos(theta),
+    Math.cos(phi),
+    Math.sin(phi) * Math.sin(theta)
+  );
 }
 
 // ============================================================
-// 視点リセット
+// View control
 // ============================================================
 function resetView() {
   phi   = DEFAULT_PHI;
@@ -194,45 +399,11 @@ function applyFov() {
 }
 
 // ============================================================
-// UI 切り替え
+// UI helpers
 // ============================================================
-function showViewer() {
+function showViewerLayout() {
   uploadSection.classList.add('hidden');
-  viewerSection.classList.remove('hidden');
-}
-
-function showUpload() {
-  stopRender();
-  hideToast();
-
-  // リソース解放
-  if (sphere) {
-    sphere.geometry.dispose();
-    if (sphere.material.map) sphere.material.map.dispose();
-    sphere.material.dispose();
-    scene.remove(sphere);
-    sphere = null;
-  }
-
-  // BlobURL 解放
-  if (currentBlobUrl) {
-    URL.revokeObjectURL(currentBlobUrl);
-    currentBlobUrl = null;
-  }
-
-  // 全画面解除（webkit prefix 対応）
-  const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
-  if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs) {
-    exitFs.call(document).catch(() => {});
-  }
-
-  // 自動回転状態をリセット（戻った後に再び開いた時に混乱しないよう）
-  autoRotate = false;
-  autorotateBtn.classList.remove('ctrl-btn-active');
-  autorotateBtn.title = '自動回転をON';
-
-  viewerSection.classList.add('hidden');
-  uploadSection.classList.remove('hidden');
+  viewerLayout.classList.remove('hidden');
 }
 
 function showLoading(visible, msg) {
@@ -250,12 +421,13 @@ function hideError() {
 }
 
 function showGlobalError(msg) {
+  if (!msg) return;
   globalError.textContent = msg;
   globalError.classList.remove('hidden');
   setTimeout(() => globalError.classList.add('hidden'), 6000);
 }
 
-function showToast(msg, duration = 3500) {
+function showToast(msg, duration = 3000) {
   hideToast();
   toast.textContent = msg;
   toast.classList.remove('hidden');
@@ -270,37 +442,7 @@ function hideToast() {
 }
 
 // ============================================================
-// ファイル処理
-// ============================================================
-function handleFile(file) {
-  if (!file) return;
-
-  const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-  if (!allowed.includes(file.type)) {
-    showGlobalError('対応していないファイル形式です。JPEG・PNG・WebP のいずれかを選択してください。');
-    return;
-  }
-
-  const maxMB = 100;
-  if (file.size > maxMB * 1024 * 1024) {
-    showGlobalError(`ファイルサイズが大きすぎます（上限 ${maxMB}MB）。`);
-    return;
-  }
-
-  // 前の BlobURL を解放
-  if (currentBlobUrl) {
-    URL.revokeObjectURL(currentBlobUrl);
-  }
-  currentBlobUrl = URL.createObjectURL(file);
-
-  showViewer();           // 先に表示 → clientWidth を正確に取得できる
-  initThree();
-  fitCanvasToContainer();
-  loadPanorama(currentBlobUrl, file.name);
-}
-
-// ============================================================
-// ドラッグ & ドロップ
+// Drag & Drop (upload zone)
 // ============================================================
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -308,32 +450,26 @@ dropZone.addEventListener('dragover', (e) => {
 });
 
 dropZone.addEventListener('dragleave', (e) => {
-  // ドロップゾーン外に出た時だけ解除
-  if (!dropZone.contains(e.relatedTarget)) {
-    dropZone.classList.remove('drag-over');
-  }
+  if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
 });
 
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  handleFile(e.dataTransfer.files[0]);
+  handleFiles(e.dataTransfer.files);
 });
 
 dropZone.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault();
-    fileInput.click();
-  }
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
 });
 
 fileInput.addEventListener('change', () => {
-  handleFile(fileInput.files[0]);
+  if (fileInput.files.length > 0) handleFiles(fileInput.files);
   fileInput.value = '';
 });
 
 // ============================================================
-// マウス操作
+// Mouse interaction
 // ============================================================
 const SENSITIVITY = 0.3;
 
@@ -346,11 +482,9 @@ viewerCanvas.addEventListener('mousedown', (e) => {
 
 window.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
-  const dx = e.clientX - lastX;
-  const dy = e.clientY - lastY;
+  rotate(e.clientX - lastX, e.clientY - lastY);
   lastX = e.clientX;
   lastY = e.clientY;
-  rotate(dx, dy);
 });
 
 window.addEventListener('mouseup', () => {
@@ -362,13 +496,12 @@ viewerCanvas.style.cursor = 'grab';
 
 viewerCanvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const delta = e.deltaY > 0 ? 3 : -3;
-  fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + delta));
+  fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + (e.deltaY > 0 ? 3 : -3)));
   applyFov();
 }, { passive: false });
 
 // ============================================================
-// タッチ操作
+// Touch interaction
 // ============================================================
 viewerCanvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
@@ -377,61 +510,93 @@ viewerCanvas.addEventListener('touchstart', (e) => {
     lastY = e.touches[0].clientY;
     lastPinchDist = null;
   } else if (e.touches.length === 2) {
-    lastPinchDist = pinchDistance(e.touches);
+    lastPinchDist = pinchDist(e.touches);
   }
   lastTouches = e.touches;
 }, { passive: false });
 
 viewerCanvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-  if (e.touches.length === 1 && lastTouches && lastTouches.length === 1) {
-    const dx = e.touches[0].clientX - lastX;
-    const dy = e.touches[0].clientY - lastY;
+  if (e.touches.length === 1 && lastTouches?.length === 1) {
+    rotate(e.touches[0].clientX - lastX, e.touches[0].clientY - lastY);
     lastX = e.touches[0].clientX;
     lastY = e.touches[0].clientY;
-    rotate(dx, dy);
   } else if (e.touches.length === 2) {
-    const dist = pinchDistance(e.touches);
+    const d = pinchDist(e.touches);
     if (lastPinchDist !== null) {
-      const delta = (lastPinchDist - dist) * 0.15;
-      fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + delta));
+      fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + (lastPinchDist - d) * 0.15));
       applyFov();
     }
-    lastPinchDist = dist;
+    lastPinchDist = d;
   }
   lastTouches = e.touches;
 }, { passive: false });
 
 viewerCanvas.addEventListener('touchend', () => {
-  lastTouches = null;
+  lastTouches   = null;
   lastPinchDist = null;
 });
 
-function pinchDistance(touches) {
-  const dx = touches[0].clientX - touches[1].clientX;
-  const dy = touches[0].clientY - touches[1].clientY;
-  return Math.sqrt(dx * dx + dy * dy);
+function pinchDist(t) {
+  return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 }
 
 function rotate(dx, dy) {
-  const degToRad = Math.PI / 180;
-  theta -= dx * SENSITIVITY * degToRad;
-  phi   -= dy * SENSITIVITY * degToRad;
-  phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+  const r = Math.PI / 180;
+  theta -= dx * SENSITIVITY * r;
+  phi   -= dy * SENSITIVITY * r;
+  phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
 }
 
 // ============================================================
-// コントロールボタン
+// Keyboard shortcuts
+// ============================================================
+document.addEventListener('keydown', (e) => {
+  // Skip when editing a scene name or focused on an input
+  if (document.activeElement?.contentEditable === 'true') return;
+  if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  // Only active while viewer is shown
+  if (viewerLayout.classList.contains('hidden')) return;
+
+  switch (e.key) {
+    case 'ArrowLeft':
+      e.preventDefault();
+      prevScene();
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      nextScene();
+      break;
+    case 'r':
+    case 'R':
+      resetView();
+      break;
+    case 'a':
+    case 'A':
+      autoRotate = !autoRotate;
+      autorotateBtn.classList.toggle('ctrl-btn-active', autoRotate);
+      autorotateBtn.title = autoRotate ? '自動回転をOFF' : '自動回転をON';
+      if (autoRotate) showToast('自動回転 ON');
+      break;
+    case 'f':
+    case 'F':
+      if (supportsFullscreen) fullscreenBtn.click();
+      break;
+  }
+});
+
+// ============================================================
+// Control buttons
 // ============================================================
 resetBtn.addEventListener('click', resetView);
-backBtn.addEventListener('click', showUpload);
+backBtn.addEventListener('click', clearAllAndShowUpload);
 
 errorBackBtn.addEventListener('click', () => {
   hideError();
-  showUpload();
+  // If scenes remain, stay in viewer (user can pick from list)
+  if (scenes.length === 0) clearAllAndShowUpload();
 });
 
-// 自動回転
 autorotateBtn.addEventListener('click', () => {
   autoRotate = !autoRotate;
   autorotateBtn.classList.toggle('ctrl-btn-active', autoRotate);
@@ -439,45 +604,43 @@ autorotateBtn.addEventListener('click', () => {
   if (autoRotate) showToast('自動回転 ON');
 });
 
-// 全画面（Safari webkit prefix 対応）
+addSceneBtn.addEventListener('click', () => fileInput.click());
+clearAllBtn.addEventListener('click', clearAllAndShowUpload);
+
+// ============================================================
+// Fullscreen (Safari webkit prefix)
+// ============================================================
 const supportsFullscreen = !!(
   viewerContainer.requestFullscreen || viewerContainer.webkitRequestFullscreen
 );
 
-// 非対応ブラウザ（主に iOS Safari）ではボタンを非表示
-if (!supportsFullscreen) {
-  fullscreenBtn.classList.add('hidden');
-}
+if (!supportsFullscreen) fullscreenBtn.classList.add('hidden');
 
 fullscreenBtn.addEventListener('click', () => {
   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
   if (!isFs) {
     const req = viewerContainer.requestFullscreen || viewerContainer.webkitRequestFullscreen;
-    if (req) {
-      req.call(viewerContainer).catch((err) => {
-        showGlobalError(`全画面表示に失敗しました: ${err.message}`);
-      });
-    }
+    if (req) req.call(viewerContainer).catch(err =>
+      showGlobalError(`全画面表示に失敗しました: ${err.message}`)
+    );
   } else {
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
     if (exit) exit.call(document).catch(() => {});
   }
 });
 
-function onFullscreenChange() {
+function onFsChange() {
   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
   fullscreenIcon.textContent = isFs ? '✕' : '⛶';
   fullscreenBtn.title = isFs ? '全画面を終了' : '全画面表示';
   if (renderer) requestAnimationFrame(() => fitCanvasToContainer());
 }
-document.addEventListener('fullscreenchange', onFullscreenChange);
-document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
 
 // ============================================================
-// リサイズ対応
+// Resize
 // ============================================================
 window.addEventListener('resize', () => {
-  if (renderer && !viewerSection.classList.contains('hidden')) {
-    fitCanvasToContainer();
-  }
+  if (renderer && !viewerLayout.classList.contains('hidden')) fitCanvasToContainer();
 });

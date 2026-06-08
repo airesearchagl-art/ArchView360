@@ -34,13 +34,7 @@
           <label class="btn btn-primary" for="file-input">
             ファイルを選択
           </label>
-          <input
-            type="file"
-            id="file-input"
-            accept="image/jpeg,image/png,image/webp"
-            class="visually-hidden"
-          />
-          <p class="drop-hint">JPEG / PNG / WebP 対応 ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）</p>
+          <p class="drop-hint">JPEG / PNG / WebP 対応 ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）・ 複数ファイル同時選択可</p>
         </div>
       </div>
 
@@ -52,61 +46,89 @@
           <li><span class="usage-icon">👆</span> スワイプで視点を移動（タッチ端末）</li>
           <li><span class="usage-icon">🤏</span> ピンチでズーム（タッチ端末）</li>
           <li><span class="usage-icon">🔄</span> リセットボタンで初期視点に戻る</li>
+          <li><span class="usage-icon">⌨️</span> キーボードショートカット（ビューワー表示中）：</li>
         </ul>
+        <table class="shortcut-table">
+          <tbody>
+            <tr><td class="shortcut-key">← →</td><td>前のシーン / 次のシーン</td></tr>
+            <tr><td class="shortcut-key">R</td><td>視点リセット</td></tr>
+            <tr><td class="shortcut-key">A</td><td>自動回転 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">F</td><td>全画面切り替え</td></tr>
+          </tbody>
+        </table>
         <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。</p>
       </div>
     </section>
 
-    <!-- ビューワー画面 -->
-    <section id="viewer-section" class="viewer-section hidden">
-      <div id="viewer-container" class="viewer-container">
-        <canvas id="viewer-canvas"></canvas>
-
-        <!-- ローディングオーバーレイ -->
-        <div id="loading-overlay" class="loading-overlay">
-          <div class="spinner"></div>
-          <p id="loading-message">画像を読み込み中…</p>
-        </div>
-
-        <!-- エラーオーバーレイ -->
-        <div id="error-overlay" class="error-overlay hidden">
-          <div class="error-content">
-            <span class="error-icon">⚠️</span>
-            <p id="error-message">エラーが発生しました。</p>
-            <button id="error-back-btn" class="btn btn-secondary">戻る</button>
+    <!-- ビューワー画面（シーンパネル + ビューワー） -->
+    <div id="viewer-layout" class="viewer-layout hidden">
+      <!-- シーンパネル（サイドバー） -->
+      <aside class="scene-panel">
+        <div class="scene-panel-hd">
+          <span id="scene-counter" class="scene-counter">0 / 0</span>
+          <div class="scene-panel-actions">
+            <button id="add-scene-btn" class="icon-btn" title="シーンを追加">＋</button>
+            <button id="clear-all-btn" class="icon-btn icon-btn-danger" title="すべてクリア">🗑</button>
           </div>
         </div>
+        <ul id="scene-list" class="scene-list"></ul>
+      </aside>
 
-        <!-- コントロールUI -->
-        <div class="viewer-controls">
-          <button id="autorotate-btn" class="ctrl-btn" title="自動回転のON/OFF">
-            <span class="ctrl-icon">▶</span>
-            <span class="ctrl-label">自動回転</span>
-          </button>
-          <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
-            <span class="ctrl-icon">↺</span>
-            <span class="ctrl-label">リセット</span>
-          </button>
-          <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
-            <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
-            <span class="ctrl-label">全画面</span>
-          </button>
-          <button id="back-btn" class="ctrl-btn" title="画像を変更">
-            <span class="ctrl-icon">📂</span>
-            <span class="ctrl-label">画像変更</span>
-          </button>
+      <!-- ビューワーラップ -->
+      <div class="viewer-wrap">
+        <div id="viewer-container" class="viewer-container">
+          <canvas id="viewer-canvas"></canvas>
+
+          <!-- シーン名バー -->
+          <div class="scene-name-bar">
+            <span id="current-scene-name" class="current-scene-name"></span>
+          </div>
+
+          <!-- ローディングオーバーレイ -->
+          <div id="loading-overlay" class="loading-overlay">
+            <div class="spinner"></div>
+            <p id="loading-message">画像を読み込み中…</p>
+          </div>
+
+          <!-- エラーオーバーレイ -->
+          <div id="error-overlay" class="error-overlay hidden">
+            <div class="error-content">
+              <span class="error-icon">⚠️</span>
+              <p id="error-message">エラーが発生しました。</p>
+              <button id="error-back-btn" class="btn btn-secondary">戻る</button>
+            </div>
+          </div>
+
+          <!-- コントロールUI -->
+          <div class="viewer-controls">
+            <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
+              <span class="ctrl-icon">▶</span>
+              <span class="ctrl-label">自動回転</span>
+            </button>
+            <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
+              <span class="ctrl-icon">↺</span>
+              <span class="ctrl-label">リセット</span>
+            </button>
+            <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
+              <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
+              <span class="ctrl-label">全画面</span>
+            </button>
+            <button id="back-btn" class="ctrl-btn" title="アップロード画面へ">
+              <span class="ctrl-icon">📂</span>
+              <span class="ctrl-label">画像変更</span>
+            </button>
+          </div>
+
+          <!-- ステータスバー（FOVのみ） -->
+          <div class="status-bar">
+            <span id="status-fov">FOV: 75°</span>
+          </div>
+
+          <!-- トーストヒント -->
+          <div id="toast" class="toast hidden" aria-live="polite"></div>
         </div>
-
-        <!-- ステータスバー -->
-        <div class="status-bar">
-          <span id="status-fov">FOV: 75°</span>
-          <span id="status-filename" class="status-filename"></span>
-        </div>
-
-        <!-- トーストヒント -->
-        <div id="toast" class="toast hidden" aria-live="polite"></div>
       </div>
-    </section>
+    </div>
 
     <!-- Three.js 読み込み失敗フォールバック -->
     <div id="threejs-error" class="global-error hidden" role="alert">
@@ -121,12 +143,22 @@
     <p>ArchView360 &mdash; 360° Panorama Viewer for Architecture</p>
   </footer>
 
-  <!-- Three.js r128 CDN（integrity なし：ハッシュ不一致によるブロックを防ぐ） -->
+  <!-- Three.js r128 CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
     crossorigin="anonymous"
     referrerpolicy="no-referrer"
     id="threejs-script">
   </script>
+
+  <!-- ファイルインプット（body末尾に配置、label for="file-input" で参照） -->
+  <input
+    type="file"
+    id="file-input"
+    accept="image/jpeg,image/png,image/webp"
+    multiple
+    class="visually-hidden"
+  />
+
   <script src="script.js"></script>
 </body>
 </html>
