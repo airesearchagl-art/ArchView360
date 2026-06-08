@@ -2,106 +2,131 @@
 
 /* ============================================================
  * ArchView360 — 360° Panorama Viewer
- * Three.js r128 を CDN から使用
+ * Three.js r128 CDN
  * ============================================================ */
 
+// ---- Three.js 読み込み確認 ----
+if (typeof THREE === 'undefined') {
+  document.getElementById('threejs-error').classList.remove('hidden');
+  document.getElementById('upload-section').classList.add('hidden');
+  throw new Error('Three.js の読み込みに失敗しました。');
+}
+
 // ----- DOM -----
-const uploadSection  = document.getElementById('upload-section');
-const viewerSection  = document.getElementById('viewer-section');
-const dropZone       = document.getElementById('drop-zone');
-const fileInput      = document.getElementById('file-input');
-const viewerCanvas   = document.getElementById('viewer-canvas');
-const loadingOverlay = document.getElementById('loading-overlay');
-const errorOverlay   = document.getElementById('error-overlay');
-const errorMessage   = document.getElementById('error-message');
-const errorBackBtn   = document.getElementById('error-back-btn');
-const resetBtn       = document.getElementById('reset-btn');
-const backBtn        = document.getElementById('back-btn');
-const statusFov      = document.getElementById('status-fov');
-const statusFilename = document.getElementById('status-filename');
-const globalError    = document.getElementById('global-error');
+const uploadSection   = document.getElementById('upload-section');
+const viewerSection   = document.getElementById('viewer-section');
+const dropZone        = document.getElementById('drop-zone');
+const fileInput       = document.getElementById('file-input');
+const viewerCanvas    = document.getElementById('viewer-canvas');
+const viewerContainer = document.getElementById('viewer-container');
+const loadingOverlay  = document.getElementById('loading-overlay');
+const loadingMessage  = document.getElementById('loading-message');
+const errorOverlay    = document.getElementById('error-overlay');
+const errorMessage    = document.getElementById('error-message');
+const errorBackBtn    = document.getElementById('error-back-btn');
+const resetBtn        = document.getElementById('reset-btn');
+const backBtn         = document.getElementById('back-btn');
+const autorotateBtn   = document.getElementById('autorotate-btn');
+const fullscreenBtn   = document.getElementById('fullscreen-btn');
+const fullscreenIcon  = document.getElementById('fullscreen-icon');
+const statusFov       = document.getElementById('status-fov');
+const statusFilename  = document.getElementById('status-filename');
+const globalError     = document.getElementById('global-error');
+const toast           = document.getElementById('toast');
 
 // ----- Three.js objects -----
 let renderer, scene, camera, sphere;
 let animFrameId = null;
+let currentBlobUrl = null;
 
 // ----- Camera state -----
 const DEFAULT_FOV   = 75;
 const MIN_FOV       = 30;
 const MAX_FOV       = 100;
-const DEFAULT_PHI   = Math.PI / 2; // 垂直角（上下）
-const DEFAULT_THETA = 0;           // 水平角（左右）
+const DEFAULT_PHI   = Math.PI / 2;
+const DEFAULT_THETA = 0;
 
 let phi   = DEFAULT_PHI;
 let theta = DEFAULT_THETA;
 let fov   = DEFAULT_FOV;
 
+// ----- Auto-rotate -----
+let autoRotate = false;
+const AUTO_ROTATE_SPEED = 0.0015; // rad/frame
+
 // ----- Drag state -----
-let isDragging   = false;
-let lastX        = 0;
-let lastY        = 0;
-let lastTouches  = null;
+let isDragging    = false;
+let lastX         = 0;
+let lastY         = 0;
+let lastTouches   = null;
 let lastPinchDist = null;
+
+// ----- Toast timer -----
+let toastTimer = null;
 
 // ============================================================
 // Three.js 初期化
 // ============================================================
 function initThree() {
-  if (renderer) return; // 再初期化防止
+  if (renderer) return;
 
-  scene    = new THREE.Scene();
-  camera   = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
+  scene  = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
 
   renderer = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  // サイズ設定は呼び出し元で showViewer() の後に fitCanvasToContainer() を行う
 }
 
 function fitCanvasToContainer() {
-  const container = viewerCanvas.parentElement;
-  const w = container.clientWidth  || window.innerWidth;
-  const h = container.clientHeight || Math.round(window.innerHeight * 0.8);
+  const w = viewerContainer.clientWidth  || window.innerWidth;
+  const h = viewerContainer.clientHeight || Math.round(window.innerHeight * 0.8);
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 
 // ============================================================
-// パノラマ画像の読み込みと球体生成
+// パノラマ読み込みと球体生成
 // ============================================================
 function loadPanorama(src, filename) {
-  showLoading(true);
+  showLoading(true, '画像を読み込み中…');
   hideError();
 
-  const texture = new THREE.TextureLoader().load(
+  const loader = new THREE.TextureLoader();
+  loader.load(
     src,
-    () => {
+    (texture) => {
       buildSphere(texture);
       showLoading(false);
       statusFilename.textContent = filename || '';
       startRender();
+      showToast('ドラッグで自由に見回せます 🖱️');
     },
-    undefined,
+    (progress) => {
+      if (progress.total > 0) {
+        const pct = Math.round((progress.loaded / progress.total) * 100);
+        showLoading(true, `画像を読み込み中… ${pct}%`);
+      }
+    },
     () => {
       showLoading(false);
-      showError('画像の読み込みに失敗しました。\n対応形式（JPEG / PNG / WebP）の画像を選択してください。');
+      showError('画像の読み込みに失敗しました。\n正距円筒図法の JPEG / PNG / WebP を選択してください。');
     }
   );
 }
 
 function buildSphere(texture) {
-  // 既存の球体を破棄
+  // 既存の球体とテクスチャを完全に解放
   if (sphere) {
     sphere.geometry.dispose();
+    if (sphere.material.map) sphere.material.map.dispose();
     sphere.material.dispose();
     scene.remove(sphere);
+    sphere = null;
   }
 
-  // 球体の内側にテクスチャを貼る
-  // geo.scale(-1,1,1) は winding order を反転させ FrontSide カリングで全面が消えるため使わない。
-  // 代わりに BackSide を指定して球体の内面を描画する。
+  // BackSide で球体の内面を描画（正距円筒図法パノラマの正しい貼り付け方）
   const geo = new THREE.SphereGeometry(500, 60, 40);
-
   const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
   sphere = new THREE.Mesh(geo, mat);
   scene.add(sphere);
@@ -117,6 +142,9 @@ function startRender() {
 
   function loop() {
     animFrameId = requestAnimationFrame(loop);
+    if (autoRotate && !isDragging) {
+      theta += AUTO_ROTATE_SPEED;
+    }
     updateCamera();
     renderer.render(scene, camera);
   }
@@ -131,7 +159,6 @@ function stopRender() {
 }
 
 function updateCamera() {
-  // 球面座標からカメラの向きを計算
   const x = Math.sin(phi) * Math.cos(theta);
   const y = Math.cos(phi);
   const z = Math.sin(phi) * Math.sin(theta);
@@ -164,20 +191,33 @@ function showViewer() {
 
 function showUpload() {
   stopRender();
-  viewerSection.classList.add('hidden');
-  uploadSection.classList.remove('hidden');
+  hideToast();
+
   // リソース解放
   if (sphere) {
     sphere.geometry.dispose();
-    sphere.material.map && sphere.material.map.dispose();
+    if (sphere.material.map) sphere.material.map.dispose();
     sphere.material.dispose();
     scene.remove(sphere);
     sphere = null;
   }
+
+  // BlobURL 解放
+  if (currentBlobUrl) {
+    URL.revokeObjectURL(currentBlobUrl);
+    currentBlobUrl = null;
+  }
+
+  // 全画面解除
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+
+  viewerSection.classList.add('hidden');
+  uploadSection.classList.remove('hidden');
 }
 
-function showLoading(visible) {
+function showLoading(visible, msg) {
   loadingOverlay.classList.toggle('hidden', !visible);
+  if (msg) loadingMessage.textContent = msg;
 }
 
 function showError(msg) {
@@ -192,7 +232,21 @@ function hideError() {
 function showGlobalError(msg) {
   globalError.textContent = msg;
   globalError.classList.remove('hidden');
-  setTimeout(() => globalError.classList.add('hidden'), 5000);
+  setTimeout(() => globalError.classList.add('hidden'), 6000);
+}
+
+function showToast(msg, duration = 3500) {
+  hideToast();
+  toast.textContent = msg;
+  toast.classList.remove('hidden');
+  toast.classList.add('toast-show');
+  toastTimer = setTimeout(hideToast, duration);
+}
+
+function hideToast() {
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+  toast.classList.remove('toast-show');
+  toast.classList.add('hidden');
 }
 
 // ============================================================
@@ -213,12 +267,16 @@ function handleFile(file) {
     return;
   }
 
-  const url = URL.createObjectURL(file);
+  // 前の BlobURL を解放
+  if (currentBlobUrl) {
+    URL.revokeObjectURL(currentBlobUrl);
+  }
+  currentBlobUrl = URL.createObjectURL(file);
 
-  showViewer();        // 先に表示してから
-  initThree();         // renderer 初期化（clientWidth が取れる状態で）
+  showViewer();           // 先に表示 → clientWidth を正確に取得できる
+  initThree();
   fitCanvasToContainer();
-  loadPanorama(url, file.name);
+  loadPanorama(currentBlobUrl, file.name);
 }
 
 // ============================================================
@@ -229,30 +287,35 @@ dropZone.addEventListener('dragover', (e) => {
   dropZone.classList.add('drag-over');
 });
 
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('drag-over');
+dropZone.addEventListener('dragleave', (e) => {
+  // ドロップゾーン外に出た時だけ解除
+  if (!dropZone.contains(e.relatedTarget)) {
+    dropZone.classList.remove('drag-over');
+  }
 });
 
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  handleFile(file);
+  handleFile(e.dataTransfer.files[0]);
 });
 
 dropZone.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') fileInput.click();
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fileInput.click();
+  }
 });
 
 fileInput.addEventListener('change', () => {
   handleFile(fileInput.files[0]);
-  fileInput.value = ''; // 同一ファイル再選択を可能に
+  fileInput.value = '';
 });
 
 // ============================================================
-// ビューワーのマウス操作
+// マウス操作
 // ============================================================
-const SENSITIVITY = 0.3; // deg/px
+const SENSITIVITY = 0.3;
 
 viewerCanvas.addEventListener('mousedown', (e) => {
   isDragging = true;
@@ -277,7 +340,6 @@ window.addEventListener('mouseup', () => {
 
 viewerCanvas.style.cursor = 'grab';
 
-// ホイールズーム
 viewerCanvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const delta = e.deltaY > 0 ? 3 : -3;
@@ -335,7 +397,6 @@ function rotate(dx, dy) {
   const degToRad = Math.PI / 180;
   theta -= dx * SENSITIVITY * degToRad;
   phi   -= dy * SENSITIVITY * degToRad;
-  // 上下の角度をクランプ（真上・真下に入り込まないよう）
   phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
 }
 
@@ -344,9 +405,39 @@ function rotate(dx, dy) {
 // ============================================================
 resetBtn.addEventListener('click', resetView);
 backBtn.addEventListener('click', showUpload);
+
 errorBackBtn.addEventListener('click', () => {
   hideError();
   showUpload();
+});
+
+// 自動回転
+autorotateBtn.addEventListener('click', () => {
+  autoRotate = !autoRotate;
+  autorotateBtn.classList.toggle('ctrl-btn-active', autoRotate);
+  autorotateBtn.title = autoRotate ? '自動回転をOFF' : '自動回転をON';
+  if (autoRotate) showToast('自動回転 ON');
+});
+
+// 全画面
+fullscreenBtn.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    viewerContainer.requestFullscreen().catch((err) => {
+      showGlobalError(`全画面表示に失敗しました: ${err.message}`);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+});
+
+document.addEventListener('fullscreenchange', () => {
+  const isFs = !!document.fullscreenElement;
+  fullscreenIcon.textContent = isFs ? '✕' : '⛶';
+  fullscreenBtn.title = isFs ? '全画面を終了' : '全画面表示';
+  // 全画面切り替え後にキャンバスサイズを再計算
+  if (renderer) {
+    requestAnimationFrame(() => fitCanvasToContainer());
+  }
 });
 
 // ============================================================

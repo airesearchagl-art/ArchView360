@@ -40,7 +40,7 @@
             accept="image/jpeg,image/png,image/webp"
             class="visually-hidden"
           />
-          <p class="drop-hint">対応形式：JPEG / PNG / WebP（推奨：2:1の正距円筒図法）</p>
+          <p class="drop-hint">JPEG / PNG / WebP 対応 ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）</p>
         </div>
       </div>
 
@@ -53,6 +53,7 @@
           <li><span class="usage-icon">🤏</span> ピンチでズーム（タッチ端末）</li>
           <li><span class="usage-icon">🔄</span> リセットボタンで初期視点に戻る</li>
         </ul>
+        <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。</p>
       </div>
     </section>
 
@@ -61,11 +62,13 @@
       <div id="viewer-container" class="viewer-container">
         <canvas id="viewer-canvas"></canvas>
 
+        <!-- ローディングオーバーレイ -->
         <div id="loading-overlay" class="loading-overlay">
           <div class="spinner"></div>
-          <p>画像を読み込み中…</p>
+          <p id="loading-message">画像を読み込み中…</p>
         </div>
 
+        <!-- エラーオーバーレイ -->
         <div id="error-overlay" class="error-overlay hidden">
           <div class="error-content">
             <span class="error-icon">⚠️</span>
@@ -76,9 +79,17 @@
 
         <!-- コントロールUI -->
         <div class="viewer-controls">
+          <button id="autorotate-btn" class="ctrl-btn" title="自動回転のON/OFF">
+            <span class="ctrl-icon">▶</span>
+            <span class="ctrl-label">自動回転</span>
+          </button>
           <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
             <span class="ctrl-icon">↺</span>
             <span class="ctrl-label">リセット</span>
+          </button>
+          <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
+            <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
+            <span class="ctrl-label">全画面</span>
           </button>
           <button id="back-btn" class="ctrl-btn" title="画像を変更">
             <span class="ctrl-icon">📂</span>
@@ -91,10 +102,18 @@
           <span id="status-fov">FOV: 75°</span>
           <span id="status-filename" class="status-filename"></span>
         </div>
+
+        <!-- トーストヒント -->
+        <div id="toast" class="toast hidden" aria-live="polite"></div>
       </div>
     </section>
 
-    <!-- エラーメッセージ（グローバル） -->
+    <!-- Three.js 読み込み失敗フォールバック -->
+    <div id="threejs-error" class="global-error hidden" role="alert">
+      ⚠️ Three.js の読み込みに失敗しました。インターネット接続を確認して再読み込みしてください。
+    </div>
+
+    <!-- グローバルエラー -->
     <div id="global-error" class="global-error hidden" role="alert"></div>
   </main>
 
@@ -102,9 +121,11 @@
     <p>ArchView360 &mdash; 360° Panorama Viewer for Architecture</p>
   </footer>
 
+  <!-- Three.js r128 CDN（integrity なし：ハッシュ不一致によるブロックを防ぐ） -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
     crossorigin="anonymous"
-    referrerpolicy="no-referrer">
+    referrerpolicy="no-referrer"
+    id="threejs-script">
   </script>
   <script src="script.js"></script>
 </body>

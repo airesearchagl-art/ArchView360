@@ -120,7 +120,7 @@ body {
   pointer-events: none;
 }
 
-/* label内のbtnだけクリック可能にする */
+/* label だけクリック受付 */
 .drop-zone label {
   pointer-events: auto;
 }
@@ -205,7 +205,6 @@ body {
 }
 
 .usage-title {
-  font-size: 1rem;
   font-weight: 700;
   margin-bottom: 14px;
   color: var(--text-muted);
@@ -235,6 +234,14 @@ body {
   flex-shrink: 0;
 }
 
+.usage-note {
+  margin-top: 16px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
 /* ===== Viewer Section ===== */
 .viewer-section {
   flex: 1;
@@ -249,6 +256,13 @@ body {
   background: #000;
   min-height: 60vh;
   box-shadow: var(--shadow);
+}
+
+/* 全画面時はボーダー不要 */
+.viewer-container:fullscreen,
+.viewer-container:-webkit-full-screen {
+  border-radius: 0;
+  min-height: 100vh;
 }
 
 #viewer-canvas {
@@ -317,6 +331,8 @@ body {
   display: flex;
   gap: 8px;
   z-index: 5;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .ctrl-btn {
@@ -331,14 +347,22 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   font-family: inherit;
   backdrop-filter: blur(4px);
+  white-space: nowrap;
 }
 
 .ctrl-btn:hover {
   background: rgba(79,124,255,0.25);
   border-color: var(--accent);
+}
+
+/* 自動回転 ON 状態 */
+.ctrl-btn-active {
+  background: rgba(79,124,255,0.3);
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .ctrl-icon {
@@ -367,7 +391,32 @@ body {
   white-space: nowrap;
 }
 
-/* ===== Global Error ===== */
+/* ===== Toast ===== */
+.toast {
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: rgba(26,29,39,0.92);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+  color: var(--text);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 15;
+}
+
+.toast.toast-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== Global / Three.js Error ===== */
 .global-error {
   max-width: 680px;
   margin: 16px auto 0;
@@ -416,5 +465,13 @@ body {
 
   .status-filename {
     max-width: 120px;
+  }
+
+  .ctrl-label {
+    display: none;
+  }
+
+  .ctrl-btn {
+    padding: 8px 10px;
   }
 }
