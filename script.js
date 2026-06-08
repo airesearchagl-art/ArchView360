@@ -54,8 +54,7 @@ function initThree() {
 
   renderer = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  fitCanvasToContainer();
+  // サイズ設定は呼び出し元で showViewer() の後に fitCanvasToContainer() を行う
 }
 
 function fitCanvasToContainer() {
@@ -99,10 +98,11 @@ function buildSphere(texture) {
   }
 
   // 球体の内側にテクスチャを貼る
+  // geo.scale(-1,1,1) は winding order を反転させ FrontSide カリングで全面が消えるため使わない。
+  // 代わりに BackSide を指定して球体の内面を描画する。
   const geo = new THREE.SphereGeometry(500, 60, 40);
-  geo.scale(-1, 1, 1); // 法線を内向きに反転
 
-  const mat = new THREE.MeshBasicMaterial({ map: texture });
+  const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
   sphere = new THREE.Mesh(geo, mat);
   scene.add(sphere);
 
@@ -215,8 +215,8 @@ function handleFile(file) {
 
   const url = URL.createObjectURL(file);
 
-  initThree();
-  showViewer();
+  showViewer();        // 先に表示してから
+  initThree();         // renderer 初期化（clientWidth が取れる状態で）
   fitCanvasToContainer();
   loadPanorama(url, file.name);
 }
