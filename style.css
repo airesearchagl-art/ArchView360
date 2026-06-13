@@ -205,7 +205,7 @@ body {
 
 /* ===== Scene Panel (Sidebar) ===== */
 .scene-panel {
-  width: 230px;
+  width: 250px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -283,10 +283,11 @@ body {
 /* Thumbnail area */
 .scene-thumb-wrap {
   width: 100%;
-  height: 54px;
+  height: 68px;
   background: var(--surface-3);
   overflow: hidden;
   flex-shrink: 0;
+  position: relative;
 }
 
 .scene-thumb-placeholder {
@@ -361,6 +362,43 @@ body {
 
 .scene-item:hover .scene-delete-btn { opacity: 1; }
 .scene-delete-btn:hover { color: var(--error); }
+
+/* ===== Scene item D&D states ===== */
+.scene-item.dragging {
+  opacity: .45;
+  transform: scale(.97);
+}
+
+.scene-item.drop-before {
+  box-shadow: 0 -3px 0 var(--accent);
+  border-top-color: var(--accent);
+}
+
+.scene-item.drop-after {
+  box-shadow: 0 3px 0 var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ===== Thumbnail hover preview ===== */
+.thumb-preview {
+  position: fixed;
+  z-index: 9999;
+  width: 240px;
+  height: 135px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0,0,0,.7);
+  pointer-events: none;
+  background: var(--surface-3);
+}
+
+.thumb-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 /* ===== Sidebar Guide ===== */
 .sidebar-guide {
@@ -892,7 +930,8 @@ body {
     text-align: center;
   }
 
-  .scene-thumb-wrap { height: 40px; }
+  .scene-thumb-wrap { height: 44px; }
+  .thumb-preview { display: none !important; }
   .scene-item-row { padding: 3px 5px 4px; gap: 3px; }
   .scene-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }
   .scene-name { font-size: .67rem; text-align: center; }
@@ -921,6 +960,6 @@ body {
 
 /* Compact mid-range */
 @media (min-width: 641px) and (max-width: 960px) {
-  .scene-panel { width: 200px; }
+  .scene-panel { width: 220px; }
   .toolbar-select { max-width: 110px; }
 }

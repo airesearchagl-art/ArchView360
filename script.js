@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.6
+ * ArchView360 v1.7
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -85,6 +85,18 @@ function init() {
   const compareNameB       = $('compare-name-b');
   const sliderDivider      = $('slider-divider');
 
+  // Thumb preview overlay (injected once into body)
+  const thumbPreview    = document.createElement('div');
+  const thumbPreviewImg = document.createElement('img');
+  thumbPreview.id        = 'thumb-preview';
+  thumbPreview.className = 'thumb-preview';
+  thumbPreview.style.display = 'none';
+  thumbPreviewImg.alt    = '';
+  thumbPreviewImg.draggable = false;
+  thumbPreview.appendChild(thumbPreviewImg);
+  document.body.appendChild(thumbPreview);
+  let thumbPreviewTimer = null;
+
   // ---- Three.js (single) ----
   let renderer, threeScene, camera, sphere;
   let animFrameId = null;
@@ -122,18 +134,34 @@ function init() {
 
   // ---- Slider drag ----
   let isSliderDragging = false;
-  let sliderPos = 50;
 
   // ---- Toast timer ----
   let toastTimer = null;
 
-  // ---- State ----
-  let viewMode      = 'single'; // 'single' | 'split' | 'slider'
-  let compareLayout = 'side';   // 'side' | 'stack'
-  let compareIdxA   = 0;
-  let compareIdxB   = 1;
-  let viewerActive  = false;
-  let syncViews     = true;     // compare view sync ON by default
+  // ---- Viewer state ----
+  let viewerActive = false;
+
+  // ---- compareState: centralised compare mode state ----
+  const compareState = {
+    mode:           'single', // 'single' | 'split' | 'slider'
+    sceneAIndex:    0,
+    sceneBIndex:    1,
+    layout:         'side',   // 'side' | 'stack'
+    sliderPosition: 50,
+    syncViews:      true,
+  };
+
+  // Convenience aliases (always read from / write to compareState)
+  function get_viewMode()      { return compareState.mode; }
+  function get_compareIdxA()   { return compareState.sceneAIndex; }
+  function get_compareIdxB()   { return compareState.sceneBIndex; }
+  function get_compareLayout() { return compareState.layout; }
+  function get_sliderPos()     { return compareState.sliderPosition; }
+  function get_syncViews()     { return compareState.syncViews; }
+
+  // ---- Drag-and-drop reorder state ----
+  let dragSrcIdx  = -1;
+  let dragOverIdx = -1;
 
   // ---- Scenes ----
   let scenes     = [];
@@ -142,16 +170,15 @@ function init() {
   function genId() { return Math.random().toString(36).slice(2, 10); }
 
   // ============================================================
-  // Thumbnail generation
+  // Thumbnail generation  (240×135 @ 16:9, center-crop)
   // ============================================================
   function generateThumb(blobUrl, callback) {
     const img = new Image();
     img.onload = () => {
-      const W = 200, H = 100;
+      const W = 240, H = 135;
       const c = document.createElement('canvas');
       c.width = W; c.height = H;
       const ctx = c.getContext('2d');
-      // Cover-crop to 2:1
       const aspect = img.width / img.height;
       const target = W / H;
       let sx, sy, sw, sh;
@@ -163,7 +190,7 @@ function init() {
         sx = 0; sy = Math.round((img.height - sh) / 2);
       }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
-      callback(c.toDataURL('image/jpeg', 0.65));
+      callback(c.toDataURL('image/jpeg', 0.7));
     };
     img.onerror = () => callback(null);
     img.src = blobUrl;
@@ -294,7 +321,7 @@ function init() {
       });
     } else {
       renderSceneList();
-      if (viewMode !== 'single') updateCompareSelects();
+      if (compareState.mode !== 'single') updateCompareSelects();
       updateCompareBtns();
       showToast(`${valid.length} 件のシーンを追加しました`);
       sceneListEl.querySelectorAll('.scene-item')[firstNewIdx]
@@ -327,10 +354,20 @@ function init() {
     URL.revokeObjectURL(scenes[idx].blobUrl);
     const wasCurrent = idx === currentIdx;
     if (wasCurrent) stopRender();
-    if (viewMode !== 'single') exitCompareMode(true);
+    if (compareState.mode !== 'single') exitCompareMode(true);
     scenes.splice(idx, 1);
 
     if (!scenes.length) { disposeCurrentSphere(); clearAllAndShowUpload(); return; }
+
+    // Adjust indices
+    if (idx < compareState.sceneAIndex) compareState.sceneAIndex--;
+    else if (idx === compareState.sceneAIndex) compareState.sceneAIndex = Math.min(compareState.sceneAIndex, scenes.length - 1);
+    if (idx < compareState.sceneBIndex) compareState.sceneBIndex--;
+    else if (idx === compareState.sceneBIndex) compareState.sceneBIndex = Math.min(compareState.sceneBIndex, scenes.length - 1);
+    // Keep A !== B if possible
+    if (compareState.sceneAIndex === compareState.sceneBIndex && scenes.length >= 2) {
+      compareState.sceneBIndex = compareState.sceneAIndex === 0 ? 1 : 0;
+    }
 
     updateCompareBtns();
     let next = currentIdx;
@@ -340,17 +377,59 @@ function init() {
     switchToScene(next);
   }
 
+  // ---- Drag-and-drop reorder ----
+  function reorderScene(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
+    const [moved] = scenes.splice(fromIdx, 1);
+    scenes.splice(toIdx, 0, moved);
+
+    // Adjust currentIdx
+    if (currentIdx === fromIdx) {
+      currentIdx = toIdx;
+    } else if (fromIdx < toIdx) {
+      if (currentIdx > fromIdx && currentIdx <= toIdx) currentIdx--;
+    } else {
+      if (currentIdx >= toIdx && currentIdx < fromIdx) currentIdx++;
+    }
+
+    // Adjust compareState indices
+    compareState.sceneAIndex = _shiftIdx(compareState.sceneAIndex, fromIdx, toIdx);
+    compareState.sceneBIndex = _shiftIdx(compareState.sceneBIndex, fromIdx, toIdx);
+
+    renderSceneList();
+    if (compareState.mode !== 'single') updateCompareSelects();
+    updateCompareBtns();
+  }
+
+  function _shiftIdx(idx, fromIdx, toIdx) {
+    if (idx === fromIdx) return toIdx;
+    if (fromIdx < toIdx) {
+      if (idx > fromIdx && idx <= toIdx) return idx - 1;
+    } else {
+      if (idx >= toIdx && idx < fromIdx) return idx + 1;
+    }
+    return idx;
+  }
+
   function clearAllAndShowUpload() {
-    if (viewMode !== 'single') exitCompareMode(true);
+    if (compareState.mode !== 'single') exitCompareMode(true);
     stopRender();
     hideToast();
     disposeCurrentSphere();
+    hideThumbPreview();
     scenes.forEach(s => URL.revokeObjectURL(s.blobUrl));
     scenes = []; currentIdx = -1; viewerActive = false;
 
     autoRotate = false;
     autorotateBtn.classList.remove('active');
     compareAutorotBtn.classList.remove('active');
+
+    compareState.mode           = 'single';
+    compareState.sceneAIndex    = 0;
+    compareState.sceneBIndex    = 1;
+    compareState.layout         = 'side';
+    compareState.sliderPosition = 50;
+    compareState.syncViews      = true;
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
     if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
@@ -360,13 +439,18 @@ function init() {
     showEl(uploadSection);
   }
 
+  // ============================================================
+  // Render scene list (with thumbnails + drag & drop)
+  // ============================================================
   function renderSceneList() {
     sceneListEl.innerHTML = '';
     scenes.forEach((s, i) => {
       const li = document.createElement('li');
       li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
+      li.draggable = true;
+      li.dataset.idx = i;
 
-      // Thumbnail area
+      // ---- Thumbnail ----
       const thumbWrap = document.createElement('div');
       thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
       if (s.thumbUrl) {
@@ -376,9 +460,13 @@ function init() {
         img.alt = '';
         img.draggable = false;
         thumbWrap.appendChild(img);
+
+        // Hover preview (desktop only)
+        thumbWrap.addEventListener('mouseenter', (e) => showThumbPreview(s.thumbUrl, li));
+        thumbWrap.addEventListener('mouseleave', hideThumbPreview);
       }
 
-      // Bottom row: number + name + delete
+      // ---- Bottom row ----
       const row = document.createElement('div');
       row.className = 'scene-item-row';
 
@@ -408,7 +496,7 @@ function init() {
         s.name = n || s.name;
         nameEl.textContent = s.name;
         if (i === currentIdx) currentSceneNameEl.textContent = s.name;
-        if (viewMode !== 'single') updateCompareSelects();
+        if (compareState.mode !== 'single') updateCompareSelects();
       });
 
       nameEl.addEventListener('keydown', (e) => {
@@ -429,10 +517,68 @@ function init() {
 
       li.appendChild(thumbWrap);
       li.appendChild(row);
+
+      // ---- Click to switch scene ----
       li.addEventListener('click', () => {
         if (nameEl.contentEditable === 'true') return;
         if (i !== currentIdx) switchToScene(i);
       });
+
+      // ---- Drag & Drop events ----
+      li.addEventListener('dragstart', (e) => {
+        dragSrcIdx = i;
+        li.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(i));
+      });
+
+      li.addEventListener('dragend', () => {
+        dragSrcIdx  = -1;
+        dragOverIdx = -1;
+        li.classList.remove('dragging');
+        // Clear all drop indicators
+        sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el => {
+          el.classList.remove('drop-before', 'drop-after');
+        });
+      });
+
+      li.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragSrcIdx === i) return;
+        // Determine insert before/after based on mouse position within item
+        const rect = li.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        const insertBefore = e.clientY < midY;
+        // Clear other indicators
+        sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el => {
+          if (el !== li) el.classList.remove('drop-before', 'drop-after');
+        });
+        if (insertBefore) {
+          li.classList.add('drop-before');
+          li.classList.remove('drop-after');
+          dragOverIdx = i;
+        } else {
+          li.classList.add('drop-after');
+          li.classList.remove('drop-before');
+          dragOverIdx = i + 1;
+        }
+      });
+
+      li.addEventListener('dragleave', () => {
+        li.classList.remove('drop-before', 'drop-after');
+      });
+
+      li.addEventListener('drop', (e) => {
+        e.preventDefault();
+        li.classList.remove('drop-before', 'drop-after');
+        if (dragSrcIdx < 0 || dragSrcIdx === dragOverIdx) return;
+        // dragOverIdx is insert position; adjust for removed item
+        let insertAt = dragOverIdx;
+        if (insertAt > dragSrcIdx) insertAt--;
+        reorderScene(dragSrcIdx, insertAt);
+      });
+
       sceneListEl.appendChild(li);
     });
 
@@ -444,6 +590,38 @@ function init() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
+  // ============================================================
+  // Thumb hover preview
+  // ============================================================
+  function showThumbPreview(thumbUrl, itemEl) {
+    clearTimeout(thumbPreviewTimer);
+    thumbPreviewTimer = setTimeout(() => {
+      if (!thumbUrl) return;
+      thumbPreviewImg.src = thumbUrl;
+      thumbPreview.style.display = '';
+      // Position: to the right of the sidebar
+      const sidebarEl = itemEl.closest('.scene-panel');
+      const sidebarRect = sidebarEl ? sidebarEl.getBoundingClientRect() : { right: 250 };
+      const itemRect = itemEl.getBoundingClientRect();
+      const pw = 240, ph = 135;
+      let left = sidebarRect.right + 8;
+      let top  = itemRect.top + (itemRect.height - ph) / 2;
+      // Clamp to viewport
+      top  = Math.max(8, Math.min(window.innerHeight - ph - 8, top));
+      left = Math.max(8, Math.min(window.innerWidth  - pw - 8, left));
+      thumbPreview.style.left = `${left}px`;
+      thumbPreview.style.top  = `${top}px`;
+    }, 120);
+  }
+
+  function hideThumbPreview() {
+    clearTimeout(thumbPreviewTimer);
+    thumbPreview.style.display = 'none';
+  }
+
+  // ============================================================
+  // Compare button availability
+  // ============================================================
   function updateCompareBtns() {
     const ok = scenes.length >= 2;
     splitCompareBtn.disabled  = !ok;
@@ -534,13 +712,13 @@ function init() {
   // ============================================================
   function startRender() {
     if (animFrameId !== null) return;
-    if (viewMode === 'single' && renderer) fitSingleCanvas();
+    if (compareState.mode === 'single' && renderer) fitSingleCanvas();
 
     function loop() {
       animFrameId = requestAnimationFrame(loop);
 
-      if (viewMode === 'split' || viewMode === 'slider') {
-        if (syncViews) {
+      if (compareState.mode === 'split' || compareState.mode === 'slider') {
+        if (compareState.syncViews) {
           if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
           const lx = Math.sin(phi) * Math.cos(theta);
           const ly = Math.cos(phi);
@@ -554,20 +732,12 @@ function init() {
           }
           if (rendererA && sceneA && cameraA) {
             cameraA.fov = fovA; cameraA.updateProjectionMatrix();
-            cameraA.lookAt(
-              Math.sin(phiA) * Math.cos(thetaA),
-              Math.cos(phiA),
-              Math.sin(phiA) * Math.sin(thetaA)
-            );
+            cameraA.lookAt(Math.sin(phiA)*Math.cos(thetaA), Math.cos(phiA), Math.sin(phiA)*Math.sin(thetaA));
             rendererA.render(sceneA, cameraA);
           }
           if (rendererB && sceneB && cameraB) {
             cameraB.fov = fovB; cameraB.updateProjectionMatrix();
-            cameraB.lookAt(
-              Math.sin(phiB) * Math.cos(thetaB),
-              Math.cos(phiB),
-              Math.sin(phiB) * Math.sin(thetaB)
-            );
+            cameraB.lookAt(Math.sin(phiB)*Math.cos(thetaB), Math.cos(phiB), Math.sin(phiB)*Math.sin(thetaB));
             rendererB.render(sceneB, cameraB);
           }
         }
@@ -607,22 +777,21 @@ function init() {
   // View sync toggle
   // ============================================================
   function toggleSyncViews() {
-    syncViews = !syncViews;
-    if (syncViews) {
-      // Snap A/B to shared state when re-enabling sync
+    compareState.syncViews = !compareState.syncViews;
+    if (compareState.syncViews) {
       phiA = phi; thetaA = theta; fovA = fov;
       phiB = phi; thetaB = theta; fovB = fov;
       if (cameraA) { cameraA.fov = fov; cameraA.updateProjectionMatrix(); }
       if (cameraB) { cameraB.fov = fov; cameraB.updateProjectionMatrix(); }
     }
     updateSyncBtn();
-    showToast(syncViews ? '視点同期 ON — 両面が連動します' : '視点同期 OFF — 別々に操作できます');
+    showToast(compareState.syncViews ? '視点同期 ON — 両面が連動します' : '視点同期 OFF — 別々に操作できます');
   }
 
   function updateSyncBtn() {
-    syncBtn.classList.toggle('active', syncViews);
+    syncBtn.classList.toggle('active', compareState.syncViews);
     const label = syncBtn.querySelector('.btn-label');
-    if (label) label.textContent = syncViews ? '視点同期 ON' : '視点同期 OFF';
+    if (label) label.textContent = compareState.syncViews ? '視点同期 ON' : '視点同期 OFF';
   }
 
   // ============================================================
@@ -644,11 +813,12 @@ function init() {
   // ============================================================
   function enterSplitMode() {
     if (scenes.length < 2) { showToast('分割比較には2枚以上のシーンが必要です'); return; }
-    if (viewMode === 'slider') _exitCompareUI();
+    if (compareState.mode === 'slider') _exitCompareUI();
 
-    viewMode    = 'split';
-    compareIdxA = currentIdx >= 0 ? currentIdx : 0;
-    compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
+    compareState.mode        = 'split';
+    compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
+    compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
+      ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
 
     hideEl(viewerContainer);
     hideEl(toolbarSingle);
@@ -668,8 +838,8 @@ function init() {
     switchToSplitBtn.classList.add('active');
     switchToSliderBtn.classList.remove('active');
 
-    // Reset sync state when entering compare
-    syncViews = true;
+    // Reset sync when entering compare
+    compareState.syncViews = true;
     phiA = phi; thetaA = theta; fovA = fov;
     phiB = phi; thetaB = theta; fovB = fov;
     updateSyncBtn();
@@ -677,8 +847,8 @@ function init() {
     initCompareRenderers();
     requestAnimationFrame(() => {
       fitComparePanes();
-      loadCompareSphere('a', compareIdxA);
-      loadCompareSphere('b', compareIdxB);
+      loadCompareSphere('a', compareState.sceneAIndex);
+      loadCompareSphere('b', compareState.sceneBIndex);
     });
     stopRender(); startRender();
   }
@@ -688,11 +858,12 @@ function init() {
   // ============================================================
   function enterSliderMode() {
     if (scenes.length < 2) { showToast('スライダー比較には2枚以上のシーンが必要です'); return; }
-    if (viewMode === 'split') _exitCompareUI();
+    if (compareState.mode === 'split') _exitCompareUI();
 
-    viewMode    = 'slider';
-    compareIdxA = currentIdx >= 0 ? currentIdx : 0;
-    compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
+    compareState.mode        = 'slider';
+    compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
+    compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
+      ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
 
     hideEl(viewerContainer);
     hideEl(toolbarSingle);
@@ -710,20 +881,20 @@ function init() {
     switchToSliderBtn.classList.add('active');
     switchToSplitBtn.classList.remove('active');
 
-    syncViews = true;
+    compareState.syncViews = true;
     phiA = phi; thetaA = theta; fovA = fov;
     phiB = phi; thetaB = theta; fovB = fov;
     updateSyncBtn();
 
-    sliderPos = 50;
-    updateSlider(sliderPos);
+    compareState.sliderPosition = 50;
+    updateSlider(compareState.sliderPosition);
 
     updateCompareSelects();
     initCompareRenderers();
     requestAnimationFrame(() => {
       fitComparePanes();
-      loadCompareSphere('a', compareIdxA);
-      loadCompareSphere('b', compareIdxB);
+      loadCompareSphere('a', compareState.sceneAIndex);
+      loadCompareSphere('b', compareState.sceneBIndex);
     });
     stopRender(); startRender();
   }
@@ -735,9 +906,9 @@ function init() {
   }
 
   function exitCompareMode(silent) {
-    if (viewMode === 'single' && !silent) return;
+    if (compareState.mode === 'single' && !silent) return;
     _exitCompareUI();
-    viewMode = 'single';
+    compareState.mode = 'single';
 
     hideEl(compareContainer);
     hideEl(sliderDivider);
@@ -752,7 +923,7 @@ function init() {
   }
 
   function applyCompareLayout(fit) {
-    if (compareLayout === 'stack') {
+    if (compareState.layout === 'stack') {
       compareContainer.classList.add('stack');
       layoutLrBtn.classList.remove('active');
       layoutTbBtn.classList.add('active');
@@ -766,7 +937,7 @@ function init() {
 
   function updateCompareSelects() {
     [compareSelectA, compareSelectB].forEach((sel, si) => {
-      const cur = si === 0 ? compareIdxA : compareIdxB;
+      const cur = si === 0 ? compareState.sceneAIndex : compareState.sceneBIndex;
       sel.innerHTML = '';
       scenes.forEach((s, i) => {
         const opt = document.createElement('option');
@@ -775,27 +946,27 @@ function init() {
         sel.appendChild(opt);
       });
     });
-    flipABtn.classList.toggle('active', scenes[compareIdxA]?.flipH || false);
-    flipBBtn.classList.toggle('active', scenes[compareIdxB]?.flipH || false);
+    flipABtn.classList.toggle('active', scenes[compareState.sceneAIndex]?.flipH || false);
+    flipBBtn.classList.toggle('active', scenes[compareState.sceneBIndex]?.flipH || false);
   }
 
   // ============================================================
   // Slider
   // ============================================================
   function updateSlider(pos) {
-    sliderPos = Math.max(2, Math.min(98, pos));
-    paneBEl.style.clipPath   = `inset(0 0 0 ${sliderPos}%)`;
-    sliderDivider.style.left = `${sliderPos}%`;
+    compareState.sliderPosition = Math.max(2, Math.min(98, pos));
+    paneBEl.style.clipPath   = `inset(0 0 0 ${compareState.sliderPosition}%)`;
+    sliderDivider.style.left = `${compareState.sliderPosition}%`;
   }
 
   // ============================================================
   // A/B swap
   // ============================================================
   function swapAB() {
-    [compareIdxA, compareIdxB] = [compareIdxB, compareIdxA];
+    [compareState.sceneAIndex, compareState.sceneBIndex] = [compareState.sceneBIndex, compareState.sceneAIndex];
     updateCompareSelects();
-    loadCompareSphere('a', compareIdxA);
-    loadCompareSphere('b', compareIdxB);
+    loadCompareSphere('a', compareState.sceneAIndex);
+    loadCompareSphere('b', compareState.sceneBIndex);
   }
 
   // ============================================================
@@ -809,7 +980,7 @@ function init() {
   }
 
   function toggleFlipCompare(side) {
-    const idx = side === 'a' ? compareIdxA : compareIdxB;
+    const idx = side === 'a' ? compareState.sceneAIndex : compareState.sceneBIndex;
     if (idx < 0 || idx >= scenes.length) return;
     scenes[idx].flipH = !scenes[idx].flipH;
     (side === 'a' ? flipABtn : flipBBtn).classList.toggle('active', scenes[idx].flipH);
@@ -888,11 +1059,11 @@ function init() {
 
   function rotate(dx, dy, pane) {
     const r = Math.PI / 180;
-    if (!syncViews && pane === 'a') {
+    if (!compareState.syncViews && pane === 'a') {
       thetaA -= dx * SENSITIVITY * r;
       phiA   -= dy * SENSITIVITY * r;
       phiA    = Math.max(0.05, Math.min(Math.PI - 0.05, phiA));
-    } else if (!syncViews && pane === 'b') {
+    } else if (!compareState.syncViews && pane === 'b') {
       thetaB -= dx * SENSITIVITY * r;
       phiB   -= dy * SENSITIVITY * r;
       phiB    = Math.max(0.05, Math.min(Math.PI - 0.05, phiB));
@@ -904,10 +1075,10 @@ function init() {
   }
 
   function zoomBy(delta, pane) {
-    if (!syncViews && pane === 'a') {
+    if (!compareState.syncViews && pane === 'a') {
       fovA = Math.min(MAX_FOV, Math.max(MIN_FOV, fovA + delta));
       statusFov.textContent = `FOV: ${Math.round(fovA)}°`;
-    } else if (!syncViews && pane === 'b') {
+    } else if (!compareState.syncViews && pane === 'b') {
       fovB = Math.min(MAX_FOV, Math.max(MIN_FOV, fovB + delta));
       statusFov.textContent = `FOV: ${Math.round(fovB)}°`;
     } else {
@@ -989,7 +1160,6 @@ function init() {
     [viewerCanvas, canvasA, canvasB].forEach(c => { c.style.cursor = 'grab'; });
   });
 
-  // Slider divider drag
   sliderDivider.addEventListener('mousedown', (e) => {
     e.preventDefault(); e.stopPropagation(); isSliderDragging = true;
   });
@@ -1022,43 +1192,36 @@ function init() {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        if (viewMode === 'single') prevScene();
+        if (compareState.mode === 'single') prevScene();
         break;
       case 'ArrowRight':
         e.preventDefault();
-        if (viewMode === 'single') nextScene();
+        if (compareState.mode === 'single') nextScene();
         break;
       case 'Escape':
         e.preventDefault();
-        if (viewMode !== 'single') exitCompareMode();
+        if (compareState.mode !== 'single') exitCompareMode();
         break;
       case 'r': case 'R':
-        resetView();
-        break;
+        resetView(); break;
       case 'a': case 'A':
-        toggleAutoRotate();
-        break;
+        toggleAutoRotate(); break;
       case 'f': case 'F':
-        triggerFullscreen();
-        break;
+        triggerFullscreen(); break;
       case 'm': case 'M':
-        if (viewMode === 'single') toggleFlipSingle();
-        break;
+        if (compareState.mode === 'single') toggleFlipSingle(); break;
       case 'c': case 'C':
-        if (viewMode === 'split') exitCompareMode(); else enterSplitMode();
-        break;
+        if (compareState.mode === 'split') exitCompareMode(); else enterSplitMode(); break;
       case 's': case 'S':
-        if (viewMode === 'slider') exitCompareMode(); else enterSliderMode();
-        break;
+        if (compareState.mode === 'slider') exitCompareMode(); else enterSliderMode(); break;
       case 'v': case 'V':
-        if (viewMode === 'split') {
-          compareLayout = compareLayout === 'side' ? 'stack' : 'side';
+        if (compareState.mode === 'split') {
+          compareState.layout = compareState.layout === 'side' ? 'stack' : 'side';
           applyCompareLayout();
         }
         break;
       case 'l': case 'L':
-        if (viewMode !== 'single') toggleSyncViews();
-        break;
+        if (compareState.mode !== 'single') toggleSyncViews(); break;
     }
   });
 
@@ -1089,27 +1252,27 @@ function init() {
   compareResetBtn.addEventListener('click',  resetView);
 
   layoutLrBtn.addEventListener('click', () => {
-    if (viewMode !== 'split') return;
-    compareLayout = 'side';
+    if (compareState.mode !== 'split') return;
+    compareState.layout = 'side';
     applyCompareLayout();
   });
 
   layoutTbBtn.addEventListener('click', () => {
-    if (viewMode !== 'split') return;
-    compareLayout = 'stack';
+    if (compareState.mode !== 'split') return;
+    compareState.layout = 'stack';
     applyCompareLayout();
   });
 
   compareSelectA.addEventListener('change', () => {
-    compareIdxA = parseInt(compareSelectA.value, 10);
-    flipABtn.classList.toggle('active', scenes[compareIdxA]?.flipH || false);
-    loadCompareSphere('a', compareIdxA);
+    compareState.sceneAIndex = parseInt(compareSelectA.value, 10);
+    flipABtn.classList.toggle('active', scenes[compareState.sceneAIndex]?.flipH || false);
+    loadCompareSphere('a', compareState.sceneAIndex);
   });
 
   compareSelectB.addEventListener('change', () => {
-    compareIdxB = parseInt(compareSelectB.value, 10);
-    flipBBtn.classList.toggle('active', scenes[compareIdxB]?.flipH || false);
-    loadCompareSphere('b', compareIdxB);
+    compareState.sceneBIndex = parseInt(compareSelectB.value, 10);
+    flipBBtn.classList.toggle('active', scenes[compareState.sceneBIndex]?.flipH || false);
+    loadCompareSphere('b', compareState.sceneBIndex);
   });
 
   errorBackBtn.addEventListener('click', () => {
@@ -1126,7 +1289,7 @@ function init() {
   function triggerFullscreen() {
     if (!supportsFs) return;
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    const target = (viewMode === 'single') ? viewerContainer : compareContainer;
+    const target = (compareState.mode === 'single') ? viewerContainer : compareContainer;
     if (!isFs) {
       const req = target.requestFullscreen || target.webkitRequestFullscreen;
       if (req) req.call(target).catch(err => showGlobalError(`全画面表示に失敗しました: ${err.message}`));
@@ -1143,20 +1306,17 @@ function init() {
     fullscreenIcon.textContent = isFs ? '✕' : '⛶';
     fullscreenBtn.title = isFs ? '全画面を終了 (F)' : '全画面表示 (F)';
     requestAnimationFrame(() => {
-      if (viewMode === 'single' && renderer) fitSingleCanvas();
-      if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
+      if (compareState.mode === 'single' && renderer) fitSingleCanvas();
+      if (compareState.mode === 'split' || compareState.mode === 'slider') fitComparePanes();
     });
   }
   document.addEventListener('fullscreenchange', onFsChange);
   document.addEventListener('webkitfullscreenchange', onFsChange);
 
-  // ============================================================
-  // Resize
-  // ============================================================
   window.addEventListener('resize', () => {
     if (!viewerActive) return;
-    if (viewMode === 'single' && renderer) fitSingleCanvas();
-    if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
+    if (compareState.mode === 'single' && renderer) fitSingleCanvas();
+    if (compareState.mode === 'split' || compareState.mode === 'slider') fitComparePanes();
   });
 
 } // end init()
