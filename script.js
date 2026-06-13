@@ -244,8 +244,11 @@ function init() {
     if (wasEmpty) {
       showViewerLayout();
       initThree();
-      fitSingleCanvas();
-      switchToScene(0);
+      // Wait for browser reflow so viewerContainer has real dimensions
+      requestAnimationFrame(() => {
+        fitSingleCanvas();
+        switchToScene(0);
+      });
     } else {
       renderSceneList();
       if (viewMode !== 'single') updateCompareSelects();
@@ -462,6 +465,8 @@ function init() {
   // ============================================================
   function startRender() {
     if (animFrameId !== null) return;
+    // Ensure canvas is sized before first frame
+    if (viewMode === 'single' && renderer) fitSingleCanvas();
     function loop() {
       animFrameId = requestAnimationFrame(loop);
       if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
