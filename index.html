@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613" />
+  <link rel="stylesheet" href="style.css?v=20260613b" />
 </head>
 <body>
   <header class="header">
@@ -47,6 +47,7 @@
             <tr><td class="shortcut-key">C</td><td>分割比較 ON / OFF</td></tr>
             <tr><td class="shortcut-key">S</td><td>スライダー比較 ON / OFF</td></tr>
             <tr><td class="shortcut-key">V</td><td>分割比較中：左右 ↔ 上下切替</td></tr>
+            <tr><td class="shortcut-key">L</td><td>比較中：視点同期 ON / OFF</td></tr>
             <tr><td class="shortcut-key">Esc</td><td>通常表示に戻る</td></tr>
           </tbody>
         </table>
@@ -54,7 +55,7 @@
       </div>
     </section>
 
-    <!-- ===== ビューワー画面（初期は非表示） ===== -->
+    <!-- ===== ビューワー画面 ===== -->
     <div id="viewer-layout" class="viewer-layout" style="display:none">
 
       <!-- 左サイドバー -->
@@ -69,7 +70,7 @@
 
         <ul id="scene-list" class="scene-list"></ul>
 
-        <!-- 操作ガイド（常時表示） -->
+        <!-- 操作ガイド -->
         <div class="sidebar-guide">
           <div class="sidebar-guide-heading">操作ガイド</div>
           <div class="shortcut-rows">
@@ -83,6 +84,7 @@
             <div class="shortcut-row"><span class="skey">C</span><span class="sdesc">分割比較</span></div>
             <div class="shortcut-row"><span class="skey">S</span><span class="sdesc">スライダー比較</span></div>
             <div class="shortcut-row"><span class="skey">V</span><span class="sdesc">レイアウト切替</span></div>
+            <div class="shortcut-row"><span class="skey">L</span><span class="sdesc">視点同期</span></div>
             <div class="shortcut-row"><span class="skey">Esc</span><span class="sdesc">通常表示に戻る</span></div>
           </div>
         </div>
@@ -93,17 +95,17 @@
 
         <!-- ===== ツールバー：通常表示時 ===== -->
         <div id="toolbar-single" class="toolbar">
+          <!-- 【画像】グループ -->
           <button id="add-img-btn" class="toolbar-btn" data-action="add">
             <span class="btn-icon">＋</span><span class="btn-label">画像追加</span>
           </button>
-          <div class="tb-sep"></div>
-          <button id="split-compare-btn" class="toolbar-btn" data-action="split" disabled>
-            <span class="btn-icon">⊞</span><span class="btn-label">分割比較</span>
+          <button id="back-btn" class="toolbar-btn toolbar-btn-muted" data-action="back">
+            <span class="btn-icon">🗑</span><span class="btn-label">すべてクリア</span>
           </button>
-          <button id="slider-compare-btn" class="toolbar-btn" data-action="slider" disabled>
-            <span class="btn-icon">◫</span><span class="btn-label">スライダー比較</span>
-          </button>
+
           <div class="tb-sep"></div>
+
+          <!-- 【表示】グループ -->
           <button id="flip-btn" class="toolbar-btn" data-action="flip">
             <span class="btn-icon">↔</span><span class="btn-label">左右反転</span>
           </button>
@@ -116,44 +118,81 @@
           <button id="fullscreen-btn" class="toolbar-btn" data-action="fullscreen">
             <span class="btn-icon" id="fullscreen-icon">⛶</span><span class="btn-label">全画面</span>
           </button>
-          <div class="tb-spacer"></div>
-          <button id="back-btn" class="toolbar-btn toolbar-btn-muted" data-action="back">
-            <span class="btn-icon">🗑</span><span class="btn-label">すべてクリア</span>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【比較】グループ -->
+          <button id="split-compare-btn" class="toolbar-btn" data-action="split" disabled>
+            <span class="btn-icon">⊞</span><span class="btn-label">分割比較</span>
+          </button>
+          <button id="slider-compare-btn" class="toolbar-btn" data-action="slider" disabled>
+            <span class="btn-icon">◫</span><span class="btn-label">スライダー比較</span>
           </button>
         </div>
 
-        <!-- ===== ツールバー：比較モード（分割・スライダー共通） ===== -->
+        <!-- ===== ツールバー：比較モード ===== -->
         <div id="toolbar-compare" class="toolbar" style="display:none">
+          <!-- 【比較モード】グループ -->
           <button id="exit-compare-btn" class="toolbar-btn toolbar-btn-exit" data-action="exit-compare">
-            <span class="btn-icon">←</span><span class="btn-label">通常表示に戻る</span>
+            <span class="btn-icon">←</span><span class="btn-label">通常表示</span>
           </button>
+          <button id="switch-to-split-btn" class="toolbar-btn toolbar-btn-sm" data-action="switch-split">
+            <span class="btn-icon">⊞</span><span class="btn-label">分割</span>
+          </button>
+          <button id="switch-to-slider-btn" class="toolbar-btn toolbar-btn-sm" data-action="switch-slider">
+            <span class="btn-icon">◫</span><span class="btn-label">スライダー</span>
+          </button>
+
           <div class="tb-sep"></div>
-          <button id="switch-to-split-btn" class="toolbar-btn" data-action="switch-split">
-            <span class="btn-icon">⊞</span><span class="btn-label">分割比較</span>
-          </button>
-          <button id="switch-to-slider-btn" class="toolbar-btn" data-action="switch-slider">
-            <span class="btn-icon">◫</span><span class="btn-label">スライダー比較</span>
-          </button>
-          <div class="tb-sep"></div>
+
+          <!-- 【比較対象】グループ -->
           <div class="tb-select-group">
             <span class="tb-badge tb-badge-a">A</span>
             <select id="compare-select-a" class="toolbar-select"></select>
-            <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-a">↔ A反転</button>
           </div>
-          <button id="swap-ab-btn" class="toolbar-btn toolbar-btn-sm" data-action="swap">⇄ A/B入替</button>
+          <button id="swap-ab-btn" class="toolbar-btn toolbar-btn-sm" data-action="swap">
+            <span class="btn-icon">⇄</span><span class="btn-label">入替</span>
+          </button>
           <div class="tb-select-group">
             <span class="tb-badge tb-badge-b">B</span>
             <select id="compare-select-b" class="toolbar-select"></select>
-            <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-b">↔ B反転</button>
           </div>
-          <div class="tb-sep" id="split-layout-sep"></div>
-          <!-- 分割比較のみ表示するレイアウトボタン -->
-          <button id="layout-lr-btn" class="toolbar-btn toolbar-btn-sm" data-action="layout-lr">⊞ 左右比較</button>
-          <button id="layout-tb-btn" class="toolbar-btn toolbar-btn-sm" data-action="layout-tb">⊟ 上下比較</button>
+
           <div class="tb-sep"></div>
-          <button id="compare-autorotate-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-autorotate">▶ 自動回転</button>
-          <button id="compare-reset-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-reset">↺ リセット</button>
-          <button id="compare-fullscreen-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-fs">⛶ 全画面</button>
+
+          <!-- 【補正】グループ -->
+          <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-a">
+            <span class="btn-icon">↔</span><span class="btn-label">A反転</span>
+          </button>
+          <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-b">
+            <span class="btn-icon">↔</span><span class="btn-label">B反転</span>
+          </button>
+          <button id="sync-btn" class="toolbar-btn toolbar-btn-sm active" data-action="sync" title="視点同期 ON/OFF (L)">
+            <span class="btn-icon">🔗</span><span class="btn-label">視点同期 ON</span>
+          </button>
+
+          <div class="tb-sep" id="split-layout-sep"></div>
+
+          <!-- 【表示 / 分割のみ】グループ -->
+          <button id="layout-lr-btn" class="toolbar-btn toolbar-btn-sm active" data-action="layout-lr">
+            <span class="btn-icon">⊞</span><span class="btn-label">左右</span>
+          </button>
+          <button id="layout-tb-btn" class="toolbar-btn toolbar-btn-sm" data-action="layout-tb">
+            <span class="btn-icon">⊟</span><span class="btn-label">上下</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【表示】共通グループ -->
+          <button id="compare-autorotate-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-autorotate">
+            <span class="btn-icon">▶</span><span class="btn-label">自動回転</span>
+          </button>
+          <button id="compare-reset-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-reset">
+            <span class="btn-icon">↺</span><span class="btn-label">リセット</span>
+          </button>
+          <button id="compare-fullscreen-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-fs">
+            <span class="btn-icon">⛶</span><span class="btn-label">全画面</span>
+          </button>
         </div>
 
         <!-- ===== 通常表示ビューワー ===== -->
@@ -219,6 +258,6 @@
 
   <script src="vendor/three.min.js"></script>
   <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
-  <script src="script.js?v=20260613" defer></script>
+  <script src="script.js?v=20260613b" defer></script>
 </body>
 </html>

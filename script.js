@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.5
+ * ArchView360 v1.6
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -47,6 +47,7 @@ function init() {
   const flipABtn           = $('flip-a-btn');
   const flipBBtn           = $('flip-b-btn');
   const swapAbBtn          = $('swap-ab-btn');
+  const syncBtn            = $('sync-btn');
   const layoutLrBtn        = $('layout-lr-btn');
   const layoutTbBtn        = $('layout-tb-btn');
   const splitLayoutSep     = $('split-layout-sep');
@@ -95,7 +96,7 @@ function init() {
   let sphereA   = null, sphereB   = null;
   let compareInited = false;
 
-  // ---- Camera state (shared) ----
+  // ---- Camera state — shared (single mode + sync ON) ----
   const DEFAULT_FOV   = 75;
   const MIN_FOV       = 30;
   const MAX_FOV       = 100;
@@ -105,12 +106,17 @@ function init() {
   let theta = DEFAULT_THETA;
   let fov   = DEFAULT_FOV;
 
+  // ---- Camera state — independent A/B (sync OFF) ----
+  let phiA = DEFAULT_PHI, thetaA = DEFAULT_THETA, fovA = DEFAULT_FOV;
+  let phiB = DEFAULT_PHI, thetaB = DEFAULT_THETA, fovB = DEFAULT_FOV;
+
   // ---- Autorotate ----
   let autoRotate = false;
   const AUTO_ROTATE_SPEED = 0.0015;
 
   // ---- Canvas drag ----
-  let isDragging = false;
+  let isDragging    = false;
+  let draggingPane  = null; // null | 'a' | 'b'
   let lastX = 0, lastY = 0;
   let lastTouches = null, lastPinchDist = null;
 
@@ -123,16 +129,45 @@ function init() {
 
   // ---- State ----
   let viewMode      = 'single'; // 'single' | 'split' | 'slider'
-  let compareLayout = 'side';   // 'side' | 'stack'  (split mode)
+  let compareLayout = 'side';   // 'side' | 'stack'
   let compareIdxA   = 0;
   let compareIdxB   = 1;
   let viewerActive  = false;
+  let syncViews     = true;     // compare view sync ON by default
 
   // ---- Scenes ----
   let scenes     = [];
   let currentIdx = -1;
 
   function genId() { return Math.random().toString(36).slice(2, 10); }
+
+  // ============================================================
+  // Thumbnail generation
+  // ============================================================
+  function generateThumb(blobUrl, callback) {
+    const img = new Image();
+    img.onload = () => {
+      const W = 200, H = 100;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      // Cover-crop to 2:1
+      const aspect = img.width / img.height;
+      const target = W / H;
+      let sx, sy, sw, sh;
+      if (aspect > target) {
+        sh = img.height; sw = Math.round(img.height * target);
+        sx = Math.round((img.width - sw) / 2); sy = 0;
+      } else {
+        sw = img.width; sh = Math.round(img.width / target);
+        sx = 0; sy = Math.round((img.height - sh) / 2);
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+      callback(c.toDataURL('image/jpeg', 0.65));
+    };
+    img.onerror = () => callback(null);
+    img.src = blobUrl;
+  }
 
   // ============================================================
   // Three.js — single
@@ -234,17 +269,25 @@ function init() {
     const wasEmpty    = !scenes.length;
     const firstNewIdx = scenes.length;
 
-    valid.forEach(f => scenes.push({
-      id:      genId(),
-      name:    f.name.replace(/\.[^.]+$/, ''),
-      blobUrl: URL.createObjectURL(f),
-      flipH:   false,
-    }));
+    valid.forEach(f => {
+      const blobUrl = URL.createObjectURL(f);
+      const scene = {
+        id:       genId(),
+        name:     f.name.replace(/\.[^.]+$/, ''),
+        blobUrl,
+        flipH:    false,
+        thumbUrl: null,
+      };
+      scenes.push(scene);
+      generateThumb(blobUrl, (dataUrl) => {
+        scene.thumbUrl = dataUrl;
+        renderSceneList();
+      });
+    });
 
     if (wasEmpty) {
       showViewerLayout();
       initThree();
-      // Wait for browser reflow so viewerContainer has real dimensions
       requestAnimationFrame(() => {
         fitSingleCanvas();
         switchToScene(0);
@@ -323,6 +366,22 @@ function init() {
       const li = document.createElement('li');
       li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
 
+      // Thumbnail area
+      const thumbWrap = document.createElement('div');
+      thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
+      if (s.thumbUrl) {
+        const img = document.createElement('img');
+        img.className = 'scene-thumb';
+        img.src = s.thumbUrl;
+        img.alt = '';
+        img.draggable = false;
+        thumbWrap.appendChild(img);
+      }
+
+      // Bottom row: number + name + delete
+      const row = document.createElement('div');
+      row.className = 'scene-item-row';
+
       const numEl = document.createElement('span');
       numEl.className = 'scene-num';
       numEl.textContent = i + 1;
@@ -364,7 +423,12 @@ function init() {
       delBtn.textContent = '×';
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteScene(i); });
 
-      li.appendChild(numEl); li.appendChild(nameEl); li.appendChild(delBtn);
+      row.appendChild(numEl);
+      row.appendChild(nameEl);
+      row.appendChild(delBtn);
+
+      li.appendChild(thumbWrap);
+      li.appendChild(row);
       li.addEventListener('click', () => {
         if (nameEl.contentEditable === 'true') return;
         if (i !== currentIdx) switchToScene(i);
@@ -451,8 +515,13 @@ function init() {
           new THREE.SphereGeometry(500, 60, 40),
           new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
         );
-        if (side === 'a') { disposeMesh(sphereA, sceneA); sphereA = mesh; sceneA.add(sphereA); fitOnePane(canvasA, rendererA, cameraA); }
-        else               { disposeMesh(sphereB, sceneB); sphereB = mesh; sceneB.add(sphereB); fitOnePane(canvasB, rendererB, cameraB); }
+        if (side === 'a') {
+          disposeMesh(sphereA, sceneA); sphereA = mesh; sceneA.add(sphereA);
+          fitOnePane(canvasA, rendererA, cameraA);
+        } else {
+          disposeMesh(sphereB, sceneB); sphereB = mesh; sceneB.add(sphereB);
+          fitOnePane(canvasB, rendererB, cameraB);
+        }
         hideEl(loadEl);
       },
       null,
@@ -465,18 +534,48 @@ function init() {
   // ============================================================
   function startRender() {
     if (animFrameId !== null) return;
-    // Ensure canvas is sized before first frame
     if (viewMode === 'single' && renderer) fitSingleCanvas();
+
     function loop() {
       animFrameId = requestAnimationFrame(loop);
-      if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
-      const lx = Math.sin(phi) * Math.cos(theta);
-      const ly = Math.cos(phi);
-      const lz = Math.sin(phi) * Math.sin(theta);
+
       if (viewMode === 'split' || viewMode === 'slider') {
-        if (rendererA && sceneA && cameraA) { cameraA.lookAt(lx,ly,lz); rendererA.render(sceneA, cameraA); }
-        if (rendererB && sceneB && cameraB) { cameraB.lookAt(lx,ly,lz); rendererB.render(sceneB, cameraB); }
+        if (syncViews) {
+          if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
+          const lx = Math.sin(phi) * Math.cos(theta);
+          const ly = Math.cos(phi);
+          const lz = Math.sin(phi) * Math.sin(theta);
+          if (rendererA && sceneA && cameraA) { cameraA.lookAt(lx,ly,lz); rendererA.render(sceneA, cameraA); }
+          if (rendererB && sceneB && cameraB) { cameraB.lookAt(lx,ly,lz); rendererB.render(sceneB, cameraB); }
+        } else {
+          if (autoRotate && !isDragging && !isSliderDragging) {
+            thetaA += AUTO_ROTATE_SPEED;
+            thetaB += AUTO_ROTATE_SPEED;
+          }
+          if (rendererA && sceneA && cameraA) {
+            cameraA.fov = fovA; cameraA.updateProjectionMatrix();
+            cameraA.lookAt(
+              Math.sin(phiA) * Math.cos(thetaA),
+              Math.cos(phiA),
+              Math.sin(phiA) * Math.sin(thetaA)
+            );
+            rendererA.render(sceneA, cameraA);
+          }
+          if (rendererB && sceneB && cameraB) {
+            cameraB.fov = fovB; cameraB.updateProjectionMatrix();
+            cameraB.lookAt(
+              Math.sin(phiB) * Math.cos(thetaB),
+              Math.cos(phiB),
+              Math.sin(phiB) * Math.sin(thetaB)
+            );
+            rendererB.render(sceneB, cameraB);
+          }
+        }
       } else {
+        if (autoRotate && !isDragging) theta += AUTO_ROTATE_SPEED;
+        const lx = Math.sin(phi) * Math.cos(theta);
+        const ly = Math.cos(phi);
+        const lz = Math.sin(phi) * Math.sin(theta);
         if (renderer && threeScene && camera) { camera.lookAt(lx,ly,lz); renderer.render(threeScene, camera); }
       }
     }
@@ -492,6 +591,8 @@ function init() {
   // ============================================================
   function resetView() {
     phi = DEFAULT_PHI; theta = DEFAULT_THETA; fov = DEFAULT_FOV;
+    phiA = DEFAULT_PHI; thetaA = DEFAULT_THETA; fovA = DEFAULT_FOV;
+    phiB = DEFAULT_PHI; thetaB = DEFAULT_THETA; fovB = DEFAULT_FOV;
     applyFov();
   }
 
@@ -503,13 +604,34 @@ function init() {
   }
 
   // ============================================================
+  // View sync toggle
+  // ============================================================
+  function toggleSyncViews() {
+    syncViews = !syncViews;
+    if (syncViews) {
+      // Snap A/B to shared state when re-enabling sync
+      phiA = phi; thetaA = theta; fovA = fov;
+      phiB = phi; thetaB = theta; fovB = fov;
+      if (cameraA) { cameraA.fov = fov; cameraA.updateProjectionMatrix(); }
+      if (cameraB) { cameraB.fov = fov; cameraB.updateProjectionMatrix(); }
+    }
+    updateSyncBtn();
+    showToast(syncViews ? '視点同期 ON — 両面が連動します' : '視点同期 OFF — 別々に操作できます');
+  }
+
+  function updateSyncBtn() {
+    syncBtn.classList.toggle('active', syncViews);
+    const label = syncBtn.querySelector('.btn-label');
+    if (label) label.textContent = syncViews ? '視点同期 ON' : '視点同期 OFF';
+  }
+
+  // ============================================================
   // Show viewer
   // ============================================================
   function showViewerLayout() {
     viewerActive = true;
     hideEl(uploadSection);
     viewerLayout.style.display = 'flex';
-    // Initial state: single mode
     showEl(toolbarSingle);
     hideEl(toolbarCompare);
     showEl(viewerContainer);
@@ -522,9 +644,7 @@ function init() {
   // ============================================================
   function enterSplitMode() {
     if (scenes.length < 2) { showToast('分割比較には2枚以上のシーンが必要です'); return; }
-    // Clean up from any previous compare mode
     if (viewMode === 'slider') _exitCompareUI();
-    else if (viewMode === 'split') { /* already in split, refresh */ }
 
     viewMode    = 'split';
     compareIdxA = currentIdx >= 0 ? currentIdx : 0;
@@ -539,16 +659,20 @@ function init() {
     paneBEl.style.clipPath    = '';
     paneBEl.style.pointerEvents = '';
 
-    // Show layout buttons
     showEl(layoutLrBtn);
     showEl(layoutTbBtn);
     showEl(splitLayoutSep);
 
-    // Highlight current layout
     applyCompareLayout(false);
     updateCompareSelects();
     switchToSplitBtn.classList.add('active');
     switchToSliderBtn.classList.remove('active');
+
+    // Reset sync state when entering compare
+    syncViews = true;
+    phiA = phi; thetaA = theta; fovA = fov;
+    phiB = phi; thetaB = theta; fovB = fov;
+    updateSyncBtn();
 
     initCompareRenderers();
     requestAnimationFrame(() => {
@@ -577,15 +701,19 @@ function init() {
     compareContainer.classList.add('slider-mode');
     compareContainer.classList.remove('stack');
     showEl(sliderDivider);
-    paneBEl.style.pointerEvents = 'none'; // pane-a handles all interaction
+    paneBEl.style.pointerEvents = 'none';
 
-    // Hide split-only layout buttons
     hideEl(layoutLrBtn);
     hideEl(layoutTbBtn);
     hideEl(splitLayoutSep);
 
     switchToSliderBtn.classList.add('active');
     switchToSplitBtn.classList.remove('active');
+
+    syncViews = true;
+    phiA = phi; thetaA = theta; fovA = fov;
+    phiB = phi; thetaB = theta; fovB = fov;
+    updateSyncBtn();
 
     sliderPos = 50;
     updateSlider(sliderPos);
@@ -600,7 +728,6 @@ function init() {
     stopRender(); startRender();
   }
 
-  // Internal: clean up compare UI without changing viewMode
   function _exitCompareUI() {
     compareContainer.classList.remove('slider-mode', 'stack');
     paneBEl.style.clipPath    = '';
@@ -682,7 +809,7 @@ function init() {
   }
 
   function toggleFlipCompare(side) {
-    const idx  = side === 'a' ? compareIdxA : compareIdxB;
+    const idx = side === 'a' ? compareIdxA : compareIdxB;
     if (idx < 0 || idx >= scenes.length) return;
     scenes[idx].flipH = !scenes[idx].flipH;
     (side === 'a' ? flipABtn : flipBBtn).classList.toggle('active', scenes[idx].flipH);
@@ -759,37 +886,61 @@ function init() {
   // ============================================================
   const SENSITIVITY = 0.3;
 
-  function rotate(dx, dy) {
+  function rotate(dx, dy, pane) {
     const r = Math.PI / 180;
-    theta -= dx * SENSITIVITY * r;
-    phi   -= dy * SENSITIVITY * r;
-    phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+    if (!syncViews && pane === 'a') {
+      thetaA -= dx * SENSITIVITY * r;
+      phiA   -= dy * SENSITIVITY * r;
+      phiA    = Math.max(0.05, Math.min(Math.PI - 0.05, phiA));
+    } else if (!syncViews && pane === 'b') {
+      thetaB -= dx * SENSITIVITY * r;
+      phiB   -= dy * SENSITIVITY * r;
+      phiB    = Math.max(0.05, Math.min(Math.PI - 0.05, phiB));
+    } else {
+      theta -= dx * SENSITIVITY * r;
+      phi   -= dy * SENSITIVITY * r;
+      phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+    }
+  }
+
+  function zoomBy(delta, pane) {
+    if (!syncViews && pane === 'a') {
+      fovA = Math.min(MAX_FOV, Math.max(MIN_FOV, fovA + delta));
+      statusFov.textContent = `FOV: ${Math.round(fovA)}°`;
+    } else if (!syncViews && pane === 'b') {
+      fovB = Math.min(MAX_FOV, Math.max(MIN_FOV, fovB + delta));
+      statusFov.textContent = `FOV: ${Math.round(fovB)}°`;
+    } else {
+      fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + delta));
+      applyFov();
+    }
   }
 
   function pinchDist(t) {
     return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   }
 
-  function onWheel(e) {
-    e.preventDefault();
-    fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + (e.deltaY > 0 ? 3 : -3)));
-    applyFov();
-  }
-
-  function attachCanvasInteraction(canvas) {
+  function attachCanvasInteraction(canvas, pane) {
     canvas.style.cursor = 'grab';
 
     canvas.addEventListener('mousedown', (e) => {
-      isDragging = true; lastX = e.clientX; lastY = e.clientY;
+      isDragging = true; draggingPane = pane;
+      lastX = e.clientX; lastY = e.clientY;
       canvas.style.cursor = 'grabbing';
     });
 
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomBy(e.deltaY > 0 ? 3 : -3, pane);
+    }, { passive: false });
 
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      draggingPane = pane;
       if (e.touches.length === 1) {
-        isDragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; lastPinchDist = null;
+        isDragging = true;
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+        lastPinchDist = null;
       } else if (e.touches.length === 2) {
         lastPinchDist = pinchDist(e.touches);
       }
@@ -799,28 +950,26 @@ function init() {
     canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
       if (e.touches.length === 1 && lastTouches?.length === 1) {
-        rotate(e.touches[0].clientX - lastX, e.touches[0].clientY - lastY);
+        rotate(e.touches[0].clientX - lastX, e.touches[0].clientY - lastY, pane);
         lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
       } else if (e.touches.length === 2) {
         const d = pinchDist(e.touches);
-        if (lastPinchDist !== null) {
-          fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + (lastPinchDist - d) * 0.15));
-          applyFov();
-        }
+        if (lastPinchDist !== null) zoomBy((lastPinchDist - d) * 0.15, pane);
         lastPinchDist = d;
       }
       lastTouches = e.touches;
     }, { passive: false });
 
     canvas.addEventListener('touchend', () => {
-      isDragging = false; lastTouches = null; lastPinchDist = null;
+      isDragging = false; draggingPane = null;
+      lastTouches = null; lastPinchDist = null;
       canvas.style.cursor = 'grab';
     });
   }
 
-  attachCanvasInteraction(viewerCanvas);
-  attachCanvasInteraction(canvasA);
-  attachCanvasInteraction(canvasB);
+  attachCanvasInteraction(viewerCanvas, null);
+  attachCanvasInteraction(canvasA, 'a');
+  attachCanvasInteraction(canvasB, 'b');
 
   window.addEventListener('mousemove', (e) => {
     if (isSliderDragging) {
@@ -829,14 +978,14 @@ function init() {
       return;
     }
     if (!isDragging) return;
-    rotate(e.clientX - lastX, e.clientY - lastY);
+    rotate(e.clientX - lastX, e.clientY - lastY, draggingPane);
     lastX = e.clientX; lastY = e.clientY;
   });
 
   window.addEventListener('mouseup', () => {
     if (isSliderDragging) { isSliderDragging = false; return; }
     if (!isDragging) return;
-    isDragging = false;
+    isDragging = false; draggingPane = null;
     [viewerCanvas, canvasA, canvasB].forEach(c => { c.style.cursor = 'grab'; });
   });
 
@@ -861,18 +1010,13 @@ function init() {
   window.addEventListener('touchend', () => { isSliderDragging = false; });
 
   // ============================================================
-  // Keyboard shortcuts — clean, no conflicts
+  // Keyboard shortcuts
   // ============================================================
   document.addEventListener('keydown', (e) => {
-    // Skip if modifier key held (Ctrl+C = copy, etc.)
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-
-    // Skip if focused on interactive elements
     const tag = document.activeElement?.tagName;
     if (['INPUT','TEXTAREA','SELECT','BUTTON'].includes(tag)) return;
     if (document.activeElement?.contentEditable === 'true') return;
-
-    // Skip if viewer not active
     if (!viewerActive) return;
 
     switch (e.key) {
@@ -901,21 +1045,19 @@ function init() {
         if (viewMode === 'single') toggleFlipSingle();
         break;
       case 'c': case 'C':
-        // C: toggle split compare
-        if (viewMode === 'split') exitCompareMode();
-        else enterSplitMode();
+        if (viewMode === 'split') exitCompareMode(); else enterSplitMode();
         break;
       case 's': case 'S':
-        // S: toggle slider compare
-        if (viewMode === 'slider') exitCompareMode();
-        else enterSliderMode();
+        if (viewMode === 'slider') exitCompareMode(); else enterSliderMode();
         break;
       case 'v': case 'V':
-        // V: toggle layout in split mode only
         if (viewMode === 'split') {
           compareLayout = compareLayout === 'side' ? 'stack' : 'side';
           applyCompareLayout();
         }
+        break;
+      case 'l': case 'L':
+        if (viewMode !== 'single') toggleSyncViews();
         break;
     }
   });
@@ -938,12 +1080,13 @@ function init() {
   flipABtn.addEventListener('click',  () => toggleFlipCompare('a'));
   flipBBtn.addEventListener('click',  () => toggleFlipCompare('b'));
   swapAbBtn.addEventListener('click', swapAB);
+  syncBtn.addEventListener('click',   toggleSyncViews);
 
-  autorotateBtn.addEventListener('click',  () => toggleAutoRotate());
+  autorotateBtn.addEventListener('click',    () => toggleAutoRotate());
   compareAutorotBtn.addEventListener('click', () => toggleAutoRotate());
 
-  resetBtn.addEventListener('click',       resetView);
-  compareResetBtn.addEventListener('click', resetView);
+  resetBtn.addEventListener('click',        resetView);
+  compareResetBtn.addEventListener('click',  resetView);
 
   layoutLrBtn.addEventListener('click', () => {
     if (viewMode !== 'split') return;

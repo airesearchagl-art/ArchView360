@@ -205,7 +205,7 @@ body {
 
 /* ===== Scene Panel (Sidebar) ===== */
 .scene-panel {
-  width: 200px;
+  width: 230px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -253,27 +253,71 @@ body {
   flex: 1;
   overflow-y: auto;
   list-style: none;
-  padding: 4px 0;
+  padding: 5px 5px;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .scene-item {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 8px;
+  flex-direction: column;
   cursor: pointer;
-  border-radius: 5px;
-  margin: 2px 5px;
+  border-radius: 7px;
+  border: 1px solid transparent;
   border-left: 2px solid transparent;
-  transition: background .12s;
+  overflow: hidden;
+  transition: background .12s, border-color .12s;
+  background: var(--surface-2);
 }
 
-.scene-item.active { background: rgba(79,124,255,.18); border-left-color: var(--accent); }
-.scene-item:hover  { background: var(--surface-2); }
+.scene-item.active {
+  background: rgba(79,124,255,.12);
+  border-color: rgba(79,124,255,.35);
+  border-left-color: var(--accent);
+}
+
+.scene-item:hover { background: var(--surface-3); }
+
+/* Thumbnail area */
+.scene-thumb-wrap {
+  width: 100%;
+  height: 54px;
+  background: var(--surface-3);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.scene-thumb-placeholder {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(255,255,255,.03) 5px,
+    rgba(255,255,255,.03) 10px
+  );
+}
+
+.scene-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+/* Bottom row */
+.scene-item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px 5px;
+  min-width: 0;
+}
 
 .scene-num {
-  font-size: .68rem;
+  font-size: .67rem;
   color: var(--text-muted);
   width: 16px;
   text-align: center;
@@ -282,7 +326,7 @@ body {
 
 .scene-name {
   flex: 1;
-  font-size: .79rem;
+  font-size: .78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -836,23 +880,22 @@ body {
     padding: 4px 6px;
     overflow-x: auto;
     overflow-y: hidden;
-    gap: 4px;
+    gap: 5px;
     flex: 1;
   }
 
   .scene-item {
     flex-direction: column;
-    min-width: 58px;
-    max-width: 86px;
-    margin: 2px 0;
+    min-width: 72px;
+    max-width: 90px;
     flex-shrink: 0;
     text-align: center;
-    border-left: 2px solid transparent;
-    padding: 5px;
   }
 
-  .scene-item.active { border-left: none; border-bottom: 2px solid var(--accent); }
-  .scene-name { font-size: .68rem; text-align: center; }
+  .scene-thumb-wrap { height: 40px; }
+  .scene-item-row { padding: 3px 5px 4px; gap: 3px; }
+  .scene-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }
+  .scene-name { font-size: .67rem; text-align: center; }
   .scene-delete-btn { opacity: 1; font-size: .7rem; }
 
   /* Hide guide on mobile (no room) */
@@ -878,6 +921,6 @@ body {
 
 /* Compact mid-range */
 @media (min-width: 641px) and (max-width: 960px) {
-  .scene-panel { width: 180px; }
+  .scene-panel { width: 200px; }
   .toolbar-select { max-width: 110px; }
 }
