@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613h" />
+  <link rel="stylesheet" href="style.css?v=20260613i" />
 </head>
 <body>
   <header class="header">
@@ -25,6 +25,7 @@
         <div class="drop-zone-content">
           <div class="drop-icon">🖼️</div>
           <p class="drop-title">パノラマ画像をドラッグ＆ドロップ</p>
+          <p class="drop-sub-hint">設定JSON（.json）をドロップするとプロジェクトを復元できます</p>
           <p class="drop-sub">または</p>
           <label class="btn btn-primary" for="file-input">ファイルを選択</label>
           <p class="drop-hint">JPEG / PNG / WebP ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）・ 複数ファイル同時選択可</p>
@@ -37,7 +38,7 @@
           <span class="json-open-icon">📂</span>
           <div class="json-open-text">
             <p class="json-open-title">設定JSONからプロジェクトを開く</p>
-            <p class="json-open-desc">JSON + 画像ファイル一式があれば別環境でもプロジェクトを完全復元できます</p>
+            <p class="json-open-desc">JSON + 画像ファイル一式があれば別環境でもプロジェクトを完全復元できます。JSONと画像を一緒にドロップすると自動マッチングします</p>
           </div>
           <button id="open-json-btn" class="btn btn-secondary">設定JSONを開く</button>
         </div>
@@ -173,11 +174,11 @@
           <button id="add-floorplan-btn" class="toolbar-btn" title="平面図を追加">
             <span class="btn-icon">🗺</span><span class="btn-label">平面図</span>
           </button>
-          <button id="export-json-btn" class="toolbar-btn" title="プロジェクトをJSONとして書き出す">
-            <span class="btn-icon">⬇</span><span class="btn-label">書き出し</span>
+          <button id="export-json-btn" class="toolbar-btn" title="JSON設定ファイルを書き出します">
+            <span class="btn-icon">⬇</span><span class="btn-label">設定を書き出し</span>
           </button>
-          <button id="import-json-btn" class="toolbar-btn" title="JSONからプロジェクトを読み込む">
-            <span class="btn-icon">⬆</span><span class="btn-label">読み込み</span>
+          <button id="import-json-btn" class="toolbar-btn" title="JSON設定ファイルを読み込みます">
+            <span class="btn-icon">⬆</span><span class="btn-label">設定を読み込み</span>
           </button>
         </div>
 
@@ -406,6 +407,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260613h" defer></script>
+  <script src="script.js?v=20260613i" defer></script>
 </body>
 </html>

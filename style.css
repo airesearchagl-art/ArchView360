@@ -110,6 +110,7 @@ body {
 .drop-icon  { font-size: 3rem; line-height: 1; }
 .drop-title { font-size: 1.1rem; font-weight: 600; }
 .drop-sub   { color: var(--text-muted); font-size: .9rem; }
+.drop-sub-hint { font-size: .78rem; color: var(--accent-h); opacity: .85; margin-top: 2px; }
 .drop-hint  { font-size: .77rem; color: var(--text-muted); margin-top: 4px; }
 
 /* ===== Generic Buttons ===== */

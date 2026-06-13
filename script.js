@@ -170,7 +170,7 @@ function init() {
   let compareInited = false;
 
   // ---- Camera state — shared (single mode + sync ON) ----
-  const DEFAULT_FOV   = 75;
+  const DEFAULT_FOV   = 100; // Wide initial FOV so scene appears fully visible on load
   const MIN_FOV       = 30;
   const MAX_FOV       = 100;
   const DEFAULT_PHI   = Math.PI / 2;
@@ -1530,7 +1530,7 @@ function init() {
   }
 
   // ============================================================
-  // Drop zone
+  // Drop zone — supports panorama images, JSON, or JSON + images together
   // ============================================================
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault(); dropZone.classList.add('drag-over');
@@ -1540,7 +1540,7 @@ function init() {
   });
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault(); dropZone.classList.remove('drag-over');
-    handleFiles(e.dataTransfer.files);
+    _handleDropZoneFiles(Array.from(e.dataTransfer.files));
   });
   dropZone.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
@@ -1549,6 +1549,36 @@ function init() {
     if (fileInput.files.length) handleFiles(fileInput.files);
     fileInput.value = '';
   });
+
+  function _handleDropZoneFiles(files) {
+    const jsonFiles  = files.filter(f => f.name.endsWith('.json') || f.type === 'application/json');
+    const imageFiles = files.filter(f => ['image/jpeg','image/png','image/webp'].includes(f.type));
+
+    if (jsonFiles.length > 0) {
+      // Read the first JSON file
+      const jsonFile = jsonFiles[0];
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          _importData = JSON.parse(ev.target.result);
+        } catch {
+          showGlobalError('JSONファイルの解析に失敗しました。');
+          return;
+        }
+        if (imageFiles.length > 0) {
+          // Case 3: JSON + images dropped together — try direct restore
+          _doImportWithFiles(imageFiles);
+        } else {
+          // Case 1: JSON only — show modal to let user select images
+          _showImportModal();
+        }
+      };
+      reader.readAsText(jsonFile);
+    } else if (imageFiles.length > 0) {
+      // Case 2 / Case 4: images only — standard new project
+      handleFiles(imageFiles);
+    }
+  }
 
   // ============================================================
   // Canvas interaction
@@ -1572,10 +1602,10 @@ function init() {
       phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
       // Update current scene's marker rotation in real time
       if (activeFloorplanId && currentIdx >= 0) {
-        const curSceneId = scenes[currentIdx]?.id;
-        if (curSceneId) {
-          const mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curSceneId);
-          if (mk) mk.rotation = Math.round(((-theta * 180 / Math.PI) % 360 + 360) % 360);
+        const curScene = scenes[currentIdx];
+        if (curScene) {
+          const mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
+          if (mk) mk.rotation = Math.round(thetaToFloorRotation(theta, curScene.flipH || false));
         }
       }
     }
@@ -1929,6 +1959,16 @@ function init() {
   // ============================================================
   // FloorMap Navigator
   // ============================================================
+
+  // Convert camera yaw (theta radians) to floor plan arrow direction (degrees).
+  // sign(theta) drives the arrow CW/CCW. Empirically validated:
+  //   non-flipped: +theta gives correct correspondence with panorama drag direction.
+  //   flipped: image is mirrored so the sign is negated to maintain same visual feel.
+  function thetaToFloorRotation(theta, flipH) {
+    const sign = flipH ? -1 : 1;
+    return ((sign * theta * 180 / Math.PI) % 360 + 360) % 360;
+  }
+
   function renderFloormap() {
     if (!projectState.floorplans.length || !activeFloorplanId) {
       hideEl(floormapNavigator);
@@ -2146,9 +2186,8 @@ function init() {
     const coords = _canvasToImage(e);
     if (!coords) return;
     const curScene = scenes[currentIdx];
-    // Use current yaw (theta) as initial rotation for the marker
-    // theta is in radians; convert to degrees and normalize to 0-360
-    const initialRot = Math.round(((-theta * 180 / Math.PI) % 360 + 360) % 360 / 15) * 15 % 360;
+    // Use current yaw (theta) as initial rotation; snap to 15° increments
+    const initialRot = Math.round(thetaToFloorRotation(theta, curScene.flipH || false) / 15) * 15 % 360;
     let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
     if (mk) {
       mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
@@ -2317,7 +2356,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.2',
+      appVersion:  '2.3',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       scenes: scenes.map(s => ({
