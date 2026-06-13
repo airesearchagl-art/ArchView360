@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.8
+ * ArchView360 v1.9
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -67,10 +67,21 @@ function init() {
   const sceneCounter       = $('scene-counter');
   const compareSetsPanelEl = $('compare-sets-panel');
   const compareSetsList    = $('compare-sets-list');
+  const compareSetsEmpty   = $('compare-sets-empty');
 
   // Picker dropdown
   const pickerDropdown     = $('picker-dropdown');
   const pickerDropdownList = $('picker-dropdown-list');
+
+  // Set-name modal
+  const setNameModal       = $('set-name-modal');
+  const setNameModalTitle  = $('set-name-modal-title');
+  const setNameModalInfo   = $('set-name-modal-info');
+  const setNameModalNote   = $('set-name-modal-note');
+  const setNameInput       = $('set-name-input');
+  const setNameOkBtn       = $('set-name-ok-btn');
+  const setNameCancelBtn   = $('set-name-cancel-btn');
+  const setNameCloseBtn    = $('set-name-close-btn');
 
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
@@ -1061,36 +1072,99 @@ function init() {
     try { localStorage.setItem(LS_COMPARE_SETS, JSON.stringify(sets)); } catch {}
   }
 
+  // ---- Modal helpers ----
+  let _setNameOnOk = null;
+
+  function openSetNameModal({ title, infoHTML, note, defaultName, okLabel = '保存' }, onOk) {
+    _setNameOnOk = onOk;
+    setNameModalTitle.textContent = title;
+    if (infoHTML) {
+      setNameModalInfo.innerHTML = infoHTML;
+      showEl(setNameModalInfo);
+    } else {
+      setNameModalInfo.innerHTML = '';
+      hideEl(setNameModalInfo);
+    }
+    if (note) {
+      setNameModalNote.textContent = note;
+      showEl(setNameModalNote);
+    } else {
+      setNameModalNote.textContent = '';
+      hideEl(setNameModalNote);
+    }
+    setNameInput.value = defaultName || '';
+    setNameOkBtn.textContent = okLabel;
+    showEl(setNameModal);
+    // defer focus so modal is visible first (avoids INP on keydown)
+    setTimeout(() => { setNameInput.select(); setNameInput.focus(); }, 0);
+  }
+
+  function _closeSetNameModal(confirmed) {
+    hideEl(setNameModal);
+    const name = confirmed ? setNameInput.value.trim() : null;
+    const cb = _setNameOnOk;
+    _setNameOnOk = null;
+    if (confirmed && cb) cb(name);
+  }
+
+  setNameOkBtn.addEventListener('click', () => _closeSetNameModal(true));
+  setNameCancelBtn.addEventListener('click', () => _closeSetNameModal(false));
+  setNameCloseBtn.addEventListener('click', () => _closeSetNameModal(false));
+  setNameModal.addEventListener('click', (e) => { if (e.target === setNameModal) _closeSetNameModal(false); });
+  setNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); _closeSetNameModal(true); }
+    if (e.key === 'Escape') { e.preventDefault(); _closeSetNameModal(false); }
+  });
+
+  // ---- Save / Restore / Delete / Rename ----
   function saveCurrentCompareSet() {
     if (compareState.mode === 'single') { showToast('比較モード中のみ保存できます'); return; }
     const sa = scenes[compareState.sceneAIndex];
     const sb = scenes[compareState.sceneBIndex];
-    if (!sa || !sb) { showToast('シーンが見つかりません'); return; }
+    if (!sa || !sb) return;
 
-    const defaultName = `${sa.name} vs ${sb.name}`;
-    const name = window.prompt('セット名を入力してください', defaultName);
-    if (name === null) return;
-    const setName = name.trim() || defaultName;
+    const modeLabel    = compareState.mode === 'slider' ? 'スライダー比較' : '分割比較';
+    const layoutLabel  = compareState.layout === 'stack'  ? '上下' : '左右';
+    const syncLabel    = compareState.syncViews ? '視点同期 ON' : '視点同期 OFF';
+    const infoHTML =
+      `<div class="modal-scene-row"><span class="tb-badge tb-badge-a">A</span>` +
+      `<span class="modal-scene-text">${_esc(sa.name)}</span></div>` +
+      `<div class="modal-scene-row"><span class="tb-badge tb-badge-b">B</span>` +
+      `<span class="modal-scene-text">${_esc(sb.name)}</span></div>` +
+      `<div class="modal-mode-row"><span>${modeLabel}</span>` +
+      (compareState.mode === 'split' ? `<span>・${layoutLabel}</span>` : '') +
+      `<span>・${syncLabel}</span></div>`;
+    const note = 'ℹ️ 比較セットはこのブラウザ内にのみ保存されます。画像データは保存されません。別のPCやブラウザには共有されません。';
 
-    const sets = _loadCompareSets();
-    const existingIdx = sets.findIndex(s => s.name === setName);
-    const newSet = {
-      id:             existingIdx >= 0 ? sets[existingIdx].id : genId(),
-      name:           setName,
-      mode:           compareState.mode,
-      sceneAId:       sa.id,
-      sceneBId:       sb.id,
-      layout:         compareState.layout,
-      sliderPosition: compareState.sliderPosition,
-      syncViews:      compareState.syncViews,
-      createdAt:      existingIdx >= 0 ? sets[existingIdx].createdAt : new Date().toISOString(),
-    };
-    if (existingIdx >= 0) sets[existingIdx] = newSet;
-    else sets.push(newSet);
-    _saveCompareSetsToStorage(sets);
-    compareState.activeSetId = newSet.id;
-    renderCompareSets();
-    showToast(`「${setName}」を保存しました`);
+    openSetNameModal(
+      { title: '比較セットを保存', infoHTML, note, defaultName: `${sa.name} vs ${sb.name}` },
+      (name) => {
+        if (name === null) return;
+        const setName = name || `${sa.name} vs ${sb.name}`;
+        const sets = _loadCompareSets();
+        const existingIdx = sets.findIndex(s => s.name === setName);
+        const newSet = {
+          id:             existingIdx >= 0 ? sets[existingIdx].id : genId(),
+          name:           setName,
+          mode:           compareState.mode,
+          sceneAId:       sa.id,
+          sceneAName:     sa.name,
+          sceneBId:       sb.id,
+          sceneBName:     sb.name,
+          layout:         compareState.layout,
+          sliderPosition: compareState.sliderPosition,
+          syncViews:      compareState.syncViews,
+          createdAt:      existingIdx >= 0 ? sets[existingIdx].createdAt : new Date().toISOString(),
+        };
+        if (existingIdx >= 0) sets[existingIdx] = newSet;
+        else sets.push(newSet);
+        _saveCompareSetsToStorage(sets);
+        compareState.activeSetId = newSet.id;
+        showToast(`比較セット「${setName}」を保存しました — サイドバーから再表示できます`);
+        // Defer DOM rebuild to avoid INP on the save button click
+        setTimeout(() => renderCompareSets(), 0);
+      }
+    );
   }
 
   function restoreCompareSet(set) {
@@ -1106,27 +1180,44 @@ function init() {
     } else {
       enterSplitMode({ idxA, idxB, layout: set.layout || 'side', syncViews: set.syncViews ?? true });
     }
+    // Update card highlight without full rebuild
+    setTimeout(() => renderCompareSets(), 0);
   }
 
   function deleteCompareSet(setId) {
     const sets = _loadCompareSets().filter(s => s.id !== setId);
     _saveCompareSetsToStorage(sets);
     if (compareState.activeSetId === setId) compareState.activeSetId = null;
-    renderCompareSets();
-    showToast('セットを削除しました');
+    showToast('比較セットを削除しました');
+    setTimeout(() => renderCompareSets(), 0);
   }
 
   function renameCompareSet(setId) {
     const sets = _loadCompareSets();
     const set = sets.find(s => s.id === setId);
     if (!set) return;
-    const newName = window.prompt('新しいセット名', set.name);
-    if (newName === null) return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-    set.name = trimmed;
-    _saveCompareSetsToStorage(sets);
-    renderCompareSets();
+    openSetNameModal(
+      { title: 'セット名を変更', defaultName: set.name, okLabel: '変更' },
+      (name) => {
+        if (!name) return;
+        set.name = name;
+        _saveCompareSetsToStorage(sets);
+        setTimeout(() => renderCompareSets(), 0);
+      }
+    );
+  }
+
+  function _esc(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _formatDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ` +
+             `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    } catch { return ''; }
   }
 
   // ============================================================
@@ -1134,13 +1225,24 @@ function init() {
   // ============================================================
   function renderCompareSets() {
     const sets = _loadCompareSets();
-    if (!sets.length) { hideEl(compareSetsPanelEl); return; }
-    showEl(compareSetsPanelEl);
-
     compareSetsList.innerHTML = '';
+
+    if (!sets.length) {
+      hideEl(compareSetsList);
+      showEl(compareSetsEmpty);
+      return;
+    }
+    hideEl(compareSetsEmpty);
+    showEl(compareSetsList);
+
+    const frag = document.createDocumentFragment();
     sets.forEach(set => {
       const li = document.createElement('li');
       li.className = 'compare-set-item' + (set.id === compareState.activeSetId ? ' active' : '');
+
+      // ---- header row ----
+      const hd = document.createElement('div');
+      hd.className = 'cset-header';
 
       const iconEl = document.createElement('span');
       iconEl.className = 'cset-mode-icon';
@@ -1154,6 +1256,16 @@ function init() {
       const actionsEl = document.createElement('div');
       actionsEl.className = 'cset-actions';
 
+      const openBtn = document.createElement('button');
+      openBtn.className = 'cset-btn cset-btn-open';
+      openBtn.title = 'この比較セットを開く';
+      openBtn.textContent = '開く';
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (scenes.length < 2) { showToast('2枚以上のシーンが必要です'); return; }
+        restoreCompareSet(set);
+      });
+
       const renameBtn = document.createElement('button');
       renameBtn.className = 'cset-btn';
       renameBtn.title = '名前を変更';
@@ -1162,23 +1274,96 @@ function init() {
 
       const delBtn = document.createElement('button');
       delBtn.className = 'cset-btn cset-btn-del';
-      delBtn.title = '削除';
+      delBtn.title = 'このセットを削除';
       delBtn.textContent = '×';
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCompareSet(set.id); });
 
+      actionsEl.appendChild(openBtn);
       actionsEl.appendChild(renameBtn);
       actionsEl.appendChild(delBtn);
-      li.appendChild(iconEl);
-      li.appendChild(nameEl);
-      li.appendChild(actionsEl);
+      hd.appendChild(iconEl);
+      hd.appendChild(nameEl);
+      hd.appendChild(actionsEl);
 
-      li.addEventListener('click', () => {
+      // ---- scenes row ----
+      const scenesRow = document.createElement('div');
+      scenesRow.className = 'cset-scenes';
+
+      const labelA = document.createElement('span');
+      labelA.className = 'cset-scene-label';
+      const badgeA = document.createElement('span');
+      badgeA.className = 'tb-badge tb-badge-a';
+      badgeA.textContent = 'A';
+      const nameA = document.createElement('span');
+      nameA.className = 'cset-scene-name';
+      // Try to resolve live scene name if still in memory
+      const liveA = scenes.find(s => s.id === set.sceneAId);
+      nameA.textContent = liveA ? liveA.name : (set.sceneAName || set.sceneAId);
+      nameA.title = nameA.textContent;
+      labelA.appendChild(badgeA);
+      labelA.appendChild(nameA);
+
+      const arrow = document.createElement('span');
+      arrow.className = 'cset-arrow';
+      arrow.textContent = '→';
+
+      const labelB = document.createElement('span');
+      labelB.className = 'cset-scene-label';
+      const badgeB = document.createElement('span');
+      badgeB.className = 'tb-badge tb-badge-b';
+      badgeB.textContent = 'B';
+      const nameB = document.createElement('span');
+      nameB.className = 'cset-scene-name';
+      const liveB = scenes.find(s => s.id === set.sceneBId);
+      nameB.textContent = liveB ? liveB.name : (set.sceneBName || set.sceneBId);
+      nameB.title = nameB.textContent;
+      labelB.appendChild(badgeB);
+      labelB.appendChild(nameB);
+
+      scenesRow.appendChild(labelA);
+      scenesRow.appendChild(arrow);
+      scenesRow.appendChild(labelB);
+
+      // ---- meta row ----
+      const metaRow = document.createElement('div');
+      metaRow.className = 'cset-meta';
+
+      const modeTag = document.createElement('span');
+      modeTag.className = 'cset-tag';
+      modeTag.textContent = set.mode === 'slider' ? 'スライダー' : '分割';
+      metaRow.appendChild(modeTag);
+
+      if (set.mode === 'split') {
+        const layoutTag = document.createElement('span');
+        layoutTag.className = 'cset-tag';
+        layoutTag.textContent = set.layout === 'stack' ? '上下' : '左右';
+        metaRow.appendChild(layoutTag);
+      }
+
+      const syncTag = document.createElement('span');
+      syncTag.className = 'cset-tag';
+      syncTag.textContent = set.syncViews ? '同期ON' : '同期OFF';
+      metaRow.appendChild(syncTag);
+
+      const dateEl = document.createElement('span');
+      dateEl.className = 'cset-date';
+      dateEl.textContent = _formatDate(set.createdAt);
+      metaRow.appendChild(dateEl);
+
+      li.appendChild(hd);
+      li.appendChild(scenesRow);
+      li.appendChild(metaRow);
+
+      // Click card body to open (but not when clicking buttons)
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('.cset-actions')) return;
         if (scenes.length < 2) { showToast('2枚以上のシーンが必要です'); return; }
         restoreCompareSet(set);
       });
 
-      compareSetsList.appendChild(li);
+      frag.appendChild(li);
     });
+    compareSetsList.appendChild(frag);
   }
 
   // ============================================================
@@ -1419,6 +1604,7 @@ function init() {
     if (['INPUT','TEXTAREA','SELECT','BUTTON'].includes(tag)) return;
     if (document.activeElement?.contentEditable === 'true') return;
     if (!viewerActive) return;
+    if (setNameModal.style.display !== 'none') return; // modal open
 
     switch (e.key) {
       case 'ArrowLeft':
