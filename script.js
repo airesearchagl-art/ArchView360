@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.9
+ * ArchView360 v2.0
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -72,6 +72,45 @@ function init() {
   // Picker dropdown
   const pickerDropdown     = $('picker-dropdown');
   const pickerDropdownList = $('picker-dropdown-list');
+
+  // FloorMap Navigator
+  const floormapNavigator  = $('floormap-navigator');
+  const floormapFpSelect   = $('floormap-fp-select');
+  const floormapPlaceBtn   = $('floormap-place-btn');
+  const floormapExpandBtn  = $('floormap-expand-btn');
+  const floormapToggleBtn  = $('floormap-toggle-btn');
+  const floormapBody       = $('floormap-body');
+  const floormapCanvas     = $('floormap-canvas');
+  const floormapPlaceHint  = $('floormap-place-hint');
+  const floormapMkBar      = $('floormap-mk-bar');
+  const floormapMkName     = $('floormap-mk-name');
+  const floormapRotL       = $('floormap-rot-l');
+  const floormapRotR       = $('floormap-rot-r');
+  const floormapDelMk      = $('floormap-del-mk');
+
+  // Viewer drop overlay
+  const viewerDropOverlay  = $('viewer-drop-overlay');
+
+  // Project toolbar buttons
+  const addFloorplanBtn    = $('add-floorplan-btn');
+  const exportJsonBtn      = $('export-json-btn');
+  const importJsonBtn      = $('import-json-btn');
+
+  // Floor plan file input & JSON inputs
+  const floorplanInput     = $('floorplan-input');
+  const jsonImportInput    = $('json-import-input');
+  const importImagesInput  = $('import-images-input');
+
+  // Import modal
+  const importModal        = $('import-modal');
+  const importModalBody    = $('import-modal-body');
+  const importCloseBtn     = $('import-close-btn');
+  const importCancelBtn    = $('import-cancel-btn');
+  const importUploadBtn    = $('import-upload-btn');
+
+  // Sidebar floor plan elements
+  const floorplanListEl    = $('floorplan-list-el');
+  const floorplanEmptyMsg  = $('floorplan-empty-msg');
 
   // Set-name modal
   const setNameModal       = $('set-name-modal');
@@ -162,6 +201,28 @@ function init() {
 
   // ---- Viewer state ----
   let viewerActive = false;
+
+  // ---- Project State ----
+  const projectState = {
+    projectName: 'Untitled Project',
+    floorplans: [], // { id, name, fileName, blobUrl, imgEl }
+    markers:    [], // { id, floorplanId, sceneId, x, y, rotation }
+  };
+
+  // ---- FloorMap Navigator state ----
+  let activeFloorplanId   = null;
+  let selectedMarkerId    = null;
+  let isPlacementMode     = false;
+  let isFloormapCollapsed = false;
+  let isFloormapExpanded  = false;
+  let isDraggingMarker    = false;
+  let _dragMarkerId       = null;
+
+  // ---- Import state ----
+  let _importData         = null;
+
+  // ---- Viewer D&D counter ----
+  let viewerDragCounter   = 0;
 
   // ---- compareState: centralised compare mode state ----
   const compareState = {
@@ -330,6 +391,7 @@ function init() {
       const scene = {
         id:       genId(),
         name:     f.name.replace(/\.[^.]+$/, ''),
+        fileName: f.name,
         blobUrl,
         flipH:    false,
         thumbUrl: null,
@@ -367,6 +429,8 @@ function init() {
     flipBtn.classList.toggle('active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
+    // Update FloorMap marker highlight
+    if (activeFloorplanId) setTimeout(() => renderFloormapCanvas(), 0);
   }
 
   function prevScene() {
@@ -388,6 +452,14 @@ function init() {
     scenes.splice(idx, 1);
 
     if (!scenes.length) { disposeCurrentSphere(); clearAllAndShowUpload(); return; }
+    // Remove markers referencing deleted scene
+    const deletedId = scenes[idx]?.id; // scenes[idx] was already spliced? No, we spliced before this line
+    // Actually: idx was already removed by splice above; use the blobUrl approach
+    // We stored deleted scene id before splice in wasCurrent check — use scenes array pre-splice
+    // Better: filter markers whose sceneId no longer matches any scene
+    const sceneIds = new Set(scenes.map(s => s.id));
+    projectState.markers = projectState.markers.filter(m => sceneIds.has(m.sceneId));
+    if (activeFloorplanId) setTimeout(() => renderFloormapCanvas(), 0);
 
     // Adjust indices
     if (idx < compareState.sceneAIndex) compareState.sceneAIndex--;
@@ -461,6 +533,16 @@ function init() {
     compareState.sliderPosition = 50;
     compareState.syncViews      = true;
     compareState.activeSetId    = null;
+
+    // Clear project state
+    projectState.floorplans.forEach(fp => URL.revokeObjectURL(fp.blobUrl));
+    projectState.floorplans = [];
+    projectState.markers    = [];
+    activeFloorplanId       = null;
+    selectedMarkerId        = null;
+    isPlacementMode         = false;
+    hideEl(floormapNavigator);
+    renderFloorplanList();
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
     if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
@@ -1735,7 +1817,565 @@ function init() {
     if (!viewerActive) return;
     if (compareState.mode === 'single' && renderer) fitSingleCanvas();
     if (compareState.mode === 'split' || compareState.mode === 'slider') fitComparePanes();
+    if (activeFloorplanId) renderFloormapCanvas();
   });
+
+  // ============================================================
+  // Floor Plan Management
+  // ============================================================
+  function handleFloorplanFiles(fileList) {
+    const allowed = new Set(['image/jpeg','image/png','image/webp']);
+    const valid   = Array.from(fileList).filter(f => allowed.has(f.type) && f.size <= 50*1024*1024);
+    if (!valid.length) return;
+    valid.forEach(f => {
+      const blobUrl = URL.createObjectURL(f);
+      const imgEl   = new Image();
+      imgEl.src = blobUrl;
+      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, imgEl };
+      imgEl.onload = () => { if (!activeFloorplanId) setActiveFloorplan(fp.id); renderFloormap(); };
+      projectState.floorplans.push(fp);
+    });
+    if (!activeFloorplanId && projectState.floorplans.length)
+      activeFloorplanId = projectState.floorplans[0].id;
+    renderFloorplanList();
+    showToast(`平面図を ${valid.length} 件追加しました`);
+  }
+
+  function deleteFloorplan(id) {
+    const fp = projectState.floorplans.find(f => f.id === id);
+    if (fp) URL.revokeObjectURL(fp.blobUrl);
+    projectState.floorplans = projectState.floorplans.filter(f => f.id !== id);
+    projectState.markers    = projectState.markers.filter(m => m.floorplanId !== id);
+    if (activeFloorplanId === id)
+      activeFloorplanId = projectState.floorplans[0]?.id || null;
+    renderFloorplanList();
+    renderFloormap();
+  }
+
+  function setActiveFloorplan(id) {
+    activeFloorplanId = id;
+    selectedMarkerId  = null;
+    renderFloorplanList();
+    renderFloormap();
+  }
+
+  function renderFloorplanList() {
+    floorplanListEl.innerHTML = '';
+    if (!projectState.floorplans.length) {
+      hideEl(floorplanListEl);
+      showEl(floorplanEmptyMsg);
+      return;
+    }
+    showEl(floorplanListEl);
+    hideEl(floorplanEmptyMsg);
+
+    projectState.floorplans.forEach(fp => {
+      const div = document.createElement('div');
+      div.className = 'floorplan-item' + (fp.id === activeFloorplanId ? ' active' : '');
+
+      const icon = document.createElement('span');
+      icon.className = 'floorplan-icon';
+      icon.textContent = '🗺';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'floorplan-name';
+      nameEl.textContent = fp.name;
+      nameEl.title = fp.name;
+
+      nameEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        nameEl.contentEditable = 'true';
+        nameEl.classList.add('editing');
+        const r = document.createRange(); r.selectNodeContents(nameEl);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      });
+      nameEl.addEventListener('blur', () => {
+        nameEl.contentEditable = 'false'; nameEl.classList.remove('editing');
+        fp.name = nameEl.textContent.trim() || fp.name;
+        nameEl.textContent = fp.name;
+        // Update select if this is active
+        if (fp.id === activeFloorplanId) _updateFloormapSelect();
+      });
+      nameEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')  { e.preventDefault(); nameEl.blur(); }
+        if (e.key === 'Escape') { nameEl.textContent = fp.name; nameEl.blur(); }
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'floorplan-del-btn';
+      delBtn.textContent = '×'; delBtn.title = 'この平面図を削除';
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFloorplan(fp.id); });
+
+      div.appendChild(icon); div.appendChild(nameEl); div.appendChild(delBtn);
+      div.addEventListener('click', () => setActiveFloorplan(fp.id));
+      floorplanListEl.appendChild(div);
+    });
+  }
+
+  // ============================================================
+  // FloorMap Navigator
+  // ============================================================
+  function renderFloormap() {
+    if (!projectState.floorplans.length || !activeFloorplanId) {
+      hideEl(floormapNavigator);
+      return;
+    }
+    if (!isFloormapCollapsed) showEl(floormapNavigator);
+    else showEl(floormapNavigator);
+    _updateFloormapSelect();
+    renderFloormapCanvas();
+  }
+
+  function _updateFloormapSelect() {
+    floormapFpSelect.innerHTML = '';
+    projectState.floorplans.forEach(fp => {
+      const opt = document.createElement('option');
+      opt.value = fp.id; opt.textContent = fp.name;
+      if (fp.id === activeFloorplanId) opt.selected = true;
+      floormapFpSelect.appendChild(opt);
+    });
+  }
+
+  function renderFloormapCanvas() {
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?.imgEl || !fp.imgEl.complete || !fp.imgEl.naturalWidth) {
+      fp && (fp.imgEl.onload = () => renderFloormapCanvas());
+      return;
+    }
+    const img = fp.imgEl;
+    const W   = floormapCanvas.width;
+    const H   = floormapCanvas.height;
+    const ctx = floormapCanvas.getContext('2d');
+
+    // Draw background
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // Letter-box fit
+    const ia = img.naturalWidth / img.naturalHeight;
+    const ca = W / H;
+    let dw, dh, dx, dy;
+    if (ia > ca) { dw = W; dh = W / ia; dx = 0; dy = (H - dh) / 2; }
+    else         { dh = H; dw = H * ia; dy = 0; dx = (W - dw) / 2; }
+    ctx.drawImage(img, dx, dy, dw, dh);
+
+    // Store render area for coordinate mapping
+    fp._renderArea = { dx, dy, dw, dh };
+
+    // Draw markers
+    const curSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
+    projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .forEach(m => {
+        const px = dx + m.x * dw;
+        const py = dy + m.y * dh;
+        _drawMarker(ctx, px, py, m.rotation || 0,
+          m.sceneId === curSceneId, m.id === selectedMarkerId);
+      });
+  }
+
+  function _drawMarker(ctx, px, py, deg, isCurrent, isSelected) {
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(deg * Math.PI / 180);
+
+    // Arrow pointing "up" (in the direction of rotation)
+    ctx.beginPath();
+    ctx.moveTo(0, -14); ctx.lineTo(5, -7); ctx.lineTo(-5, -7); ctx.closePath();
+    ctx.fillStyle = isCurrent ? '#4f7cff' : 'rgba(160,160,160,0.9)';
+    ctx.fill();
+
+    // Circle body
+    ctx.beginPath();
+    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.fillStyle = isCurrent ? 'rgba(79,124,255,0.9)' : 'rgba(100,100,100,0.8)';
+    ctx.fill();
+    ctx.strokeStyle = isSelected ? '#fff' : (isCurrent ? 'rgba(107,147,255,0.7)' : 'rgba(255,255,255,0.3)');
+    ctx.lineWidth = isSelected ? 2 : 1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function _canvasToImage(e) {
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?._renderArea) return null;
+    const rect = floormapCanvas.getBoundingClientRect();
+    const scaleX = floormapCanvas.width  / rect.width;
+    const scaleY = floormapCanvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top)  * scaleY;
+    const { dx, dy, dw, dh } = fp._renderArea;
+    if (cx < dx || cx > dx + dw || cy < dy || cy > dy + dh) return null;
+    return { x: (cx - dx) / dw, y: (cy - dy) / dh, cx, cy };
+  }
+
+  function _findMarkerAt(cx, cy) {
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?._renderArea) return null;
+    const { dx, dy, dw, dh } = fp._renderArea;
+    const HIT = 12;
+    return projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .find(m => Math.hypot(cx - (dx + m.x * dw), cy - (dy + m.y * dh)) <= HIT) || null;
+  }
+
+  function _updateMarkerBar() {
+    const mk = projectState.markers.find(m => m.id === selectedMarkerId);
+    if (mk) {
+      const sc = scenes.find(s => s.id === mk.sceneId);
+      floormapMkName.textContent = sc ? `${sc.name} (${mk.rotation || 0}°)` : 'Unknown';
+      showEl(floormapMkBar);
+    } else {
+      hideEl(floormapMkBar);
+    }
+  }
+
+  // FloorMap canvas events
+  floormapCanvas.addEventListener('mousedown', (e) => {
+    if (isPlacementMode) return;
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?._renderArea) return;
+    const rect = floormapCanvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (floormapCanvas.width  / rect.width);
+    const cy = (e.clientY - rect.top)  * (floormapCanvas.height / rect.height);
+    const mk = _findMarkerAt(cx, cy);
+    if (mk) {
+      isDraggingMarker = true; _dragMarkerId = mk.id;
+      selectedMarkerId = mk.id;
+      floormapCanvas.style.cursor = 'grabbing';
+      // Switch to that scene on click (not drag)
+      _markerClickX = e.clientX; _markerClickY = e.clientY;
+    } else {
+      selectedMarkerId = null;
+    }
+    renderFloormapCanvas(); _updateMarkerBar();
+  });
+
+  let _markerClickX = 0, _markerClickY = 0;
+
+  floormapCanvas.addEventListener('mousemove', (e) => {
+    if (!isDraggingMarker || !_dragMarkerId) return;
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?._renderArea) return;
+    const coords = _canvasToImage(e);
+    if (!coords) return;
+    const mk = projectState.markers.find(m => m.id === _dragMarkerId);
+    if (mk) { mk.x = coords.x; mk.y = coords.y; renderFloormapCanvas(); }
+  });
+
+  floormapCanvas.addEventListener('mouseup', (e) => {
+    if (isDraggingMarker) {
+      // If barely moved = click → navigate to scene
+      const dist = Math.hypot(e.clientX - _markerClickX, e.clientY - _markerClickY);
+      if (dist < 5 && _dragMarkerId) {
+        const mk = projectState.markers.find(m => m.id === _dragMarkerId);
+        if (mk) {
+          const idx = scenes.findIndex(s => s.id === mk.sceneId);
+          if (idx >= 0) switchToScene(idx);
+        }
+      }
+      isDraggingMarker = false; _dragMarkerId = null;
+      floormapCanvas.style.cursor = isPlacementMode ? 'crosshair' : 'default';
+      _updateMarkerBar();
+    }
+  });
+
+  floormapCanvas.addEventListener('click', (e) => {
+    if (!isPlacementMode) return;
+    if (currentIdx < 0 || !scenes.length) { showToast('シーンを選択してください'); return; }
+    const coords = _canvasToImage(e);
+    if (!coords) return;
+    const curScene = scenes[currentIdx];
+    // Find existing marker for this scene on this floorplan
+    let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
+    if (mk) {
+      mk.x = coords.x; mk.y = coords.y;
+    } else {
+      mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id, x: coords.x, y: coords.y, rotation: 0 };
+      projectState.markers.push(mk);
+    }
+    selectedMarkerId = mk.id;
+    renderFloormapCanvas();
+    _updateMarkerBar();
+    showToast(`「${curScene.name}」のマーカーを配置しました`);
+  });
+
+  function togglePlacementMode() {
+    isPlacementMode = !isPlacementMode;
+    floormapPlaceBtn.classList.toggle('active', isPlacementMode);
+    floormapCanvas.classList.toggle('placement-mode', isPlacementMode);
+    floormapPlaceHint.style.display = isPlacementMode ? '' : 'none';
+    if (isPlacementMode) showToast('マーカー配置モード: 平面図をクリックして配置');
+  }
+
+  function toggleFloormapCollapse() {
+    isFloormapCollapsed = !isFloormapCollapsed;
+    floormapNavigator.classList.toggle('collapsed', isFloormapCollapsed);
+    floormapToggleBtn.textContent = isFloormapCollapsed ? '+' : '−';
+    floormapToggleBtn.title = isFloormapCollapsed ? '展開する' : '折りたたむ';
+  }
+
+  function toggleFloormapExpand() {
+    isFloormapExpanded = !isFloormapExpanded;
+    floormapNavigator.classList.toggle('expanded', isFloormapExpanded);
+    floormapExpandBtn.title = isFloormapExpanded ? '縮小' : '拡大';
+    // Resize canvas to match new body size
+    requestAnimationFrame(() => {
+      const w = floormapBody.clientWidth;
+      const h = floormapBody.clientHeight;
+      if (w > 0 && h > 0) { floormapCanvas.width = w; floormapCanvas.height = h; }
+      renderFloormapCanvas();
+    });
+  }
+
+  function rotateSelectedMarker(delta) {
+    const mk = projectState.markers.find(m => m.id === selectedMarkerId);
+    if (!mk) return;
+    mk.rotation = ((mk.rotation || 0) + delta + 360) % 360;
+    renderFloormapCanvas(); _updateMarkerBar();
+  }
+
+  function deleteSelectedMarker() {
+    if (!selectedMarkerId) return;
+    projectState.markers = projectState.markers.filter(m => m.id !== selectedMarkerId);
+    selectedMarkerId = null;
+    renderFloormapCanvas(); _updateMarkerBar();
+    showToast('マーカーを削除しました');
+  }
+
+  // FloorMap button wiring
+  floormapFpSelect.addEventListener('change', () => {
+    activeFloorplanId = floormapFpSelect.value;
+    selectedMarkerId  = null;
+    renderFloorplanList(); renderFloormapCanvas(); _updateMarkerBar();
+  });
+  floormapPlaceBtn.addEventListener('click', togglePlacementMode);
+  floormapExpandBtn.addEventListener('click', toggleFloormapExpand);
+  floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
+  floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
+  floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
+  floormapDelMk.addEventListener('click', deleteSelectedMarker);
+
+  // Floor plan file input
+  addFloorplanBtn.addEventListener('click', () => floorplanInput.click());
+  floorplanInput.addEventListener('change', () => {
+    if (floorplanInput.files.length) handleFloorplanFiles(floorplanInput.files);
+    floorplanInput.value = '';
+  });
+
+  // ============================================================
+  // JSON Export
+  // ============================================================
+  function exportProjectJSON() {
+    const data = {
+      appVersion:  '2.0',
+      exportedAt:  new Date().toISOString(),
+      projectName: projectState.projectName,
+      scenes: scenes.map(s => ({
+        id:       s.id,
+        name:     s.name,
+        fileName: s.fileName || `${s.name}.jpg`,
+        flipped:  s.flipH || false,
+      })),
+      floorplans: projectState.floorplans.map(f => ({
+        id:       f.id,
+        name:     f.name,
+        fileName: f.fileName,
+      })),
+      markers: projectState.markers.map(m => ({ ...m })),
+      compareSets: _loadCompareSets(),
+    };
+
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'archview360-project.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('プロジェクトをJSONとして書き出しました（画像データは含まれません）');
+  }
+
+  // ============================================================
+  // JSON Import
+  // ============================================================
+  function openImportJSON() { jsonImportInput.click(); }
+
+  jsonImportInput.addEventListener('change', () => {
+    const f = jsonImportInput.files[0];
+    if (!f) return;
+    jsonImportInput.value = '';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        _importData = JSON.parse(e.target.result);
+        _showImportModal();
+      } catch {
+        showGlobalError('JSONファイルの解析に失敗しました。');
+      }
+    };
+    reader.readAsText(f);
+  });
+
+  function _showImportModal() {
+    if (!_importData) return;
+    const allFiles = new Set([
+      ...(_importData.scenes     || []).map(s => s.fileName),
+      ...(_importData.floorplans || []).map(f => f.fileName),
+    ]);
+
+    const sceneCount  = _importData.scenes?.length     || 0;
+    const fpCount     = _importData.floorplans?.length || 0;
+    const mkCount     = _importData.markers?.length    || 0;
+    const csCount     = _importData.compareSets?.length || 0;
+
+    importModalBody.innerHTML =
+      `<div class="import-summary">` +
+        `シーン ${sceneCount} / 平面図 ${fpCount} / マーカー ${mkCount} / 比較セット ${csCount}` +
+      `</div>` +
+      `<p class="import-files-label">必要な画像ファイル（${allFiles.size} 件）:</p>` +
+      `<ul class="import-files-list">` +
+        [...allFiles].map(fn => `<li class="import-file-item" data-filename="${_esc(fn)}">◌ ${_esc(fn)}</li>`).join('') +
+      `</ul>` +
+      `<p class="import-note">ℹ️ JSONには画像データが含まれません。同名のファイルをアップロードして復元してください。別PCで復元するには画像一式が必要です。</p>`;
+
+    showEl(importModal);
+  }
+
+  function _doImportWithFiles(fileList) {
+    if (!_importData) return;
+    const fileMap = {};
+    Array.from(fileList).forEach(f => { fileMap[f.name] = f; });
+
+    // Restore scenes
+    let restoredScenes = 0;
+    const newScenes = [];
+    (_importData.scenes || []).forEach(sd => {
+      const file = fileMap[sd.fileName];
+      if (!file) return;
+      const blobUrl = URL.createObjectURL(file);
+      const scene   = { id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl, flipH: sd.flipped || false, thumbUrl: null };
+      newScenes.push(scene);
+      restoredScenes++;
+      generateThumb(blobUrl, (dataUrl) => { scene.thumbUrl = dataUrl; renderSceneList(); });
+    });
+
+    // Restore floor plans
+    let restoredFPs = 0;
+    const newFPs = [];
+    (_importData.floorplans || []).forEach(fd => {
+      const file = fileMap[fd.fileName];
+      if (!file) return;
+      const blobUrl = URL.createObjectURL(file);
+      const imgEl   = new Image();
+      imgEl.onload  = () => renderFloormapCanvas();
+      imgEl.src     = blobUrl;
+      newFPs.push({ id: fd.id, name: fd.name, fileName: fd.fileName, blobUrl, imgEl });
+      restoredFPs++;
+    });
+
+    // Apply
+    if (newScenes.length) {
+      const wasEmpty = !scenes.length;
+      scenes.push(...newScenes);
+      if (wasEmpty) {
+        showViewerLayout(); initThree();
+        requestAnimationFrame(() => { fitSingleCanvas(); switchToScene(0); });
+        renderCompareSets();
+      } else {
+        renderSceneList(); updateCompareBtns();
+      }
+    }
+
+    if (newFPs.length) {
+      projectState.floorplans.push(...newFPs);
+      if (!activeFloorplanId) activeFloorplanId = newFPs[0].id;
+      renderFloorplanList();
+    }
+
+    // Markers (always restore, even if some scenes/FPs missing)
+    const validSceneIds = new Set(scenes.map(s => s.id));
+    const validFpIds    = new Set(projectState.floorplans.map(f => f.id));
+    const newMarkers = (_importData.markers || []).filter(m =>
+      validSceneIds.has(m.sceneId) && validFpIds.has(m.floorplanId)
+    );
+    // Replace markers for restored scenes/floorplans
+    const existingIds = new Set(newMarkers.map(m => m.id));
+    projectState.markers = [...projectState.markers.filter(m => !existingIds.has(m.id)), ...newMarkers];
+
+    // Compare sets
+    if (_importData.compareSets?.length) {
+      _saveCompareSetsToStorage(_importData.compareSets);
+      setTimeout(() => renderCompareSets(), 0);
+    }
+
+    if (_importData.projectName) projectState.projectName = _importData.projectName;
+
+    renderFloormap();
+    hideEl(importModal);
+    _importData = null;
+    showToast(`復元: シーン ${restoredScenes} 件 / 平面図 ${restoredFPs} 件`);
+  }
+
+  // Import modal wiring
+  importCloseBtn.addEventListener('click',  () => { hideEl(importModal); _importData = null; });
+  importCancelBtn.addEventListener('click', () => { hideEl(importModal); _importData = null; });
+  importUploadBtn.addEventListener('click', () => importImagesInput.click());
+  importImagesInput.addEventListener('change', () => {
+    if (importImagesInput.files.length) _doImportWithFiles(importImagesInput.files);
+    importImagesInput.value = '';
+  });
+  importModal.addEventListener('click', (e) => {
+    if (e.target === importModal) { hideEl(importModal); _importData = null; }
+  });
+
+  // ============================================================
+  // Viewer Drag & Drop (add while viewing)
+  // ============================================================
+  const viewerWrapEl = viewerLayout.querySelector('.viewer-wrap');
+
+  viewerWrapEl.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer?.types?.includes?.('Files')) return;
+    e.preventDefault(); e.stopPropagation();
+    viewerDragCounter++;
+    if (viewerDragCounter === 1) showEl(viewerDropOverlay);
+  });
+
+  viewerWrapEl.addEventListener('dragleave', (e) => {
+    if (!e.dataTransfer?.types?.includes?.('Files')) return;
+    viewerDragCounter = Math.max(0, viewerDragCounter - 1);
+    if (viewerDragCounter === 0) hideEl(viewerDropOverlay);
+  });
+
+  viewerWrapEl.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types?.includes?.('Files')) return;
+    e.preventDefault(); e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  viewerWrapEl.addEventListener('drop', (e) => {
+    if (!e.dataTransfer?.types?.includes?.('Files')) return;
+    e.preventDefault(); e.stopPropagation();
+    viewerDragCounter = 0; hideEl(viewerDropOverlay);
+    handleFiles(e.dataTransfer.files); // always adds, never replaces
+  });
+
+  // ============================================================
+  // Ctrl + O shortcut (add images while viewing)
+  // ============================================================
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'o' && e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault(); fileInput.click();
+    }
+  });
+
+  exportJsonBtn.addEventListener('click', exportProjectJSON);
+  importJsonBtn.addEventListener('click', openImportJSON);
 
 } // end init()
 

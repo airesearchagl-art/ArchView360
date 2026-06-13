@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613e" />
+  <link rel="stylesheet" href="style.css?v=20260613f" />
 </head>
 <body>
   <header class="header">
@@ -69,6 +69,18 @@
         </div>
 
         <ul id="scene-list" class="scene-list"></ul>
+
+        <!-- 平面図一覧 -->
+        <div id="floorplan-section" class="floorplan-section">
+          <div class="floorplan-section-hd">
+            <span class="floorplan-section-title">平面図</span>
+          </div>
+          <div id="floorplan-list-el" class="floorplan-list-el"></div>
+          <div id="floorplan-empty-msg" class="floorplan-empty-msg">
+            <p>平面図がありません</p>
+            <p class="floorplan-empty-hint">ツールバー「🗺 平面図」で追加</p>
+          </div>
+        </div>
 
         <!-- 比較セット一覧 (常時表示) -->
         <div id="compare-sets-panel" class="compare-sets-panel">
@@ -141,6 +153,19 @@
           </button>
           <button id="slider-compare-btn" class="toolbar-btn" data-action="slider" disabled>
             <span class="btn-icon">◫</span><span class="btn-label">スライダー比較</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【プロジェクト】グループ -->
+          <button id="add-floorplan-btn" class="toolbar-btn" title="平面図を追加">
+            <span class="btn-icon">🗺</span><span class="btn-label">平面図</span>
+          </button>
+          <button id="export-json-btn" class="toolbar-btn" title="プロジェクトをJSONとして書き出す">
+            <span class="btn-icon">⬇</span><span class="btn-label">書き出し</span>
+          </button>
+          <button id="import-json-btn" class="toolbar-btn" title="JSONからプロジェクトを読み込む">
+            <span class="btn-icon">⬆</span><span class="btn-label">読み込み</span>
           </button>
         </div>
 
@@ -269,6 +294,39 @@
           </div>
         </div>
 
+        <!-- ===== FloorMap Navigator ===== -->
+        <div id="floormap-navigator" class="floormap-navigator" style="display:none">
+          <div class="floormap-hd">
+            <select id="floormap-fp-select" class="floormap-fp-select"></select>
+            <div class="floormap-hd-actions">
+              <button id="floormap-place-btn" class="floormap-icon-btn" title="マーカー配置モード">📍</button>
+              <button id="floormap-expand-btn" class="floormap-icon-btn" title="拡大/縮小">⛶</button>
+              <button id="floormap-toggle-btn" class="floormap-icon-btn" title="折りたたむ">−</button>
+            </div>
+          </div>
+          <div id="floormap-body" class="floormap-body">
+            <canvas id="floormap-canvas" class="floormap-canvas" width="220" height="165"></canvas>
+            <div id="floormap-place-hint" class="floormap-place-hint" style="display:none">クリックでマーカーを配置</div>
+          </div>
+          <div id="floormap-mk-bar" class="floormap-mk-bar" style="display:none">
+            <span id="floormap-mk-name" class="floormap-mk-name"></span>
+            <div class="floormap-mk-actions">
+              <button id="floormap-rot-l" class="floormap-icon-btn" title="左15°回転">↺</button>
+              <button id="floormap-rot-r" class="floormap-icon-btn" title="右15°回転">↻</button>
+              <button id="floormap-del-mk" class="floormap-icon-btn floormap-danger-btn" title="マーカー削除">×</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== ビューア内ドロップオーバーレイ ===== -->
+        <div id="viewer-drop-overlay" class="viewer-drop-overlay" style="display:none">
+          <div class="viewer-drop-inner">
+            <div class="viewer-drop-plus">＋</div>
+            <p class="viewer-drop-text">ここにドロップして画像を追加</p>
+            <p class="viewer-drop-sub">既存のシーンは維持されます</p>
+          </div>
+        </div>
+
       </div><!-- /viewer-wrap -->
     </div><!-- /viewer-layout -->
 
@@ -284,11 +342,31 @@
   </footer>
 
   <script src="vendor/three.min.js"></script>
-  <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="file-input"          accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="floorplan-input"     accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="json-import-input"   accept=".json,application/json"          class="visually-hidden" />
+  <input type="file" id="import-images-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
 
   <!-- Picker dropdown -->
   <div id="picker-dropdown" class="picker-dropdown" style="display:none" role="listbox">
     <ul id="picker-dropdown-list" class="picker-dropdown-list"></ul>
+  </div>
+
+  <!-- JSON Import モーダル -->
+  <div id="import-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-hd">
+        <span class="modal-title" id="import-modal-title">JSONからプロジェクトを読み込む</span>
+        <button id="import-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" id="import-modal-body">
+        <!-- filled by JS -->
+      </div>
+      <div class="modal-ft">
+        <button id="import-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="import-upload-btn" class="btn btn-primary">画像ファイルを選択して復元</button>
+      </div>
+    </div>
   </div>
 
   <!-- 比較セット名入力モーダル -->
@@ -311,6 +389,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260613e" defer></script>
+  <script src="script.js?v=20260613f" defer></script>
 </body>
 </html>
