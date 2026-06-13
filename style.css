@@ -434,7 +434,7 @@ body {
   min-height: 0;
 }
 
-/* ===== Control Bar (通常モード & 比較モード共通ベース) ===== */
+/* ===== Toolbar (統合ツールバー) ===== */
 .ctrl-bar {
   display: flex;
   align-items: center;
@@ -444,6 +444,18 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
+}
+
+/* Toolbar sections — each is a flex row within the toolbar */
+.tb-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tb-section.hidden {
+  display: none !important;
 }
 
 /* ===== Normal Mode Ctrl Buttons ===== */
@@ -677,6 +689,7 @@ body {
   flex-direction: row;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .compare-container.stack {
@@ -693,7 +706,7 @@ body {
   overflow: hidden;
 }
 
-.compare-container:not(.stack) .compare-pane:first-child {
+.compare-container:not(.stack):not(.slider-mode) .compare-pane:first-child {
   border-right: 2px solid var(--border);
 }
 
@@ -705,6 +718,75 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* ===== Slider Compare Mode ===== */
+.compare-container.slider-mode .compare-pane {
+  position: absolute;
+  inset: 0;
+  flex: none;
+}
+
+.compare-container.slider-mode #compare-pane-a {
+  z-index: 1;
+}
+
+.compare-container.slider-mode #compare-pane-b {
+  z-index: 2;
+  /* clip-path set by JS */
+}
+
+/* B label on right side in slider mode */
+.compare-container.slider-mode #compare-pane-b .compare-header {
+  left: auto;
+  right: 10px;
+}
+
+/* ===== Slider Divider ===== */
+.slider-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  transform: translateX(-50%);
+  z-index: 10;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* visual line via pseudo-element */
+}
+
+.slider-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.9);
+  box-shadow: 0 0 8px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+
+.slider-handle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.95);
+  border: 2px solid rgba(200,200,200,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #333;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  pointer-events: none;
+  user-select: none;
+  flex-shrink: 0;
+  z-index: 1;
+  position: relative;
 }
 
 .compare-header {
@@ -746,6 +828,66 @@ body {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* ===== Sidebar Help ===== */
+.sidebar-help {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-help-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebar-help-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.sidebar-help-title {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-help-arrow {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.sidebar-help-body {
+  padding: 6px 10px 10px;
+}
+
+.sidebar-shortcut-table {
+  margin: 0;
+  width: 100%;
+}
+
+.sidebar-shortcut-table td {
+  padding: 2px 6px 2px 0;
+  font-size: 0.72rem;
+  vertical-align: middle;
+  color: var(--text-muted);
+}
+
+.sidebar-shortcut-table .shortcut-key {
+  font-size: 0.68rem;
+  padding: 1px 5px !important;
+  white-space: nowrap;
 }
 
 /* ===== Global / Three.js Error ===== */
@@ -854,8 +996,8 @@ body {
     min-height: 0;
   }
 
-  /* Compare ctrl bar: wrap and compact on mobile */
-  .compare-ctrl-bar {
+  /* Toolbar compact on mobile */
+  .ctrl-bar {
     gap: 5px;
     padding: 6px 8px;
   }
@@ -870,11 +1012,11 @@ body {
   }
 
   /* Compare: default to stack layout on mobile */
-  .compare-container {
+  .compare-container:not(.slider-mode) {
     flex-direction: column;
   }
 
-  .compare-container:not(.stack) .compare-pane:first-child {
+  .compare-container:not(.stack):not(.slider-mode) .compare-pane:first-child {
     border-right: none;
     border-bottom: 2px solid var(--border);
   }

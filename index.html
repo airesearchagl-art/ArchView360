@@ -54,8 +54,8 @@
             <tr><td class="shortcut-key">R</td><td>視点リセット</td></tr>
             <tr><td class="shortcut-key">A</td><td>自動回転 ON / OFF</td></tr>
             <tr><td class="shortcut-key">F</td><td>全画面切り替え</td></tr>
-            <tr><td class="shortcut-key">C</td><td>比較モード ON / OFF</td></tr>
-            <tr><td class="shortcut-key">V</td><td>比較レイアウト切替（左右 ↔ 上下）</td></tr>
+            <tr><td class="shortcut-key">C</td><td>分割比較 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">V</td><td>分割レイアウト切替（左右 ↔ 上下）</td></tr>
           </tbody>
         </table>
         <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。左右が逆に見える場合は「左右反転」ボタンで補正できます。</p>
@@ -74,57 +74,84 @@
           </div>
         </div>
         <ul id="scene-list" class="scene-list"></ul>
+
+        <!-- ショートカットガイド（折りたたみ） -->
+        <div class="sidebar-help">
+          <button id="sidebar-help-toggle" class="sidebar-help-toggle" aria-expanded="false">
+            <span class="sidebar-help-title">ショートカット</span>
+            <span id="sidebar-help-arrow" class="sidebar-help-arrow">▾</span>
+          </button>
+          <div id="sidebar-help-body" class="sidebar-help-body hidden">
+            <table class="shortcut-table sidebar-shortcut-table">
+              <tbody>
+                <tr><td class="shortcut-key">← →</td><td>前/次シーン</td></tr>
+                <tr><td class="shortcut-key">R</td><td>視点リセット</td></tr>
+                <tr><td class="shortcut-key">A</td><td>自動回転</td></tr>
+                <tr><td class="shortcut-key">F</td><td>全画面</td></tr>
+                <tr><td class="shortcut-key">C</td><td>分割比較</td></tr>
+                <tr><td class="shortcut-key">V</td><td>レイアウト切替</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </aside>
 
       <!-- ビューワーラップ -->
       <div class="viewer-wrap">
 
-        <!-- 通常モード コントロールバー（viewer-containerの外に配置） -->
-        <div id="normal-controls" class="ctrl-bar hidden">
-          <button id="compare-mode-btn" class="ctrl-btn" title="比較モードに切り替え（シーンが2つ以上必要）">
-            <span class="ctrl-icon">⊞</span>
-            <span class="ctrl-label">比較</span>
-          </button>
-          <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
-            <span class="ctrl-icon">▶</span>
-            <span class="ctrl-label">自動回転</span>
-          </button>
-          <button id="flip-btn" class="ctrl-btn" title="画像を左右反転">
-            <span class="ctrl-icon">↔</span>
-            <span class="ctrl-label">左右反転</span>
-          </button>
-          <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
-            <span class="ctrl-icon">↺</span>
-            <span class="ctrl-label">リセット</span>
-          </button>
-          <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
-            <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
-            <span class="ctrl-label">全画面</span>
-          </button>
-          <button id="back-btn" class="ctrl-btn" title="アップロード画面へ">
-            <span class="ctrl-icon">📂</span>
-            <span class="ctrl-label">画像変更</span>
-          </button>
-        </div>
+        <!-- 統合ツールバー（常に表示） -->
+        <div id="toolbar" class="ctrl-bar hidden">
+          <!-- 通常モード セクション -->
+          <div id="tb-single" class="tb-section">
+            <button id="split-compare-btn" class="ctrl-btn" title="分割して2シーンを比較（シーンが2つ以上必要）">
+              <span class="ctrl-icon">⊞</span>
+              <span class="ctrl-label">分割比較</span>
+            </button>
+            <button id="slider-compare-btn" class="ctrl-btn" title="スライダーで2シーンを比較（シーンが2つ以上必要）">
+              <span class="ctrl-icon">◫</span>
+              <span class="ctrl-label">スライダー比較</span>
+            </button>
+            <button id="autorotate-btn" class="ctrl-btn" title="自動回転をON">
+              <span class="ctrl-icon">▶</span>
+              <span class="ctrl-label">自動回転</span>
+            </button>
+            <button id="flip-btn" class="ctrl-btn" title="画像を左右反転">
+              <span class="ctrl-icon">↔</span>
+              <span class="ctrl-label">左右反転</span>
+            </button>
+            <button id="reset-btn" class="ctrl-btn" title="視点をリセット">
+              <span class="ctrl-icon">↺</span>
+              <span class="ctrl-label">リセット</span>
+            </button>
+            <button id="fullscreen-btn" class="ctrl-btn" title="全画面表示">
+              <span class="ctrl-icon" id="fullscreen-icon">⛶</span>
+              <span class="ctrl-label">全画面</span>
+            </button>
+            <button id="back-btn" class="ctrl-btn" title="アップロード画面へ">
+              <span class="ctrl-icon">📂</span>
+              <span class="ctrl-label">画像変更</span>
+            </button>
+          </div>
 
-        <!-- 比較モード コントロールバー -->
-        <div id="compare-controls" class="ctrl-bar compare-ctrl-bar hidden">
-          <div class="compare-sel-group">
-            <span class="compare-badge compare-badge-a">A</span>
-            <select id="compare-select-a" class="compare-select"></select>
-            <button id="flip-a-btn" class="icon-btn" title="A画像を左右反転">↔ A反転</button>
+          <!-- 比較モード セクション（分割比較・スライダー比較 共通） -->
+          <div id="tb-compare" class="tb-section hidden">
+            <div class="compare-sel-group">
+              <span class="compare-badge compare-badge-a">A</span>
+              <select id="compare-select-a" class="compare-select"></select>
+              <button id="flip-a-btn" class="icon-btn" title="A画像を左右反転">↔ A反転</button>
+            </div>
+            <div class="compare-sel-group">
+              <span class="compare-badge compare-badge-b">B</span>
+              <select id="compare-select-b" class="compare-select"></select>
+              <button id="flip-b-btn" class="icon-btn" title="B画像を左右反転">↔ B反転</button>
+            </div>
+            <div class="compare-ctrl-sep"></div>
+            <button id="compare-autorotate-btn" class="icon-btn" title="自動回転">▶ 自動回転</button>
+            <button id="compare-reset-btn" class="icon-btn" title="視点リセット">↺ リセット</button>
+            <button id="compare-layout-btn" class="icon-btn" title="レイアウト切替">⊟ レイアウト</button>
+            <button id="compare-fullscreen-btn" class="icon-btn" title="全画面">⛶ 全画面</button>
+            <button id="exit-compare-btn" class="icon-btn icon-btn-exit" title="通常表示に戻る">✕ 通常表示に戻る</button>
           </div>
-          <div class="compare-sel-group">
-            <span class="compare-badge compare-badge-b">B</span>
-            <select id="compare-select-b" class="compare-select"></select>
-            <button id="flip-b-btn" class="icon-btn" title="B画像を左右反転">↔ B反転</button>
-          </div>
-          <div class="compare-ctrl-sep"></div>
-          <button id="compare-autorotate-btn" class="icon-btn" title="自動回転">▶ 自動回転</button>
-          <button id="compare-reset-btn" class="icon-btn" title="視点リセット">↺ リセット</button>
-          <button id="compare-layout-btn" class="icon-btn" title="レイアウト切替">⊟ レイアウト</button>
-          <button id="compare-fullscreen-btn" class="icon-btn" title="全画面">⛶ 全画面</button>
-          <button id="exit-compare-btn" class="icon-btn icon-btn-exit" title="通常モードに戻る">✕ 比較終了</button>
         </div>
 
         <!-- 通常モード ビューワー -->
@@ -160,7 +187,7 @@
           <div id="toast" class="toast hidden" aria-live="polite"></div>
         </div>
 
-        <!-- 比較モード ビューワー -->
+        <!-- 比較モード ビューワー（分割比較・スライダー比較 共通） -->
         <div id="compare-container" class="compare-container hidden">
           <div class="compare-pane" id="compare-pane-a">
             <div class="compare-header">
@@ -177,6 +204,10 @@
             </div>
             <canvas id="canvas-b"></canvas>
             <div id="loading-b" class="compare-loading hidden"><div class="spinner-sm"></div></div>
+          </div>
+          <!-- スライダー比較用ディバイダー -->
+          <div id="slider-divider" class="slider-divider hidden" role="separator" aria-label="比較スライダー">
+            <div class="slider-handle">⟺</div>
           </div>
         </div>
 

@@ -1,11 +1,10 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.2 — 360° Panorama Viewer
- * Three.js r128 / CDN + local fallback
+ * ArchView360 v1.3 — 360° Panorama Viewer
+ * Three.js r128 ローカル同梱
  * ============================================================ */
 
-// ---- Three.js 読み込み確認（defer なので DOMContentLoaded 後に実行） ----
 function init() {
   if (typeof THREE === 'undefined') {
     document.getElementById('threejs-error').classList.remove('hidden');
@@ -34,9 +33,14 @@ function init() {
   const globalError        = document.getElementById('global-error');
   const toast              = document.getElementById('toast');
 
-  // Normal-mode controls
-  const normalControls     = document.getElementById('normal-controls');
-  const compareModeBtn     = document.getElementById('compare-mode-btn');
+  // Toolbar
+  const toolbar            = document.getElementById('toolbar');
+  const tbSingle           = document.getElementById('tb-single');
+  const tbCompare          = document.getElementById('tb-compare');
+
+  // Single-mode toolbar buttons
+  const splitCompareBtn    = document.getElementById('split-compare-btn');
+  const sliderCompareBtn   = document.getElementById('slider-compare-btn');
   const autorotateBtn      = document.getElementById('autorotate-btn');
   const flipBtn            = document.getElementById('flip-btn');
   const resetBtn           = document.getElementById('reset-btn');
@@ -44,8 +48,7 @@ function init() {
   const fullscreenIcon     = document.getElementById('fullscreen-icon');
   const backBtn            = document.getElementById('back-btn');
 
-  // Compare-mode controls
-  const compareControls    = document.getElementById('compare-controls');
+  // Compare-mode toolbar buttons
   const compareSelectA     = document.getElementById('compare-select-a');
   const compareSelectB     = document.getElementById('compare-select-b');
   const flipABtn           = document.getElementById('flip-a-btn');
@@ -58,12 +61,19 @@ function init() {
 
   // Compare canvas area
   const compareContainer   = document.getElementById('compare-container');
+  const paneBEl            = document.getElementById('compare-pane-b');
   const canvasA            = document.getElementById('canvas-a');
   const canvasB            = document.getElementById('canvas-b');
   const loadingA           = document.getElementById('loading-a');
   const loadingB           = document.getElementById('loading-b');
   const compareNameA       = document.getElementById('compare-name-a');
   const compareNameB       = document.getElementById('compare-name-b');
+  const sliderDivider      = document.getElementById('slider-divider');
+
+  // Sidebar help
+  const sidebarHelpToggle  = document.getElementById('sidebar-help-toggle');
+  const sidebarHelpBody    = document.getElementById('sidebar-help-body');
+  const sidebarHelpArrow   = document.getElementById('sidebar-help-arrow');
 
   // ---- Three.js (single mode) ----
   let renderer, threeScene, camera, sphere;
@@ -76,7 +86,7 @@ function init() {
   let sphereA = null, sphereB = null;
   let compareInited = false;
 
-  // ---- Camera state (shared) ----
+  // ---- Camera state (shared across all modes) ----
   const DEFAULT_FOV   = 75;
   const MIN_FOV       = 30;
   const MAX_FOV       = 100;
@@ -90,19 +100,23 @@ function init() {
   let autoRotate = false;
   const AUTO_ROTATE_SPEED = 0.0015;
 
-  // ---- Drag / touch ----
+  // ---- Canvas drag / touch ----
   let isDragging    = false;
   let lastX         = 0;
   let lastY         = 0;
   let lastTouches   = null;
   let lastPinchDist = null;
 
+  // ---- Slider drag ----
+  let isSliderDragging = false;
+  let sliderPos        = 50; // percentage 0-100
+
   // ---- Toast ----
   let toastTimer = null;
 
   // ---- View mode ----
-  let viewMode      = 'single';  // 'single' | 'compare'
-  let compareLayout = 'side';    // 'side' | 'stack'
+  let viewMode      = 'single';  // 'single' | 'split' | 'slider'
+  let compareLayout = 'side';    // 'side' | 'stack' (split mode only)
   let compareIdxA   = 0;
   let compareIdxB   = 1;
 
@@ -145,7 +159,7 @@ function init() {
   }
 
   // ============================================================
-  // Three.js init (compare mode)
+  // Three.js init (compare / slider mode)
   // ============================================================
   function initCompareRenderers() {
     if (compareInited) return;
@@ -246,8 +260,8 @@ function init() {
       switchToScene(0);
     } else {
       renderSceneList();
-      if (viewMode === 'compare') updateCompareSelects();
-      updateCompareModeBtn();
+      if (viewMode !== 'single') updateCompareSelects();
+      updateCompareBtns();
       showToast(`${valid.length} 件のシーンを追加しました`);
       const items = sceneListEl.querySelectorAll('.scene-item');
       items[firstNewIdx]?.scrollIntoView({ block: 'nearest' });
@@ -259,7 +273,6 @@ function init() {
     currentIdx = idx;
     const s = scenes[idx];
     currentSceneNameEl.textContent = s.name;
-    // Update flip button state
     flipBtn.classList.toggle('ctrl-btn-active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
@@ -280,7 +293,7 @@ function init() {
     URL.revokeObjectURL(scenes[idx].blobUrl);
     const wasCurrent = (idx === currentIdx);
     if (wasCurrent) stopRender();
-    if (viewMode === 'compare') exitCompareMode(true);
+    if (viewMode !== 'single') exitCompareMode(true);
 
     scenes.splice(idx, 1);
 
@@ -290,9 +303,9 @@ function init() {
       return;
     }
 
-    updateCompareModeBtn();
+    updateCompareBtns();
     let nextIdx = currentIdx;
-    if (wasCurrent)       nextIdx = Math.min(idx, scenes.length - 1);
+    if (wasCurrent)          nextIdx = Math.min(idx, scenes.length - 1);
     else if (idx < currentIdx) nextIdx = currentIdx - 1;
 
     currentIdx = -1;
@@ -300,7 +313,7 @@ function init() {
   }
 
   function clearAllAndShowUpload() {
-    if (viewMode === 'compare') exitCompareMode(true);
+    if (viewMode !== 'single') exitCompareMode(true);
     stopRender();
     hideToast();
     disposeCurrentSphere();
@@ -356,7 +369,7 @@ function init() {
         s.name = newName || s.name;
         nameEl.textContent = s.name;
         if (i === currentIdx) currentSceneNameEl.textContent = s.name;
-        if (viewMode === 'compare') updateCompareSelects();
+        if (viewMode !== 'single') updateCompareSelects();
       });
 
       nameEl.addEventListener('keydown', (e) => {
@@ -391,14 +404,15 @@ function init() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
-  function updateCompareModeBtn() {
+  function updateCompareBtns() {
     const canCompare = scenes.length >= 2;
-    compareModeBtn.disabled = !canCompare;
-    compareModeBtn.title = canCompare
-      ? (viewMode === 'compare' ? '通常モードへ戻る' : '比較モードに切り替え')
-      : '比較モードにはシーンが2つ以上必要です';
-    compareModeBtn.style.opacity = canCompare ? '' : '0.45';
-    compareModeBtn.style.cursor  = canCompare ? '' : 'default';
+    const disabledTip = 'シーンが2つ以上必要です';
+    splitCompareBtn.disabled  = !canCompare;
+    sliderCompareBtn.disabled = !canCompare;
+    splitCompareBtn.title  = canCompare ? '分割して2シーンを比較' : disabledTip;
+    sliderCompareBtn.title = canCompare ? 'スライダーで2シーンを比較' : disabledTip;
+    splitCompareBtn.style.opacity  = canCompare ? '' : '0.45';
+    sliderCompareBtn.style.opacity = canCompare ? '' : '0.45';
   }
 
   // ============================================================
@@ -470,6 +484,7 @@ function init() {
             new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
           );
           sceneA.add(sphereA);
+          fitOnePane(canvasA, rendererA, cameraA);
         } else {
           disposeMesh(sphereB, sceneB);
           if (s.flipH) {
@@ -482,11 +497,9 @@ function init() {
             new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
           );
           sceneB.add(sphereB);
+          fitOnePane(canvasB, rendererB, cameraB);
         }
         loadingEl.classList.add('hidden');
-        // Re-fit after texture loaded (pane may now have correct size)
-        if (side === 'a') fitOnePane(canvasA, rendererA, cameraA);
-        else              fitOnePane(canvasB, rendererB, cameraB);
       },
       null,
       () => { loadingEl.classList.add('hidden'); }
@@ -500,13 +513,13 @@ function init() {
     if (animFrameId !== null) return;
     function loop() {
       animFrameId = requestAnimationFrame(loop);
-      if (autoRotate && !isDragging) theta += AUTO_ROTATE_SPEED;
+      if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
 
       const lx = Math.sin(phi) * Math.cos(theta);
       const ly = Math.cos(phi);
       const lz = Math.sin(phi) * Math.sin(theta);
 
-      if (viewMode === 'compare') {
+      if (viewMode === 'split' || viewMode === 'slider') {
         if (rendererA && sceneA && cameraA) {
           cameraA.lookAt(lx, ly, lz);
           rendererA.render(sceneA, cameraA);
@@ -550,55 +563,112 @@ function init() {
   }
 
   // ============================================================
-  // Compare mode
+  // Toolbar update
   // ============================================================
-  function enterCompareMode() {
+  function updateToolbar() {
+    if (viewMode === 'single') {
+      tbSingle.classList.remove('hidden');
+      tbCompare.classList.add('hidden');
+      // Layout button only relevant for split mode
+      compareLayoutBtn.classList.remove('hidden');
+    } else {
+      tbSingle.classList.add('hidden');
+      tbCompare.classList.remove('hidden');
+      // Hide layout button in slider mode
+      compareLayoutBtn.classList.toggle('hidden', viewMode === 'slider');
+    }
+  }
+
+  // ============================================================
+  // Split compare mode
+  // ============================================================
+  function enterSplitMode() {
     if (scenes.length < 2) {
-      showToast('比較モードには2つ以上のシーンが必要です');
+      showToast('分割比較には2つ以上のシーンが必要です');
       return;
     }
 
-    viewMode = 'compare';
+    viewMode = 'split';
     compareIdxA = currentIdx >= 0 ? currentIdx : 0;
     compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
 
-    // Switch UI
-    normalControls.classList.add('hidden');
     viewerContainer.classList.add('hidden');
-    compareControls.classList.remove('hidden');
     compareContainer.classList.remove('hidden');
+    compareContainer.classList.remove('slider-mode');
+    sliderDivider.classList.add('hidden');
+    paneBEl.style.clipPath = '';
+    paneBEl.style.pointerEvents = '';
 
-    // Apply layout class
     applyCompareLayout(false);
-
-    // Init renderers once
+    updateToolbar();
     initCompareRenderers();
-
-    // Update selects then load
     updateCompareSelects();
 
-    // Fit panes (layout needs a frame to settle after unhide)
     requestAnimationFrame(() => {
       fitComparePanes();
       loadCompareSphere('a', compareIdxA);
       loadCompareSphere('b', compareIdxB);
     });
 
-    // Restart render loop in compare mode
+    stopRender();
+    startRender();
+  }
+
+  // ============================================================
+  // Slider compare mode
+  // ============================================================
+  function enterSliderMode() {
+    if (scenes.length < 2) {
+      showToast('スライダー比較には2つ以上のシーンが必要です');
+      return;
+    }
+
+    viewMode = 'slider';
+    compareIdxA = currentIdx >= 0 ? currentIdx : 0;
+    compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
+
+    viewerContainer.classList.add('hidden');
+    compareContainer.classList.remove('hidden');
+    compareContainer.classList.add('slider-mode');
+    sliderDivider.classList.remove('hidden');
+
+    // pane-b: pointer-events off (pane-a handles all interaction)
+    paneBEl.style.pointerEvents = 'none';
+
+    // Remove split layout classes
+    compareContainer.classList.remove('stack');
+
+    sliderPos = 50;
+    updateSlider(sliderPos);
+
+    updateToolbar();
+    initCompareRenderers();
+    updateCompareSelects();
+
+    requestAnimationFrame(() => {
+      fitComparePanes();
+      loadCompareSphere('a', compareIdxA);
+      loadCompareSphere('b', compareIdxB);
+    });
+
     stopRender();
     startRender();
   }
 
   function exitCompareMode(silent) {
-    if (viewMode !== 'compare' && !silent) return;
+    if (viewMode === 'single' && !silent) return;
     viewMode = 'single';
 
     compareContainer.classList.add('hidden');
-    compareControls.classList.add('hidden');
-    viewerContainer.classList.remove('hidden');
-    normalControls.classList.remove('hidden');
+    compareContainer.classList.remove('slider-mode');
+    compareContainer.classList.remove('stack');
+    sliderDivider.classList.add('hidden');
+    paneBEl.style.clipPath    = '';
+    paneBEl.style.pointerEvents = '';
 
-    // Keep sphereA/B alive for re-entry; just stop rendering them
+    viewerContainer.classList.remove('hidden');
+    updateToolbar();
+
     stopRender();
     if (scenes.length > 0) {
       fitCanvasToContainer();
@@ -631,9 +701,17 @@ function init() {
         sel.appendChild(opt);
       });
     });
-    // Sync flip button states
     flipABtn.classList.toggle('icon-btn-active', scenes[compareIdxA]?.flipH || false);
     flipBBtn.classList.toggle('icon-btn-active', scenes[compareIdxB]?.flipH || false);
+  }
+
+  // ============================================================
+  // Slider position
+  // ============================================================
+  function updateSlider(pos) {
+    sliderPos = Math.max(2, Math.min(98, pos));
+    paneBEl.style.clipPath = `inset(0 0 0 ${sliderPos}%)`;
+    sliderDivider.style.left = `${sliderPos}%`;
   }
 
   // ============================================================
@@ -647,11 +725,11 @@ function init() {
   }
 
   function toggleFlipCompare(side) {
-    const idx = side === 'a' ? compareIdxA : compareIdxB;
+    const idx  = side === 'a' ? compareIdxA : compareIdxB;
     if (idx < 0 || idx >= scenes.length) return;
     scenes[idx].flipH = !scenes[idx].flipH;
-    const btn  = side === 'a' ? flipABtn : flipBBtn;
-    const mesh = side === 'a' ? sphereA  : sphereB;
+    const btn  = side === 'a' ? flipABtn  : flipBBtn;
+    const mesh = side === 'a' ? sphereA   : sphereB;
     btn.classList.toggle('icon-btn-active', scenes[idx].flipH);
     applyFlipToMesh(mesh, scenes[idx].flipH);
   }
@@ -662,8 +740,9 @@ function init() {
   function showViewerLayout() {
     uploadSection.classList.add('hidden');
     viewerLayout.classList.remove('hidden');
-    normalControls.classList.remove('hidden');
-    updateCompareModeBtn();
+    toolbar.classList.remove('hidden');
+    updateToolbar();
+    updateCompareBtns();
   }
 
   function showLoading(visible, msg) {
@@ -750,7 +829,6 @@ function init() {
     applyFov();
   }
 
-  // ---- Attach interaction to a canvas ----
   function attachCanvasInteraction(canvas) {
     canvas.style.cursor = 'grab';
 
@@ -794,20 +872,26 @@ function init() {
     }, { passive: false });
 
     canvas.addEventListener('touchend', () => {
-      isDragging   = false;
+      isDragging    = false;
       lastTouches   = null;
       lastPinchDist = null;
       canvas.style.cursor = 'grab';
     });
   }
 
-  // Attach once for all three canvases
+  // Attach interaction once for all canvases
   attachCanvasInteraction(viewerCanvas);
   attachCanvasInteraction(canvasA);
   attachCanvasInteraction(canvasB);
 
-  // Global mouse move / up (shared for all canvases)
+  // Global mouse move / up
   window.addEventListener('mousemove', (e) => {
+    if (isSliderDragging) {
+      const rect = compareContainer.getBoundingClientRect();
+      const pos = ((e.clientX - rect.left) / rect.width) * 100;
+      updateSlider(pos);
+      return;
+    }
     if (!isDragging) return;
     rotate(e.clientX - lastX, e.clientY - lastY);
     lastX = e.clientX;
@@ -815,9 +899,50 @@ function init() {
   });
 
   window.addEventListener('mouseup', () => {
+    if (isSliderDragging) {
+      isSliderDragging = false;
+      return;
+    }
     if (!isDragging) return;
     isDragging = false;
     [viewerCanvas, canvasA, canvasB].forEach(c => { c.style.cursor = 'grab'; });
+  });
+
+  // Slider divider mouse drag
+  sliderDivider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isSliderDragging = true;
+  });
+
+  // Slider divider touch drag
+  sliderDivider.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isSliderDragging = true;
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isSliderDragging) return;
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const rect = compareContainer.getBoundingClientRect();
+      const pos = ((e.touches[0].clientX - rect.left) / rect.width) * 100;
+      updateSlider(pos);
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchend', () => {
+    isSliderDragging = false;
+  });
+
+  // ============================================================
+  // Sidebar help toggle
+  // ============================================================
+  sidebarHelpToggle.addEventListener('click', () => {
+    const expanded = sidebarHelpBody.classList.toggle('hidden');
+    sidebarHelpToggle.setAttribute('aria-expanded', !expanded);
+    sidebarHelpArrow.textContent = expanded ? '▾' : '▴';
   });
 
   // ============================================================
@@ -847,11 +972,11 @@ function init() {
         if (supportsFullscreen) fullscreenBtn.click();
         break;
       case 'c': case 'C':
-        if (viewMode === 'compare') exitCompareMode();
-        else enterCompareMode();
+        if (viewMode === 'single') enterSplitMode();
+        else exitCompareMode();
         break;
       case 'v': case 'V':
-        if (viewMode === 'compare') {
+        if (viewMode === 'split') {
           compareLayout = compareLayout === 'side' ? 'stack' : 'side';
           applyCompareLayout();
         }
@@ -870,11 +995,8 @@ function init() {
   // ============================================================
   // Control buttons
   // ============================================================
-  compareModeBtn.addEventListener('click', () => {
-    if (viewMode === 'compare') exitCompareMode();
-    else enterCompareMode();
-  });
-
+  splitCompareBtn.addEventListener('click', () => enterSplitMode());
+  sliderCompareBtn.addEventListener('click', () => enterSliderMode());
   autorotateBtn.addEventListener('click', () => toggleAutoRotate());
   compareAutorotBtn.addEventListener('click', () => toggleAutoRotate());
   flipBtn.addEventListener('click', toggleFlipSingle);
@@ -905,6 +1027,7 @@ function init() {
   });
 
   compareLayoutBtn.addEventListener('click', () => {
+    if (viewMode !== 'split') return;
     compareLayout = compareLayout === 'side' ? 'stack' : 'side';
     applyCompareLayout();
   });
@@ -954,7 +1077,7 @@ function init() {
     fullscreenBtn.title = isFs ? '全画面を終了' : '全画面表示';
     requestAnimationFrame(() => {
       if (viewMode === 'single' && renderer) fitCanvasToContainer();
-      if (viewMode === 'compare') fitComparePanes();
+      if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
     });
   }
   document.addEventListener('fullscreenchange', onFsChange);
@@ -966,7 +1089,7 @@ function init() {
   window.addEventListener('resize', () => {
     if (viewerLayout.classList.contains('hidden')) return;
     if (viewMode === 'single' && renderer) fitCanvasToContainer();
-    if (viewMode === 'compare') fitComparePanes();
+    if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
   });
 
 } // end init()
@@ -978,10 +1101,9 @@ function init() {
   } else if (retries > 0) {
     setTimeout(() => waitForThree(retries - 1), 100);
   } else {
-    // Three.js never loaded
     const el = document.getElementById('threejs-error');
     if (el) el.classList.remove('hidden');
     const us = document.getElementById('upload-section');
     if (us) us.classList.add('hidden');
   }
-})(50); // up to 5 seconds
+})(50);
