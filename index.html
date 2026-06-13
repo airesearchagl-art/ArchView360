@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613c" />
+  <link rel="stylesheet" href="style.css?v=20260613d" />
 </head>
 <body>
   <header class="header">
@@ -69,6 +69,14 @@
         </div>
 
         <ul id="scene-list" class="scene-list"></ul>
+
+        <!-- 比較セット一覧 -->
+        <div id="compare-sets-panel" class="compare-sets-panel" style="display:none">
+          <div class="compare-sets-hd">
+            <span class="compare-sets-title">比較セット</span>
+          </div>
+          <ul id="compare-sets-list" class="compare-sets-list"></ul>
+        </div>
 
         <!-- 操作ガイド -->
         <div class="sidebar-guide">
@@ -148,15 +156,28 @@
           <!-- 【比較対象】グループ -->
           <div class="tb-select-group">
             <span class="tb-badge tb-badge-a">A</span>
-            <select id="compare-select-a" class="toolbar-select"></select>
+            <button id="picker-btn-a" class="toolbar-btn toolbar-btn-sm picker-btn" title="シーンAを選択">
+              <img id="picker-thumb-a" class="picker-thumb" src="" alt="" style="display:none" />
+              <span id="picker-name-a" class="picker-name">---</span>
+            </button>
           </div>
           <button id="swap-ab-btn" class="toolbar-btn toolbar-btn-sm" data-action="swap">
             <span class="btn-icon">⇄</span><span class="btn-label">入替</span>
           </button>
           <div class="tb-select-group">
             <span class="tb-badge tb-badge-b">B</span>
-            <select id="compare-select-b" class="toolbar-select"></select>
+            <button id="picker-btn-b" class="toolbar-btn toolbar-btn-sm picker-btn" title="シーンBを選択">
+              <img id="picker-thumb-b" class="picker-thumb" src="" alt="" style="display:none" />
+              <span id="picker-name-b" class="picker-name">---</span>
+            </button>
           </div>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【セット保存】グループ -->
+          <button id="save-set-btn" class="toolbar-btn toolbar-btn-sm" data-action="save-set" title="現在の比較をセットとして保存">
+            <span class="btn-icon">💾</span><span class="btn-label">セット保存</span>
+          </button>
 
           <div class="tb-sep"></div>
 
@@ -258,6 +279,10 @@
 
   <script src="vendor/three.min.js"></script>
   <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
-  <script src="script.js?v=20260613c" defer></script>
+  <!-- Picker dropdown (injected by JS) -->
+  <div id="picker-dropdown" class="picker-dropdown" style="display:none" role="listbox">
+    <ul id="picker-dropdown-list" class="picker-dropdown-list"></ul>
+  </div>
+  <script src="script.js?v=20260613d" defer></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.7
+ * ArchView360 v1.8
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -42,12 +42,17 @@ function init() {
   const exitCompareBtn     = $('exit-compare-btn');
   const switchToSplitBtn   = $('switch-to-split-btn');
   const switchToSliderBtn  = $('switch-to-slider-btn');
-  const compareSelectA     = $('compare-select-a');
-  const compareSelectB     = $('compare-select-b');
+  const pickerBtnA         = $('picker-btn-a');
+  const pickerBtnB         = $('picker-btn-b');
+  const pickerThumbA       = $('picker-thumb-a');
+  const pickerThumbB       = $('picker-thumb-b');
+  const pickerNameA        = $('picker-name-a');
+  const pickerNameB        = $('picker-name-b');
   const flipABtn           = $('flip-a-btn');
   const flipBBtn           = $('flip-b-btn');
   const swapAbBtn          = $('swap-ab-btn');
   const syncBtn            = $('sync-btn');
+  const saveSetBtn         = $('save-set-btn');
   const layoutLrBtn        = $('layout-lr-btn');
   const layoutTbBtn        = $('layout-tb-btn');
   const splitLayoutSep     = $('split-layout-sep');
@@ -60,6 +65,12 @@ function init() {
   const clearAllBtn        = $('clear-all-btn');
   const sceneListEl        = $('scene-list');
   const sceneCounter       = $('scene-counter');
+  const compareSetsPanelEl = $('compare-sets-panel');
+  const compareSetsList    = $('compare-sets-list');
+
+  // Picker dropdown
+  const pickerDropdown     = $('picker-dropdown');
+  const pickerDropdownList = $('picker-dropdown-list');
 
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
@@ -149,7 +160,14 @@ function init() {
     layout:         'side',   // 'side' | 'stack'
     sliderPosition: 50,
     syncViews:      true,
+    activeSetId:    null,
   };
+
+  // ---- Picker state ----
+  let pickerActiveSide = null; // null | 'a' | 'b'
+
+  // ---- localStorage key ----
+  const LS_COMPARE_SETS = 'archview360.compareSets';
 
   // Convenience aliases (always read from / write to compareState)
   function get_viewMode()      { return compareState.mode; }
@@ -319,6 +337,7 @@ function init() {
         fitSingleCanvas();
         switchToScene(0);
       });
+      renderCompareSets();
     } else {
       renderSceneList();
       if (compareState.mode !== 'single') updateCompareSelects();
@@ -430,6 +449,7 @@ function init() {
     compareState.layout         = 'side';
     compareState.sliderPosition = 50;
     compareState.syncViews      = true;
+    compareState.activeSetId    = null;
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
     if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
@@ -811,14 +831,21 @@ function init() {
   // ============================================================
   // Split compare mode
   // ============================================================
-  function enterSplitMode() {
+  function enterSplitMode({ idxA, idxB, layout, syncViews } = {}) {
     if (scenes.length < 2) { showToast('分割比較には2枚以上のシーンが必要です'); return; }
     if (compareState.mode === 'slider') _exitCompareUI();
 
-    compareState.mode        = 'split';
-    compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
-    compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
-      ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
+    compareState.mode = 'split';
+    if (idxA !== undefined) {
+      compareState.sceneAIndex = idxA;
+      compareState.sceneBIndex = idxB;
+      if (layout !== undefined) compareState.layout = layout;
+    } else {
+      compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
+      compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
+        ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
+      compareState.layout = 'side';
+    }
 
     hideEl(viewerContainer);
     hideEl(toolbarSingle);
@@ -838,8 +865,7 @@ function init() {
     switchToSplitBtn.classList.add('active');
     switchToSliderBtn.classList.remove('active');
 
-    // Reset sync when entering compare
-    compareState.syncViews = true;
+    compareState.syncViews = syncViews !== undefined ? syncViews : true;
     phiA = phi; thetaA = theta; fovA = fov;
     phiB = phi; thetaB = theta; fovB = fov;
     updateSyncBtn();
@@ -856,14 +882,19 @@ function init() {
   // ============================================================
   // Slider compare mode
   // ============================================================
-  function enterSliderMode() {
+  function enterSliderMode({ idxA, idxB, sliderPos, syncViews } = {}) {
     if (scenes.length < 2) { showToast('スライダー比較には2枚以上のシーンが必要です'); return; }
     if (compareState.mode === 'split') _exitCompareUI();
 
-    compareState.mode        = 'slider';
-    compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
-    compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
-      ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
+    compareState.mode = 'slider';
+    if (idxA !== undefined) {
+      compareState.sceneAIndex = idxA;
+      compareState.sceneBIndex = idxB;
+    } else {
+      compareState.sceneAIndex = currentIdx >= 0 ? currentIdx : 0;
+      compareState.sceneBIndex = compareState.sceneAIndex === scenes.length - 1
+        ? compareState.sceneAIndex - 1 : compareState.sceneAIndex + 1;
+    }
 
     hideEl(viewerContainer);
     hideEl(toolbarSingle);
@@ -881,12 +912,12 @@ function init() {
     switchToSliderBtn.classList.add('active');
     switchToSplitBtn.classList.remove('active');
 
-    compareState.syncViews = true;
+    compareState.syncViews = syncViews !== undefined ? syncViews : true;
     phiA = phi; thetaA = theta; fovA = fov;
     phiB = phi; thetaB = theta; fovB = fov;
     updateSyncBtn();
 
-    compareState.sliderPosition = 50;
+    compareState.sliderPosition = sliderPos !== undefined ? sliderPos : 50;
     updateSlider(compareState.sliderPosition);
 
     updateCompareSelects();
@@ -936,18 +967,218 @@ function init() {
   }
 
   function updateCompareSelects() {
-    [compareSelectA, compareSelectB].forEach((sel, si) => {
-      const cur = si === 0 ? compareState.sceneAIndex : compareState.sceneBIndex;
-      sel.innerHTML = '';
-      scenes.forEach((s, i) => {
-        const opt = document.createElement('option');
-        opt.value = i; opt.textContent = `${i+1}. ${s.name}`;
-        if (i === cur) opt.selected = true;
-        sel.appendChild(opt);
+    const sa = scenes[compareState.sceneAIndex];
+    const sb = scenes[compareState.sceneBIndex];
+    if (sa) {
+      if (sa.thumbUrl) { pickerThumbA.src = sa.thumbUrl; pickerThumbA.style.display = ''; }
+      else pickerThumbA.style.display = 'none';
+      pickerNameA.textContent = sa.name;
+    }
+    if (sb) {
+      if (sb.thumbUrl) { pickerThumbB.src = sb.thumbUrl; pickerThumbB.style.display = ''; }
+      else pickerThumbB.style.display = 'none';
+      pickerNameB.textContent = sb.name;
+    }
+    flipABtn.classList.toggle('active', sa?.flipH || false);
+    flipBBtn.classList.toggle('active', sb?.flipH || false);
+  }
+
+  // ============================================================
+  // Scene picker dropdown
+  // ============================================================
+  function openPicker(side) {
+    if (pickerActiveSide === side) { closePicker(); return; }
+    pickerActiveSide = side;
+
+    pickerDropdownList.innerHTML = '';
+    scenes.forEach((s, i) => {
+      const curIdx = side === 'a' ? compareState.sceneAIndex : compareState.sceneBIndex;
+      const li = document.createElement('li');
+      li.className = 'picker-item' + (i === curIdx ? ' selected' : '');
+      li.setAttribute('role', 'option');
+
+      const thumbEl = document.createElement('div');
+      thumbEl.className = 'picker-item-thumb' + (s.thumbUrl ? '' : ' picker-item-thumb-empty');
+      if (s.thumbUrl) {
+        const img = document.createElement('img');
+        img.src = s.thumbUrl; img.alt = ''; img.draggable = false;
+        thumbEl.appendChild(img);
+      }
+      const numEl = document.createElement('span');
+      numEl.className = 'picker-item-num';
+      numEl.textContent = i + 1;
+      const nameEl = document.createElement('span');
+      nameEl.className = 'picker-item-name';
+      nameEl.textContent = s.name;
+
+      li.appendChild(thumbEl);
+      li.appendChild(numEl);
+      li.appendChild(nameEl);
+
+      li.addEventListener('click', () => {
+        if (side === 'a') {
+          compareState.sceneAIndex = i;
+          loadCompareSphere('a', i);
+        } else {
+          compareState.sceneBIndex = i;
+          loadCompareSphere('b', i);
+        }
+        updateCompareSelects();
+        closePicker();
       });
+      pickerDropdownList.appendChild(li);
     });
-    flipABtn.classList.toggle('active', scenes[compareState.sceneAIndex]?.flipH || false);
-    flipBBtn.classList.toggle('active', scenes[compareState.sceneBIndex]?.flipH || false);
+
+    const btn = side === 'a' ? pickerBtnA : pickerBtnB;
+    const rect = btn.getBoundingClientRect();
+    pickerDropdown.style.display = '';
+    pickerDropdown.style.left = `${rect.left}px`;
+    pickerDropdown.style.top  = `${rect.bottom + 4}px`;
+
+    requestAnimationFrame(() => {
+      const dpRect = pickerDropdown.getBoundingClientRect();
+      if (dpRect.right > window.innerWidth - 8)
+        pickerDropdown.style.left = `${Math.max(8, window.innerWidth - dpRect.width - 8)}px`;
+      if (dpRect.bottom > window.innerHeight - 8)
+        pickerDropdown.style.top = `${Math.max(8, rect.top - dpRect.height - 4)}px`;
+    });
+  }
+
+  function closePicker() {
+    pickerActiveSide = null;
+    pickerDropdown.style.display = 'none';
+  }
+
+  // ============================================================
+  // Compare sets — localStorage CRUD
+  // ============================================================
+  function _loadCompareSets() {
+    try { return JSON.parse(localStorage.getItem(LS_COMPARE_SETS)) || []; }
+    catch { return []; }
+  }
+
+  function _saveCompareSetsToStorage(sets) {
+    try { localStorage.setItem(LS_COMPARE_SETS, JSON.stringify(sets)); } catch {}
+  }
+
+  function saveCurrentCompareSet() {
+    if (compareState.mode === 'single') { showToast('比較モード中のみ保存できます'); return; }
+    const sa = scenes[compareState.sceneAIndex];
+    const sb = scenes[compareState.sceneBIndex];
+    if (!sa || !sb) { showToast('シーンが見つかりません'); return; }
+
+    const defaultName = `${sa.name} vs ${sb.name}`;
+    const name = window.prompt('セット名を入力してください', defaultName);
+    if (name === null) return;
+    const setName = name.trim() || defaultName;
+
+    const sets = _loadCompareSets();
+    const existingIdx = sets.findIndex(s => s.name === setName);
+    const newSet = {
+      id:             existingIdx >= 0 ? sets[existingIdx].id : genId(),
+      name:           setName,
+      mode:           compareState.mode,
+      sceneAId:       sa.id,
+      sceneBId:       sb.id,
+      layout:         compareState.layout,
+      sliderPosition: compareState.sliderPosition,
+      syncViews:      compareState.syncViews,
+      createdAt:      existingIdx >= 0 ? sets[existingIdx].createdAt : new Date().toISOString(),
+    };
+    if (existingIdx >= 0) sets[existingIdx] = newSet;
+    else sets.push(newSet);
+    _saveCompareSetsToStorage(sets);
+    compareState.activeSetId = newSet.id;
+    renderCompareSets();
+    showToast(`「${setName}」を保存しました`);
+  }
+
+  function restoreCompareSet(set) {
+    const idxA = scenes.findIndex(s => s.id === set.sceneAId);
+    const idxB = scenes.findIndex(s => s.id === set.sceneBId);
+    if (idxA < 0 || idxB < 0) {
+      showToast('シーンが見つかりません（削除済みかもしれません）', 4000);
+      return;
+    }
+    compareState.activeSetId = set.id;
+    if (set.mode === 'slider') {
+      enterSliderMode({ idxA, idxB, sliderPos: set.sliderPosition ?? 50, syncViews: set.syncViews ?? true });
+    } else {
+      enterSplitMode({ idxA, idxB, layout: set.layout || 'side', syncViews: set.syncViews ?? true });
+    }
+  }
+
+  function deleteCompareSet(setId) {
+    const sets = _loadCompareSets().filter(s => s.id !== setId);
+    _saveCompareSetsToStorage(sets);
+    if (compareState.activeSetId === setId) compareState.activeSetId = null;
+    renderCompareSets();
+    showToast('セットを削除しました');
+  }
+
+  function renameCompareSet(setId) {
+    const sets = _loadCompareSets();
+    const set = sets.find(s => s.id === setId);
+    if (!set) return;
+    const newName = window.prompt('新しいセット名', set.name);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    set.name = trimmed;
+    _saveCompareSetsToStorage(sets);
+    renderCompareSets();
+  }
+
+  // ============================================================
+  // Render compare sets sidebar section
+  // ============================================================
+  function renderCompareSets() {
+    const sets = _loadCompareSets();
+    if (!sets.length) { hideEl(compareSetsPanelEl); return; }
+    showEl(compareSetsPanelEl);
+
+    compareSetsList.innerHTML = '';
+    sets.forEach(set => {
+      const li = document.createElement('li');
+      li.className = 'compare-set-item' + (set.id === compareState.activeSetId ? ' active' : '');
+
+      const iconEl = document.createElement('span');
+      iconEl.className = 'cset-mode-icon';
+      iconEl.textContent = set.mode === 'slider' ? '◫' : '⊞';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'cset-name';
+      nameEl.textContent = set.name;
+      nameEl.title = set.name;
+
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'cset-actions';
+
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'cset-btn';
+      renameBtn.title = '名前を変更';
+      renameBtn.textContent = '✏';
+      renameBtn.addEventListener('click', (e) => { e.stopPropagation(); renameCompareSet(set.id); });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'cset-btn cset-btn-del';
+      delBtn.title = '削除';
+      delBtn.textContent = '×';
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCompareSet(set.id); });
+
+      actionsEl.appendChild(renameBtn);
+      actionsEl.appendChild(delBtn);
+      li.appendChild(iconEl);
+      li.appendChild(nameEl);
+      li.appendChild(actionsEl);
+
+      li.addEventListener('click', () => {
+        if (scenes.length < 2) { showToast('2枚以上のシーンが必要です'); return; }
+        restoreCompareSet(set);
+      });
+
+      compareSetsList.appendChild(li);
+    });
   }
 
   // ============================================================
@@ -1263,16 +1494,17 @@ function init() {
     applyCompareLayout();
   });
 
-  compareSelectA.addEventListener('change', () => {
-    compareState.sceneAIndex = parseInt(compareSelectA.value, 10);
-    flipABtn.classList.toggle('active', scenes[compareState.sceneAIndex]?.flipH || false);
-    loadCompareSphere('a', compareState.sceneAIndex);
-  });
+  pickerBtnA.addEventListener('click', (e) => { e.stopPropagation(); openPicker('a'); });
+  pickerBtnB.addEventListener('click', (e) => { e.stopPropagation(); openPicker('b'); });
+  saveSetBtn.addEventListener('click', saveCurrentCompareSet);
 
-  compareSelectB.addEventListener('change', () => {
-    compareState.sceneBIndex = parseInt(compareSelectB.value, 10);
-    flipBBtn.classList.toggle('active', scenes[compareState.sceneBIndex]?.flipH || false);
-    loadCompareSphere('b', compareState.sceneBIndex);
+  // Close picker when clicking outside
+  document.addEventListener('click', (e) => {
+    if (pickerActiveSide && !pickerDropdown.contains(e.target) &&
+        e.target !== pickerBtnA && e.target !== pickerBtnB &&
+        !pickerBtnA.contains(e.target) && !pickerBtnB.contains(e.target)) {
+      closePicker();
+    }
   });
 
   errorBackBtn.addEventListener('click', () => {
