@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613f" />
+  <link rel="stylesheet" href="style.css?v=20260613g" />
 </head>
 <body>
   <header class="header">
@@ -296,17 +296,21 @@
 
         <!-- ===== FloorMap Navigator ===== -->
         <div id="floormap-navigator" class="floormap-navigator" style="display:none">
+          <div id="floormap-resize-handle" class="floormap-resize-handle"></div>
           <div class="floormap-hd">
             <select id="floormap-fp-select" class="floormap-fp-select"></select>
             <div class="floormap-hd-actions">
+              <button class="floormap-icon-btn floormap-size-btn" data-size="240" title="S">S</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="360" title="M">M</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="520" title="L">L</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="700" title="XL">XL</button>
               <button id="floormap-place-btn" class="floormap-icon-btn" title="マーカー配置モード">📍</button>
-              <button id="floormap-expand-btn" class="floormap-icon-btn" title="拡大/縮小">⛶</button>
               <button id="floormap-toggle-btn" class="floormap-icon-btn" title="折りたたむ">−</button>
             </div>
           </div>
           <div id="floormap-body" class="floormap-body">
-            <canvas id="floormap-canvas" class="floormap-canvas" width="220" height="165"></canvas>
-            <div id="floormap-place-hint" class="floormap-place-hint" style="display:none">クリックでマーカーを配置</div>
+            <canvas id="floormap-canvas" class="floormap-canvas" width="340" height="255"></canvas>
+            <div id="floormap-place-hint" class="floormap-place-hint" style="display:none">クリックでマーカーを配置 / 視点方向を自動取得</div>
           </div>
           <div id="floormap-mk-bar" class="floormap-mk-bar" style="display:none">
             <span id="floormap-mk-name" class="floormap-mk-name"></span>
@@ -389,6 +393,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260613f" defer></script>
+  <script src="script.js?v=20260613g" defer></script>
 </body>
 </html>

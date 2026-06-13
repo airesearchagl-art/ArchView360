@@ -77,7 +77,7 @@ function init() {
   const floormapNavigator  = $('floormap-navigator');
   const floormapFpSelect   = $('floormap-fp-select');
   const floormapPlaceBtn   = $('floormap-place-btn');
-  const floormapExpandBtn  = $('floormap-expand-btn');
+  const floormapExpandBtn  = null; // removed in v2.1
   const floormapToggleBtn  = $('floormap-toggle-btn');
   const floormapBody       = $('floormap-body');
   const floormapCanvas     = $('floormap-canvas');
@@ -1555,6 +1555,7 @@ function init() {
   // ============================================================
   const SENSITIVITY = 0.3;
 
+  let _floormapRotRafPending = false;
   function rotate(dx, dy, pane) {
     const r = Math.PI / 180;
     if (!compareState.syncViews && pane === 'a') {
@@ -1569,6 +1570,11 @@ function init() {
       theta -= dx * SENSITIVITY * r;
       phi   -= dy * SENSITIVITY * r;
       phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+    }
+    // Real-time floormap redraw to reflect current yaw on canvas
+    if (activeFloorplanId && !_floormapRotRafPending) {
+      _floormapRotRafPending = true;
+      requestAnimationFrame(() => { _floormapRotRafPending = false; renderFloormapCanvas(); });
     }
   }
 
@@ -1920,10 +1926,15 @@ function init() {
       hideEl(floormapNavigator);
       return;
     }
-    if (!isFloormapCollapsed) showEl(floormapNavigator);
-    else showEl(floormapNavigator);
+    showEl(floormapNavigator);
     _updateFloormapSelect();
-    renderFloormapCanvas();
+    // Sync canvas size to body on first show
+    requestAnimationFrame(() => {
+      const bw = floormapBody.clientWidth;
+      const bh = floormapBody.clientHeight;
+      if (bw > 0 && bh > 0) { floormapCanvas.width = bw; floormapCanvas.height = bh; }
+      renderFloormapCanvas();
+    });
   }
 
   function _updateFloormapSelect() {
@@ -1941,6 +1952,12 @@ function init() {
     if (!fp?.imgEl || !fp.imgEl.complete || !fp.imgEl.naturalWidth) {
       fp && (fp.imgEl.onload = () => renderFloormapCanvas());
       return;
+    }
+    // Keep canvas dimensions in sync with body element
+    const bw = floormapBody.clientWidth;
+    const bh = floormapBody.clientHeight;
+    if (bw > 0 && bh > 0 && (floormapCanvas.width !== bw || floormapCanvas.height !== bh)) {
+      floormapCanvas.width = bw; floormapCanvas.height = bh;
     }
     const img = fp.imgEl;
     const W   = floormapCanvas.width;
@@ -1970,30 +1987,42 @@ function init() {
       .forEach(m => {
         const px = dx + m.x * dw;
         const py = dy + m.y * dh;
+        const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
+        const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
         _drawMarker(ctx, px, py, m.rotation || 0,
-          m.sceneId === curSceneId, m.id === selectedMarkerId);
+          m.sceneId === curSceneId, m.id === selectedMarkerId, label);
       });
   }
 
-  function _drawMarker(ctx, px, py, deg, isCurrent, isSelected) {
+  function _drawMarker(ctx, px, py, deg, isCurrent, isSelected, label) {
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(deg * Math.PI / 180);
 
     // Arrow pointing "up" (in the direction of rotation)
     ctx.beginPath();
-    ctx.moveTo(0, -14); ctx.lineTo(5, -7); ctx.lineTo(-5, -7); ctx.closePath();
+    ctx.moveTo(0, -16); ctx.lineTo(6, -8); ctx.lineTo(-6, -8); ctx.closePath();
     ctx.fillStyle = isCurrent ? '#4f7cff' : 'rgba(160,160,160,0.9)';
     ctx.fill();
 
     // Circle body
     ctx.beginPath();
-    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+    ctx.arc(0, 0, 9, 0, Math.PI * 2);
     ctx.fillStyle = isCurrent ? 'rgba(79,124,255,0.9)' : 'rgba(100,100,100,0.8)';
     ctx.fill();
     ctx.strokeStyle = isSelected ? '#fff' : (isCurrent ? 'rgba(107,147,255,0.7)' : 'rgba(255,255,255,0.3)');
     ctx.lineWidth = isSelected ? 2 : 1;
     ctx.stroke();
+
+    // Scene number label (drawn without rotation so text stays upright)
+    if (label != null) {
+      ctx.rotate(-(deg * Math.PI / 180));
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(String(label), 0, 1);
+    }
 
     ctx.restore();
   }
@@ -2083,23 +2112,46 @@ function init() {
   });
 
   floormapCanvas.addEventListener('click', (e) => {
-    if (!isPlacementMode) return;
+    if (!isPlacementMode) {
+      // In non-placement mode, click on marker is handled by mouseup; but check if
+      // clicked on empty area to deselect — already handled in mousedown.
+      return;
+    }
     if (currentIdx < 0 || !scenes.length) { showToast('シーンを選択してください'); return; }
+
+    // Check if clicked on an existing marker → navigate to that scene
+    const fp2 = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (fp2?._renderArea) {
+      const rect2 = floormapCanvas.getBoundingClientRect();
+      const cx2 = (e.clientX - rect2.left) * (floormapCanvas.width / rect2.width);
+      const cy2 = (e.clientY - rect2.top)  * (floormapCanvas.height / rect2.height);
+      const hitMk = _findMarkerAt(cx2, cy2);
+      if (hitMk) {
+        const idx = scenes.findIndex(s => s.id === hitMk.sceneId);
+        if (idx >= 0) switchToScene(idx);
+        selectedMarkerId = hitMk.id;
+        renderFloormapCanvas(); _updateMarkerBar();
+        return;
+      }
+    }
+
     const coords = _canvasToImage(e);
     if (!coords) return;
     const curScene = scenes[currentIdx];
-    // Find existing marker for this scene on this floorplan
+    // Use current yaw (theta) as initial rotation for the marker
+    // theta is in radians; convert to degrees and normalize to 0-360
+    const initialRot = Math.round(((-theta * 180 / Math.PI) % 360 + 360) % 360 / 15) * 15 % 360;
     let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
     if (mk) {
-      mk.x = coords.x; mk.y = coords.y;
+      mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
     } else {
-      mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id, x: coords.x, y: coords.y, rotation: 0 };
+      mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id, x: coords.x, y: coords.y, rotation: initialRot };
       projectState.markers.push(mk);
     }
     selectedMarkerId = mk.id;
     renderFloormapCanvas();
     _updateMarkerBar();
-    showToast(`「${curScene.name}」のマーカーを配置しました`);
+    showToast(`「${curScene.name}」のマーカーを配置しました（向き: ${initialRot}°）`);
   });
 
   function togglePlacementMode() {
@@ -2120,8 +2172,6 @@ function init() {
   function toggleFloormapExpand() {
     isFloormapExpanded = !isFloormapExpanded;
     floormapNavigator.classList.toggle('expanded', isFloormapExpanded);
-    floormapExpandBtn.title = isFloormapExpanded ? '縮小' : '拡大';
-    // Resize canvas to match new body size
     requestAnimationFrame(() => {
       const w = floormapBody.clientWidth;
       const h = floormapBody.clientHeight;
@@ -2145,6 +2195,67 @@ function init() {
     showToast('マーカーを削除しました');
   }
 
+  // FloorMap size presets
+  const FM_LS_KEY = 'archview360.floormapWidth';
+  function _applyFloormapWidth(w) {
+    floormapNavigator.style.width = w + 'px';
+    // Resize canvas to fit new body width
+    requestAnimationFrame(() => {
+      const bw = floormapBody.clientWidth;
+      const bh = floormapBody.clientHeight;
+      if (bw > 0 && bh > 0) { floormapCanvas.width = bw; floormapCanvas.height = bh; }
+      renderFloormapCanvas();
+    });
+  }
+
+  floormapNavigator.querySelectorAll('.floormap-size-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const w = parseInt(btn.dataset.size, 10);
+      _applyFloormapWidth(w);
+      try { localStorage.setItem(FM_LS_KEY, w); } catch {}
+    });
+  });
+
+  // Restore saved width
+  try {
+    const saved = parseInt(localStorage.getItem(FM_LS_KEY), 10);
+    if (saved >= 240 && saved <= 700) floormapNavigator.style.width = saved + 'px';
+  } catch {}
+
+  // Drag resize handle (top edge → resize height of floormap-body)
+  const floormapResizeHandle = document.getElementById('floormap-resize-handle');
+  let _fmResizing = false, _fmResizeStartY = 0, _fmResizeStartH = 0;
+  floormapResizeHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    _fmResizing = true;
+    _fmResizeStartY = e.clientY;
+    _fmResizeStartH = floormapBody.clientHeight;
+    document.addEventListener('mousemove', _fmResizeMove);
+    document.addEventListener('mouseup',   _fmResizeUp);
+  });
+  function _fmResizeMove(e) {
+    if (!_fmResizing) return;
+    const dy = _fmResizeStartY - e.clientY; // dragging up increases height
+    const newH = Math.max(100, Math.min(window.innerHeight * 0.7, _fmResizeStartH + dy));
+    floormapBody.style.height = newH + 'px';
+    // Resize canvas
+    floormapCanvas.width  = floormapBody.clientWidth;
+    floormapCanvas.height = newH;
+    renderFloormapCanvas();
+  }
+  function _fmResizeUp() {
+    _fmResizing = false;
+    document.removeEventListener('mousemove', _fmResizeMove);
+    document.removeEventListener('mouseup',   _fmResizeUp);
+    try { localStorage.setItem('archview360.floormapHeight', floormapBody.clientHeight); } catch {}
+  }
+
+  // Restore saved height
+  try {
+    const savedH = parseInt(localStorage.getItem('archview360.floormapHeight'), 10);
+    if (savedH >= 100) floormapBody.style.height = savedH + 'px';
+  } catch {}
+
   // FloorMap button wiring
   floormapFpSelect.addEventListener('change', () => {
     activeFloorplanId = floormapFpSelect.value;
@@ -2152,7 +2263,6 @@ function init() {
     renderFloorplanList(); renderFloormapCanvas(); _updateMarkerBar();
   });
   floormapPlaceBtn.addEventListener('click', togglePlacementMode);
-  floormapExpandBtn.addEventListener('click', toggleFloormapExpand);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
   floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
   floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
@@ -2170,7 +2280,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.0',
+      appVersion:  '2.1',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       scenes: scenes.map(s => ({
