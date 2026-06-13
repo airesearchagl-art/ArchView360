@@ -77,16 +77,25 @@ function init() {
   const floormapNavigator  = $('floormap-navigator');
   const floormapFpSelect   = $('floormap-fp-select');
   const floormapPlaceBtn   = $('floormap-place-btn');
-  const floormapExpandBtn  = null; // removed in v2.1
   const floormapToggleBtn  = $('floormap-toggle-btn');
   const floormapBody       = $('floormap-body');
   const floormapCanvas     = $('floormap-canvas');
   const floormapPlaceHint  = $('floormap-place-hint');
-  const floormapMkBar      = $('floormap-mk-bar');
-  const floormapMkName     = $('floormap-mk-name');
+  const floormapTooltip    = $('floormap-tooltip');
+  // Info panel (v2.4)
+  const floormapInfoPanel  = $('floormap-info-panel');
+  const floormapInfoName   = $('floormap-info-name');
+  const floormapInfoScene  = $('floormap-info-scene');
+  const floormapInfoDir    = $('floormap-info-dir');
+  const floormapRenameBtn  = $('floormap-rename-btn');
   const floormapRotL       = $('floormap-rot-l');
   const floormapRotR       = $('floormap-rot-r');
   const floormapDelMk      = $('floormap-del-mk');
+  // Marker list (v2.4)
+  const floormapMkListUl    = $('floormap-mk-list-ul');
+  const floormapMkListEmpty = $('floormap-mk-list-empty');
+  // Scene fade overlay (v2.4)
+  const sceneFadeOverlay   = $('scene-fade-overlay');
 
   // Viewer drop overlay
   const viewerDropOverlay  = $('viewer-drop-overlay');
@@ -421,16 +430,34 @@ function init() {
     }
   }
 
+  let _fadePending = false;
   function switchToScene(idx) {
     if (idx < 0 || idx >= scenes.length) return;
+    // Fade transition when already viewing a scene (not first load)
+    if (currentIdx >= 0 && currentIdx !== idx && !_fadePending && compareState.mode === 'single') {
+      _fadePending = true;
+      sceneFadeOverlay.style.opacity = '1';
+      setTimeout(() => {
+        _doSwitchToScene(idx);
+        requestAnimationFrame(() => {
+          sceneFadeOverlay.style.opacity = '0';
+          _fadePending = false;
+        });
+      }, 150);
+      return;
+    }
+    _doSwitchToScene(idx);
+  }
+
+  function _doSwitchToScene(idx) {
     currentIdx = idx;
     const s = scenes[idx];
     currentSceneNameEl.textContent = s.name;
     flipBtn.classList.toggle('active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
-    // Update FloorMap marker highlight
-    if (activeFloorplanId) setTimeout(() => renderFloormapCanvas(), 0);
+    // Update FloorMap marker highlight and list
+    if (activeFloorplanId) setTimeout(() => { renderFloormapCanvas(); renderMarkerList(); }, 0);
   }
 
   function prevScene() {
@@ -1626,6 +1653,11 @@ function init() {
     } else {
       fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov + delta));
       applyFov();
+      // Update FOV cone in FloorMap
+      if (activeFloorplanId && !_floormapRotRafPending) {
+        _floormapRotRafPending = true;
+        requestAnimationFrame(() => { _floormapRotRafPending = false; renderFloormapCanvas(); });
+      }
     }
   }
 
@@ -1982,6 +2014,7 @@ function init() {
       const bh = floormapBody.clientHeight;
       if (bw > 0 && bh > 0) { floormapCanvas.width = bw; floormapCanvas.height = bh; }
       renderFloormapCanvas();
+      renderMarkerList();
     });
   }
 
@@ -2028,24 +2061,49 @@ function init() {
     // Store render area for coordinate mapping
     fp._renderArea = { dx, dy, dw, dh };
 
-    // Draw markers
+    // Draw markers (non-current first so current renders on top)
     const curSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
-    projectState.markers
-      .filter(m => m.floorplanId === activeFloorplanId)
-      .forEach(m => {
-        const px = dx + m.x * dw;
-        const py = dy + m.y * dh;
-        const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
-        const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
-        _drawMarker(ctx, px, py, m.rotation || 0,
-          m.sceneId === curSceneId, m.id === selectedMarkerId, label);
-      });
+    const markers = projectState.markers.filter(m => m.floorplanId === activeFloorplanId);
+    // Draw non-current markers first
+    markers.filter(m => m.sceneId !== curSceneId).forEach(m => {
+      const px = dx + m.x * dw;
+      const py = dy + m.y * dh;
+      const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
+      const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
+      _drawMarker(ctx, px, py, m.rotation || 0, false, m.id === selectedMarkerId, label, null);
+    });
+    // Draw current marker on top with FOV cone
+    markers.filter(m => m.sceneId === curSceneId).forEach(m => {
+      const px = dx + m.x * dw;
+      const py = dy + m.y * dh;
+      const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
+      const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
+      // Use shared fov in single/sync mode
+      const coneFov = (compareState.mode === 'single' || compareState.syncViews) ? fov : null;
+      _drawMarker(ctx, px, py, m.rotation || 0, true, m.id === selectedMarkerId, label, coneFov);
+    });
   }
 
-  function _drawMarker(ctx, px, py, deg, isCurrent, isSelected, label) {
+  function _drawMarker(ctx, px, py, deg, isCurrent, isSelected, label, fovDeg) {
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(deg * Math.PI / 180);
+
+    // FOV cone (drawn first so it's behind the pin)
+    if (isCurrent && fovDeg != null) {
+      const coneLen = 55;
+      const halfFov = (fovDeg / 2) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      // arc centered on "up" direction (-π/2 in standard canvas angles)
+      ctx.arc(0, 0, coneLen, -Math.PI / 2 - halfFov, -Math.PI / 2 + halfFov);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(79,124,255,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(79,124,255,0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
 
     // Arrow pointing "up" (in the direction of rotation)
     ctx.beginPath();
@@ -2098,15 +2156,82 @@ function init() {
       .find(m => Math.hypot(cx - (dx + m.x * dw), cy - (dy + m.y * dh)) <= HIT) || null;
   }
 
-  function _updateMarkerBar() {
+  function _updateInfoPanel() {
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
       const sc = scenes.find(s => s.id === mk.sceneId);
-      floormapMkName.textContent = sc ? `${sc.name} (${mk.rotation || 0}°)` : 'Unknown';
-      showEl(floormapMkBar);
+      floormapInfoName.textContent  = mk.name || sc?.name || '---';
+      floormapInfoScene.textContent = sc?.name || '---';
+      floormapInfoDir.textContent   = (mk.rotation || 0) + '°';
+      showEl(floormapInfoPanel);
     } else {
-      hideEl(floormapMkBar);
+      hideEl(floormapInfoPanel);
     }
+  }
+
+  function renderMarkerList() {
+    if (!activeFloorplanId) return;
+    const markers = projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .sort((a, b) => {
+        const ia = scenes.findIndex(s => s.id === a.sceneId);
+        const ib = scenes.findIndex(s => s.id === b.sceneId);
+        return ia - ib;
+      });
+
+    const curSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
+    floormapMkListUl.innerHTML = '';
+
+    if (!markers.length) {
+      showEl(floormapMkListEmpty);
+      return;
+    }
+    hideEl(floormapMkListEmpty);
+
+    markers.forEach(mk => {
+      const sc       = scenes.find(s => s.id === mk.sceneId);
+      const scIdx    = scenes.findIndex(s => s.id === mk.sceneId);
+      const isCur    = mk.sceneId === curSceneId;
+      const isSel    = mk.id === selectedMarkerId;
+      const li       = document.createElement('li');
+      li.className   = 'floormap-mk-list-item'
+        + (isCur ? ' current-scene' : '')
+        + (isSel ? ' active' : '');
+
+      const numEl  = document.createElement('div');
+      numEl.className   = 'floormap-mk-list-num';
+      numEl.textContent = scIdx >= 0 ? scIdx + 1 : '?';
+
+      const textEl = document.createElement('div');
+      textEl.className  = 'floormap-mk-list-text';
+      const nameEl = document.createElement('div');
+      nameEl.className  = 'floormap-mk-list-name';
+      nameEl.textContent = mk.name || sc?.name || '---';
+      const sceneEl = document.createElement('div');
+      sceneEl.className = 'floormap-mk-list-scene';
+      sceneEl.textContent = sc?.name || '---';
+      textEl.appendChild(nameEl);
+      textEl.appendChild(sceneEl);
+
+      const dirEl  = document.createElement('div');
+      dirEl.className   = 'floormap-mk-list-dir';
+      dirEl.textContent = (mk.rotation || 0) + '°';
+
+      li.appendChild(numEl);
+      li.appendChild(textEl);
+      li.appendChild(dirEl);
+
+      li.addEventListener('click', () => {
+        selectedMarkerId = mk.id;
+        const idx = scenes.findIndex(s => s.id === mk.sceneId);
+        if (idx >= 0) switchToScene(idx);
+        renderFloormapCanvas();
+        _updateInfoPanel();
+        renderMarkerList();
+      });
+
+      floormapMkListUl.appendChild(li);
+    });
   }
 
   // FloorMap canvas events
@@ -2127,19 +2252,48 @@ function init() {
     } else {
       selectedMarkerId = null;
     }
-    renderFloormapCanvas(); _updateMarkerBar();
+    renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
   });
 
   let _markerClickX = 0, _markerClickY = 0;
 
   floormapCanvas.addEventListener('mousemove', (e) => {
+    // Tooltip hover
+    if (!isDraggingMarker) {
+      const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+      if (fp?._renderArea) {
+        const rect = floormapCanvas.getBoundingClientRect();
+        const sx = floormapCanvas.width  / rect.width;
+        const sy = floormapCanvas.height / rect.height;
+        const cx = (e.clientX - rect.left) * sx;
+        const cy = (e.clientY - rect.top)  * sy;
+        const hovered = _findMarkerAt(cx, cy);
+        if (hovered) {
+          const sc = scenes.find(s => s.id === hovered.sceneId);
+          const ttName  = hovered.name || sc?.name || '';
+          const ttScene = sc?.name || '';
+          floormapTooltip.innerHTML = `<strong>${_esc(ttName)}</strong>${ttScene && ttScene !== ttName ? '<br>' + _esc(ttScene) : ''}`;
+          const bodyRect = floormapBody.getBoundingClientRect();
+          floormapTooltip.style.left = (e.clientX - bodyRect.left + 12) + 'px';
+          floormapTooltip.style.top  = (e.clientY - bodyRect.top  - 32) + 'px';
+          showEl(floormapTooltip);
+        } else {
+          hideEl(floormapTooltip);
+        }
+      }
+    }
+    // Drag marker
     if (!isDraggingMarker || !_dragMarkerId) return;
-    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
-    if (!fp?._renderArea) return;
+    const fp2 = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp2?._renderArea) return;
     const coords = _canvasToImage(e);
     if (!coords) return;
     const mk = projectState.markers.find(m => m.id === _dragMarkerId);
     if (mk) { mk.x = coords.x; mk.y = coords.y; renderFloormapCanvas(); }
+  });
+
+  floormapCanvas.addEventListener('mouseleave', () => {
+    hideEl(floormapTooltip);
   });
 
   floormapCanvas.addEventListener('mouseup', (e) => {
@@ -2155,7 +2309,7 @@ function init() {
       }
       isDraggingMarker = false; _dragMarkerId = null;
       floormapCanvas.style.cursor = isPlacementMode ? 'crosshair' : 'default';
-      _updateMarkerBar();
+      _updateInfoPanel(); renderMarkerList();
     }
   });
 
@@ -2178,7 +2332,7 @@ function init() {
         const idx = scenes.findIndex(s => s.id === hitMk.sceneId);
         if (idx >= 0) switchToScene(idx);
         selectedMarkerId = hitMk.id;
-        renderFloormapCanvas(); _updateMarkerBar();
+        renderFloormapCanvas(); _updateInfoPanel();
         return;
       }
     }
@@ -2192,12 +2346,14 @@ function init() {
     if (mk) {
       mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
     } else {
-      mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id, x: coords.x, y: coords.y, rotation: initialRot };
+      mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id,
+             x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name };
       projectState.markers.push(mk);
     }
     selectedMarkerId = mk.id;
     renderFloormapCanvas();
-    _updateMarkerBar();
+    _updateInfoPanel();
+    renderMarkerList();
     showToast(`「${curScene.name}」のマーカーを配置しました（向き: ${initialRot}°）`);
   });
 
@@ -2231,14 +2387,14 @@ function init() {
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (!mk) return;
     mk.rotation = ((mk.rotation || 0) + delta + 360) % 360;
-    renderFloormapCanvas(); _updateMarkerBar();
+    renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
   }
 
   function deleteSelectedMarker() {
     if (!selectedMarkerId) return;
     projectState.markers = projectState.markers.filter(m => m.id !== selectedMarkerId);
     selectedMarkerId = null;
-    renderFloormapCanvas(); _updateMarkerBar();
+    renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
     showToast('マーカーを削除しました');
   }
 
@@ -2336,13 +2492,46 @@ function init() {
   floormapFpSelect.addEventListener('change', () => {
     activeFloorplanId = floormapFpSelect.value;
     selectedMarkerId  = null;
-    renderFloorplanList(); renderFloormapCanvas(); _updateMarkerBar();
+    renderFloorplanList(); renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
   });
   floormapPlaceBtn.addEventListener('click', togglePlacementMode);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
   floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
   floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
   floormapDelMk.addEventListener('click', deleteSelectedMarker);
+
+  // Rename button: make info-name div editable
+  floormapRenameBtn.addEventListener('click', () => {
+    floormapInfoName.contentEditable = 'true';
+    floormapInfoName.focus();
+    const r = document.createRange();
+    r.selectNodeContents(floormapInfoName);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+  });
+  floormapInfoName.addEventListener('dblclick', () => {
+    floormapInfoName.contentEditable = 'true';
+    floormapInfoName.focus();
+    const r = document.createRange();
+    r.selectNodeContents(floormapInfoName);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+  });
+  floormapInfoName.addEventListener('blur', () => {
+    floormapInfoName.contentEditable = 'false';
+    const mk = projectState.markers.find(m => m.id === selectedMarkerId);
+    if (mk) {
+      const trimmed = floormapInfoName.textContent.trim();
+      if (trimmed) mk.name = trimmed;
+      floormapInfoName.textContent = mk.name || '';
+      renderMarkerList();
+    }
+  });
+  floormapInfoName.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); floormapInfoName.blur(); }
+    if (e.key === 'Escape') { floormapInfoName.contentEditable = 'false'; _updateInfoPanel(); }
+  });
 
   // Floor plan file input
   addFloorplanBtn.addEventListener('click', () => floorplanInput.click());
@@ -2356,7 +2545,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.3',
+      appVersion:  '2.4',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       scenes: scenes.map(s => ({
@@ -2497,9 +2686,17 @@ function init() {
     // Markers — use restored scene/FP IDs (JSON IDs preserved)
     const validSceneIds = new Set(scenes.map(s => s.id));
     const validFpIds    = new Set(projectState.floorplans.map(f => f.id));
+    // Build scene lookup for name fallback
+    const sceneNameById = {};
+    [...scenes, ...newScenes].forEach(s => { sceneNameById[s.id] = s.name; });
+
     const newMarkers = (_importData.markers || []).filter(m =>
       validSceneIds.has(m.sceneId) && validFpIds.has(m.floorplanId)
-    ).map(m => ({ ...m })); // deep copy so we don't mutate _importData
+    ).map(m => ({
+      ...m,
+      // Restore name; fallback to scene name for older JSON without name field
+      name: m.name || sceneNameById[m.sceneId] || '',
+    }));
     // Merge: remove existing markers with same id, then push new
     const newMarkerIds = new Set(newMarkers.map(m => m.id));
     projectState.markers = [

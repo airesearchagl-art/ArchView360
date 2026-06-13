@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613i" />
+  <link rel="stylesheet" href="style.css?v=20260614a" />
 </head>
 <body>
   <header class="header">
@@ -266,6 +266,7 @@
           <div class="scene-name-bar">
             <span id="current-scene-name" class="scene-name-display"></span>
           </div>
+          <div id="scene-fade-overlay" class="scene-fade-overlay"></div>
           <div id="loading-overlay" class="loading-overlay" style="display:none">
             <div class="spinner"></div>
             <p id="loading-message">画像を読み込み中…</p>
@@ -325,14 +326,35 @@
           <div id="floormap-body" class="floormap-body">
             <canvas id="floormap-canvas" class="floormap-canvas" width="340" height="255"></canvas>
             <div id="floormap-place-hint" class="floormap-place-hint" style="display:none">クリックでマーカーを配置 / 視点方向を自動取得</div>
+            <div id="floormap-tooltip" class="floormap-tooltip" style="display:none"></div>
           </div>
-          <div id="floormap-mk-bar" class="floormap-mk-bar" style="display:none">
-            <span id="floormap-mk-name" class="floormap-mk-name"></span>
-            <div class="floormap-mk-actions">
+          <!-- マーカー情報パネル -->
+          <div id="floormap-info-panel" class="floormap-info-panel" style="display:none">
+            <div class="floormap-info-row">
+              <div class="floormap-info-cell floormap-info-cell-name">
+                <div class="floormap-info-label">名称</div>
+                <div id="floormap-info-name" class="floormap-info-name" title="ダブルクリックで名称編集">---</div>
+              </div>
+              <div class="floormap-info-cell">
+                <div class="floormap-info-label">シーン</div>
+                <div id="floormap-info-scene" class="floormap-info-scene">---</div>
+              </div>
+              <div class="floormap-info-cell floormap-info-cell-dir">
+                <div class="floormap-info-label">向き</div>
+                <div id="floormap-info-dir" class="floormap-info-dir">0°</div>
+              </div>
+            </div>
+            <div class="floormap-info-actions">
+              <button id="floormap-rename-btn" class="floormap-icon-btn" title="名称変更">✏</button>
               <button id="floormap-rot-l" class="floormap-icon-btn" title="左15°回転">↺</button>
               <button id="floormap-rot-r" class="floormap-icon-btn" title="右15°回転">↻</button>
               <button id="floormap-del-mk" class="floormap-icon-btn floormap-danger-btn" title="マーカー削除">×</button>
             </div>
+          </div>
+          <!-- マーカー一覧 -->
+          <div id="floormap-mk-list" class="floormap-mk-list">
+            <ul id="floormap-mk-list-ul" class="floormap-mk-list-ul"></ul>
+            <div id="floormap-mk-list-empty" class="floormap-mk-list-empty" style="display:none">マーカーなし</div>
           </div>
         </div>
 
@@ -407,6 +429,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260613i" defer></script>
+  <script src="script.js?v=20260614a" defer></script>
 </body>
 </html>

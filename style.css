@@ -607,7 +607,8 @@ body {
 .floormap-resize-handle-left:hover { background: rgba(79,124,255,.3); }
 
 .floormap-navigator.collapsed .floormap-body,
-.floormap-navigator.collapsed .floormap-mk-bar,
+.floormap-navigator.collapsed .floormap-info-panel,
+.floormap-navigator.collapsed .floormap-mk-list,
 .floormap-navigator.collapsed .floormap-place-hint {
   display: none !important;
 }
@@ -714,29 +715,189 @@ body {
   white-space: nowrap;
 }
 
-.floormap-mk-bar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
+/* === FloorMap info panel (replaces mk-bar) === */
+.floormap-info-panel {
   border-top: 1px solid var(--border);
   background: rgba(26,29,39,.5);
+  padding: 5px 8px 4px;
 }
 
-.floormap-mk-name {
+.floormap-info-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+  align-items: flex-start;
+}
+
+.floormap-info-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   flex: 1;
-  font-size: .72rem;
+}
+
+.floormap-info-cell-name { flex: 2; }
+.floormap-info-cell-dir  { flex: 0 0 42px; }
+
+.floormap-info-label {
+  font-size: .6rem;
+  color: var(--text-muted);
+  letter-spacing: .02em;
+  line-height: 1.2;
+}
+
+.floormap-info-name {
+  font-size: .73rem;
+  color: var(--accent-h);
+  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: text;
+  border-radius: 3px;
+  padding: 1px 2px;
+  min-height: 1.3em;
+  line-height: 1.3;
+}
+.floormap-info-name[contenteditable="true"] {
+  outline: 1px solid var(--accent);
+  background: rgba(79,124,255,.1);
+  white-space: normal;
+  overflow: visible;
+}
+
+.floormap-info-scene {
+  font-size: .68rem;
+  color: var(--text-muted);
   white-space: nowrap;
-  color: var(--accent-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  padding: 1px 0;
+}
+
+.floormap-info-dir {
+  font-size: .72rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  padding: 1px 0;
+}
+
+.floormap-info-actions {
+  display: flex;
+  gap: 2px;
+}
+
+/* === Marker list === */
+.floormap-mk-list {
+  border-top: 1px solid var(--border);
+  max-height: 130px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.floormap-mk-list-ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.floormap-mk-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: background .1s;
+  border-bottom: 1px solid rgba(46,50,73,.5);
+}
+
+.floormap-mk-list-item:last-child { border-bottom: none; }
+.floormap-mk-list-item:hover { background: rgba(79,124,255,.08); }
+
+.floormap-mk-list-item.active {
+  background: rgba(79,124,255,.18);
+}
+
+.floormap-mk-list-item.current-scene {
+  background: rgba(79,124,255,.22);
+}
+
+.floormap-mk-list-num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  font-size: .62rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.floormap-mk-list-item.current-scene .floormap-mk-list-num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.floormap-mk-list-text {
+  flex: 1;
   min-width: 0;
 }
 
-.floormap-mk-actions {
-  display: flex;
-  gap: 2px;
+.floormap-mk-list-name {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floormap-mk-list-scene {
+  font-size: .62rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floormap-mk-list-dir {
   flex-shrink: 0;
+  font-size: .62rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.floormap-mk-list-empty {
+  padding: 8px;
+  text-align: center;
+  font-size: .72rem;
+  color: var(--text-muted);
+}
+
+/* === Floormap tooltip === */
+.floormap-tooltip {
+  position: absolute;
+  background: rgba(15,17,23,.92);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: .7rem;
+  line-height: 1.5;
+  pointer-events: none;
+  z-index: 20;
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0,0,0,.6);
 }
 
 /* ===== Viewer Drop Overlay ===== */
@@ -1493,6 +1654,17 @@ body {
 
 .viewer-container:fullscreen,
 .viewer-container:-webkit-full-screen { border-radius: 0; }
+
+/* Scene fade overlay for transition animation */
+.scene-fade-overlay {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 5;
+}
 
 #viewer-canvas {
   display: block;
