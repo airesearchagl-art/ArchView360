@@ -185,7 +185,7 @@
 
     <!-- Three.js 読み込み失敗フォールバック -->
     <div id="threejs-error" class="global-error hidden" role="alert">
-      ⚠️ Three.js の読み込みに失敗しました。インターネット接続を確認して再読み込みしてください。
+      ⚠️ Three.js の読み込みに失敗しました。ページを再読み込みしてください。
     </div>
 
     <!-- グローバルエラー -->
@@ -196,21 +196,8 @@
     <p>ArchView360 &mdash; 360° Panorama Viewer for Architecture</p>
   </footer>
 
-  <!-- Three.js r128 CDN（失敗時はローカルフォールバック） -->
-  <script>
-    (function() {
-      var s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-      s.crossOrigin = 'anonymous';
-      s.referrerPolicy = 'no-referrer';
-      s.onerror = function() {
-        var fb = document.createElement('script');
-        fb.src = 'three.min.js';
-        document.head.appendChild(fb);
-      };
-      document.head.appendChild(s);
-    })();
-  </script>
+  <!-- Three.js r128 ローカル同梱 -->
+  <script src="vendor/three.min.js"></script>
 
   <!-- ファイルインプット（body末尾に配置、label for="file-input" で参照） -->
   <input

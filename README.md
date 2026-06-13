@@ -65,7 +65,7 @@ npx serve .
 # → http://localhost:3000
 ```
 
-> Three.js を CDN から読み込むため、**初回はインターネット接続が必要**です。
+> Three.js は `vendor/three.min.js` としてローカル同梱されているため、**オフラインでも動作します**。
 
 ### 複数シーンの読み込み
 
@@ -285,7 +285,7 @@ vercel --prod
 ## 技術スタック
 
 - HTML5 / CSS3 / Vanilla JavaScript（外部依存パッケージなし）
-- [Three.js r128](https://threejs.org/) — CDN 経由で読み込み
+- [Three.js r128](https://threejs.org/) — `vendor/three.min.js` としてローカル同梱（オフライン動作）
 - `vercel.json` — キャッシュ・セキュリティヘッダー設定済み
 
 ### 実装の要点
@@ -371,7 +371,7 @@ vercel --prod
 
 ## 注意点
 
-- **オフライン環境** では Three.js CDN が読み込めないため動作しません。オフライン利用が必要な場合は `three.min.js` をローカルに配置してください。
+- **Three.js はローカル同梱**（`vendor/three.min.js`）のため、オフライン環境でも動作します。
 - 非常に高解像度（8K 以上）の画像はブラウザのメモリを大量に消費することがあります。
 - iOS Safari では WebP の対応が限定的な場合があります。JPEG 形式を推奨します。
 - 画像はサーバーへ送信されません。すべての処理はブラウザ内で完結します。
