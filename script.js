@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v1.3 — 360° Panorama Viewer
+ * ArchView360 v1.4 — 360° Panorama Viewer
  * Three.js r128 ローカル同梱
  * ============================================================ */
 
@@ -12,81 +12,79 @@ function init() {
     return;
   }
 
-  // ---- DOM ----
-  const uploadSection      = document.getElementById('upload-section');
-  const viewerLayout       = document.getElementById('viewer-layout');
-  const dropZone           = document.getElementById('drop-zone');
-  const fileInput          = document.getElementById('file-input');
-  const viewerCanvas       = document.getElementById('viewer-canvas');
-  const viewerContainer    = document.getElementById('viewer-container');
-  const loadingOverlay     = document.getElementById('loading-overlay');
-  const loadingMessage     = document.getElementById('loading-message');
-  const errorOverlay       = document.getElementById('error-overlay');
-  const errorMessage       = document.getElementById('error-message');
-  const errorBackBtn       = document.getElementById('error-back-btn');
-  const statusFov          = document.getElementById('status-fov');
-  const currentSceneNameEl = document.getElementById('current-scene-name');
-  const sceneListEl        = document.getElementById('scene-list');
-  const sceneCounter       = document.getElementById('scene-counter');
-  const addSceneBtn        = document.getElementById('add-scene-btn');
-  const clearAllBtn        = document.getElementById('clear-all-btn');
-  const globalError        = document.getElementById('global-error');
-  const toast              = document.getElementById('toast');
+  // ---- DOM refs ----
+  const uploadSection       = document.getElementById('upload-section');
+  const viewerLayout        = document.getElementById('viewer-layout');
+  const dropZone            = document.getElementById('drop-zone');
+  const fileInput           = document.getElementById('file-input');
+  const viewerCanvas        = document.getElementById('viewer-canvas');
+  const viewerContainer     = document.getElementById('viewer-container');
+  const loadingOverlay      = document.getElementById('loading-overlay');
+  const loadingMessage      = document.getElementById('loading-message');
+  const errorOverlay        = document.getElementById('error-overlay');
+  const errorMessage        = document.getElementById('error-message');
+  const errorBackBtn        = document.getElementById('error-back-btn');
+  const statusFov           = document.getElementById('status-fov');
+  const currentSceneNameEl  = document.getElementById('current-scene-name');
+  const sceneListEl         = document.getElementById('scene-list');
+  const sceneCounter        = document.getElementById('scene-counter');
+  const addSceneBtn         = document.getElementById('add-scene-btn');
+  const clearAllBtn         = document.getElementById('clear-all-btn');
+  const globalError         = document.getElementById('global-error');
+  const toast               = document.getElementById('toast');
 
-  // Toolbar
-  const toolbar            = document.getElementById('toolbar');
-  const tbSingle           = document.getElementById('tb-single');
-  const tbCompare          = document.getElementById('tb-compare');
+  // Toolbars
+  const toolbarSingle       = document.getElementById('toolbar-single');
+  const toolbarCompare      = document.getElementById('toolbar-compare');
 
   // Single-mode toolbar buttons
-  const splitCompareBtn    = document.getElementById('split-compare-btn');
-  const sliderCompareBtn   = document.getElementById('slider-compare-btn');
-  const autorotateBtn      = document.getElementById('autorotate-btn');
-  const flipBtn            = document.getElementById('flip-btn');
-  const resetBtn           = document.getElementById('reset-btn');
-  const fullscreenBtn      = document.getElementById('fullscreen-btn');
-  const fullscreenIcon     = document.getElementById('fullscreen-icon');
-  const backBtn            = document.getElementById('back-btn');
+  const addImgBtn           = document.getElementById('add-img-btn');
+  const splitCompareBtn     = document.getElementById('split-compare-btn');
+  const sliderCompareBtn    = document.getElementById('slider-compare-btn');
+  const flipBtn             = document.getElementById('flip-btn');
+  const autorotateBtn       = document.getElementById('autorotate-btn');
+  const resetBtn            = document.getElementById('reset-btn');
+  const fullscreenBtn       = document.getElementById('fullscreen-btn');
+  const fullscreenIcon      = document.getElementById('fullscreen-icon');
+  const backBtn             = document.getElementById('back-btn');
 
   // Compare-mode toolbar buttons
-  const compareSelectA     = document.getElementById('compare-select-a');
-  const compareSelectB     = document.getElementById('compare-select-b');
-  const flipABtn           = document.getElementById('flip-a-btn');
-  const flipBBtn           = document.getElementById('flip-b-btn');
-  const compareAutorotBtn  = document.getElementById('compare-autorotate-btn');
-  const compareResetBtn    = document.getElementById('compare-reset-btn');
-  const compareLayoutBtn   = document.getElementById('compare-layout-btn');
-  const compareFullscreenBtn = document.getElementById('compare-fullscreen-btn');
-  const exitCompareBtn     = document.getElementById('exit-compare-btn');
+  const compareSelectA      = document.getElementById('compare-select-a');
+  const compareSelectB      = document.getElementById('compare-select-b');
+  const flipABtn            = document.getElementById('flip-a-btn');
+  const flipBBtn            = document.getElementById('flip-b-btn');
+  const swapAbBtn           = document.getElementById('swap-ab-btn');
+  const layoutSideBtn       = document.getElementById('layout-side-btn');
+  const layoutStackBtn      = document.getElementById('layout-stack-btn');
+  const splitLayoutSep      = document.getElementById('split-layout-sep');
+  const compareAutorotBtn   = document.getElementById('compare-autorotate-btn');
+  const compareResetBtn     = document.getElementById('compare-reset-btn');
+  const compareFsBtn        = document.getElementById('compare-fullscreen-btn');
+  const exitCompareBtn      = document.getElementById('exit-compare-btn');
 
-  // Compare canvas area
-  const compareContainer   = document.getElementById('compare-container');
-  const paneBEl            = document.getElementById('compare-pane-b');
-  const canvasA            = document.getElementById('canvas-a');
-  const canvasB            = document.getElementById('canvas-b');
-  const loadingA           = document.getElementById('loading-a');
-  const loadingB           = document.getElementById('loading-b');
-  const compareNameA       = document.getElementById('compare-name-a');
-  const compareNameB       = document.getElementById('compare-name-b');
-  const sliderDivider      = document.getElementById('slider-divider');
+  // Compare containers
+  const compareContainer    = document.getElementById('compare-container');
+  const paneBEl             = document.getElementById('compare-pane-b');
+  const canvasA             = document.getElementById('canvas-a');
+  const canvasB             = document.getElementById('canvas-b');
+  const loadingA            = document.getElementById('loading-a');
+  const loadingB            = document.getElementById('loading-b');
+  const compareNameA        = document.getElementById('compare-name-a');
+  const compareNameB        = document.getElementById('compare-name-b');
+  const sliderDivider       = document.getElementById('slider-divider');
 
-  // Sidebar help
-  const sidebarHelpToggle  = document.getElementById('sidebar-help-toggle');
-  const sidebarHelpBody    = document.getElementById('sidebar-help-body');
-  const sidebarHelpArrow   = document.getElementById('sidebar-help-arrow');
-
-  // ---- Three.js (single mode) ----
+  // ---- Three.js (single) ----
   let renderer, threeScene, camera, sphere;
   let animFrameId = null;
 
-  // ---- Three.js (compare mode) ----
+  // ---- Three.js (compare) ----
   let rendererA = null, rendererB = null;
   let sceneA = null, sceneB = null;
   let cameraA = null, cameraB = null;
   let sphereA = null, sphereB = null;
   let compareInited = false;
 
-  // ---- Camera state (shared across all modes) ----
+  // ---- Shared camera state ----
   const DEFAULT_FOV   = 75;
   const MIN_FOV       = 30;
   const MAX_FOV       = 100;
@@ -100,38 +98,32 @@ function init() {
   let autoRotate = false;
   const AUTO_ROTATE_SPEED = 0.0015;
 
-  // ---- Canvas drag / touch ----
+  // ---- Canvas drag ----
   let isDragging    = false;
-  let lastX         = 0;
-  let lastY         = 0;
-  let lastTouches   = null;
-  let lastPinchDist = null;
+  let lastX = 0, lastY = 0;
+  let lastTouches = null, lastPinchDist = null;
 
   // ---- Slider drag ----
   let isSliderDragging = false;
-  let sliderPos        = 50; // percentage 0-100
+  let sliderPos = 50;
 
   // ---- Toast ----
   let toastTimer = null;
 
   // ---- View mode ----
-  let viewMode      = 'single';  // 'single' | 'split' | 'slider'
-  let compareLayout = 'side';    // 'side' | 'stack' (split mode only)
+  let viewMode      = 'single'; // 'single' | 'split' | 'slider'
+  let compareLayout = 'side';   // 'side' | 'stack'
   let compareIdxA   = 0;
   let compareIdxB   = 1;
 
-  // ============================================================
-  // Scene model: [{id, name, blobUrl, flipH}]
-  // ============================================================
+  // ---- Scenes ----
   let scenes     = [];
   let currentIdx = -1;
 
-  function genId() {
-    return Math.random().toString(36).slice(2, 10);
-  }
+  function genId() { return Math.random().toString(36).slice(2, 10); }
 
   // ============================================================
-  // Three.js init (single mode)
+  // Three.js init
   // ============================================================
   function initThree() {
     if (renderer) return;
@@ -145,26 +137,20 @@ function init() {
       stopRender();
       showError('WebGLコンテキストが失われました。ページを再読み込みしてください。');
     });
-    viewerCanvas.addEventListener('webglcontextrestored', () => {
-      clearAllAndShowUpload();
-    });
+    viewerCanvas.addEventListener('webglcontextrestored', () => clearAllAndShowUpload());
   }
 
   function fitCanvasToContainer() {
     const w = viewerContainer.clientWidth  || window.innerWidth;
-    const h = viewerContainer.clientHeight || Math.round(window.innerHeight * 0.75);
+    const h = viewerContainer.clientHeight || Math.round(window.innerHeight * 0.7);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
 
-  // ============================================================
-  // Three.js init (compare / slider mode)
-  // ============================================================
   function initCompareRenderers() {
     if (compareInited) return;
     compareInited = true;
-
     sceneA  = new THREE.Scene();
     cameraA = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
     rendererA = new THREE.WebGLRenderer({ canvas: canvasA, antialias: true });
@@ -192,7 +178,7 @@ function init() {
   }
 
   // ============================================================
-  // GPU resource helpers
+  // GPU helpers
   // ============================================================
   function disposeMesh(mesh, scene) {
     if (!mesh) return;
@@ -207,11 +193,8 @@ function init() {
     sphere = null;
   }
 
-  // ============================================================
-  // Flip helpers
-  // ============================================================
   function applyFlipToMesh(mesh, flipH) {
-    if (!mesh || !mesh.material || !mesh.material.map) return;
+    if (!mesh?.material?.map) return;
     const tex = mesh.material.map;
     tex.wrapS = THREE.RepeatWrapping;
     tex.repeat.x = flipH ? -1 : 1;
@@ -228,30 +211,23 @@ function init() {
     const valid = Array.from(fileList).filter(f =>
       allowed.has(f.type) && f.size <= maxBytes
     );
-
     if (valid.length === 0) {
-      showGlobalError(
-        fileList.length > 0
-          ? '有効なファイルがありません。JPEG・PNG・WebP（各100MB以下）を選択してください。'
-          : ''
-      );
+      if (fileList.length > 0)
+        showGlobalError('有効なファイルがありません。JPEG・PNG・WebP（100MB以下）を選択してください。');
       return;
     }
-
     const skipped = fileList.length - valid.length;
     if (skipped > 0) showGlobalError(`${skipped} 件をスキップしました（対応外の形式または100MB超）。`);
 
-    const wasEmpty = scenes.length === 0;
+    const wasEmpty    = scenes.length === 0;
     const firstNewIdx = scenes.length;
 
-    valid.forEach(f => {
-      scenes.push({
-        id:      genId(),
-        name:    f.name.replace(/\.[^.]+$/, ''),
-        blobUrl: URL.createObjectURL(f),
-        flipH:   false,
-      });
-    });
+    valid.forEach(f => scenes.push({
+      id:      genId(),
+      name:    f.name.replace(/\.[^.]+$/, ''),
+      blobUrl: URL.createObjectURL(f),
+      flipH:   false,
+    }));
 
     if (wasEmpty) {
       showViewerLayout();
@@ -263,8 +239,8 @@ function init() {
       if (viewMode !== 'single') updateCompareSelects();
       updateCompareBtns();
       showToast(`${valid.length} 件のシーンを追加しました`);
-      const items = sceneListEl.querySelectorAll('.scene-item');
-      items[firstNewIdx]?.scrollIntoView({ block: 'nearest' });
+      sceneListEl.querySelectorAll('.scene-item')[firstNewIdx]
+        ?.scrollIntoView({ block: 'nearest' });
     }
   }
 
@@ -273,7 +249,7 @@ function init() {
     currentIdx = idx;
     const s = scenes[idx];
     currentSceneNameEl.textContent = s.name;
-    flipBtn.classList.toggle('ctrl-btn-active', s.flipH);
+    flipBtn.classList.toggle('tbtn-active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
   }
@@ -305,7 +281,7 @@ function init() {
 
     updateCompareBtns();
     let nextIdx = currentIdx;
-    if (wasCurrent)          nextIdx = Math.min(idx, scenes.length - 1);
+    if (wasCurrent)            nextIdx = Math.min(idx, scenes.length - 1);
     else if (idx < currentIdx) nextIdx = currentIdx - 1;
 
     currentIdx = -1;
@@ -317,27 +293,23 @@ function init() {
     stopRender();
     hideToast();
     disposeCurrentSphere();
-
     scenes.forEach(s => URL.revokeObjectURL(s.blobUrl));
-    scenes     = [];
-    currentIdx = -1;
+    scenes = []; currentIdx = -1;
 
     autoRotate = false;
-    autorotateBtn.classList.remove('ctrl-btn-active');
-    autorotateBtn.title = '自動回転をON';
+    autorotateBtn.classList.remove('tbtn-active');
+    compareAutorotBtn.classList.remove('tbtn-active');
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
-    if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs) {
+    if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
       exitFs.call(document).catch(() => {});
-    }
 
-    viewerLayout.classList.add('hidden');
+    viewerLayout.classList.add('viewer-layout-hidden');
     uploadSection.classList.remove('hidden');
   }
 
   function renderSceneList() {
     sceneListEl.innerHTML = '';
-
     scenes.forEach((s, i) => {
       const li = document.createElement('li');
       li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
@@ -387,12 +359,10 @@ function init() {
       li.appendChild(numEl);
       li.appendChild(nameEl);
       li.appendChild(delBtn);
-
       li.addEventListener('click', () => {
         if (nameEl.contentEditable === 'true') return;
         if (i !== currentIdx) switchToScene(i);
       });
-
       sceneListEl.appendChild(li);
     });
 
@@ -405,35 +375,31 @@ function init() {
   }
 
   function updateCompareBtns() {
-    const canCompare = scenes.length >= 2;
-    const disabledTip = 'シーンが2つ以上必要です';
-    splitCompareBtn.disabled  = !canCompare;
-    sliderCompareBtn.disabled = !canCompare;
-    splitCompareBtn.title  = canCompare ? '分割して2シーンを比較' : disabledTip;
-    sliderCompareBtn.title = canCompare ? 'スライダーで2シーンを比較' : disabledTip;
-    splitCompareBtn.style.opacity  = canCompare ? '' : '0.45';
-    sliderCompareBtn.style.opacity = canCompare ? '' : '0.45';
+    const ok = scenes.length >= 2;
+    splitCompareBtn.disabled  = !ok;
+    sliderCompareBtn.disabled = !ok;
+    splitCompareBtn.title  = ok ? '分割して2シーンを比較 (C)' : '2枚以上の画像が必要です';
+    sliderCompareBtn.title = ok ? 'スライダーで2シーンを比較 (S)' : '2枚以上の画像が必要です';
   }
 
   // ============================================================
-  // Panorama load + sphere build
+  // Panorama load / build
   // ============================================================
   function loadPanorama(src, name, flipH) {
     showLoading(true, `「${name}」を読み込み中…`);
     hideError();
     stopRender();
-
     new THREE.TextureLoader().load(
       src,
       (texture) => {
         buildSphere(texture, flipH);
         showLoading(false);
         startRender();
-        showToast('ドラッグで自由に見回せます 🖱️');
+        showToast('ドラッグで自由に見回せます');
       },
-      (progress) => {
-        if (progress.total > 0) {
-          const pct = Math.round(progress.loaded / progress.total * 100);
+      (prog) => {
+        if (prog.total > 0) {
+          const pct = Math.round(prog.loaded / prog.total * 100);
           showLoading(true, `「${name}」を読み込み中… ${pct}%`);
         }
       },
@@ -458,51 +424,41 @@ function init() {
     resetView();
   }
 
-  // ============================================================
-  // Compare sphere load
-  // ============================================================
   function loadCompareSphere(side, idx) {
     if (idx < 0 || idx >= scenes.length) return;
-    const s = scenes[idx];
-    const loadingEl = side === 'a' ? loadingA : loadingB;
-    const nameEl    = side === 'a' ? compareNameA : compareNameB;
+    const s        = scenes[idx];
+    const loadEl   = side === 'a' ? loadingA : loadingB;
+    const nameEl   = side === 'a' ? compareNameA : compareNameB;
     nameEl.textContent = s.name;
-    loadingEl.classList.remove('hidden');
+    loadEl.classList.remove('hidden');
 
     new THREE.TextureLoader().load(
       s.blobUrl,
       (texture) => {
+        if (s.flipH) {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.repeat.x = -1;
+          texture.offset.x = 1;
+        }
+        const mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(500, 60, 40),
+          new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
+        );
         if (side === 'a') {
           disposeMesh(sphereA, sceneA);
-          if (s.flipH) {
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.repeat.x = -1;
-            texture.offset.x = 1;
-          }
-          sphereA = new THREE.Mesh(
-            new THREE.SphereGeometry(500, 60, 40),
-            new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
-          );
+          sphereA = mesh;
           sceneA.add(sphereA);
           fitOnePane(canvasA, rendererA, cameraA);
         } else {
           disposeMesh(sphereB, sceneB);
-          if (s.flipH) {
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.repeat.x = -1;
-            texture.offset.x = 1;
-          }
-          sphereB = new THREE.Mesh(
-            new THREE.SphereGeometry(500, 60, 40),
-            new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
-          );
+          sphereB = mesh;
           sceneB.add(sphereB);
           fitOnePane(canvasB, rendererB, cameraB);
         }
-        loadingEl.classList.add('hidden');
+        loadEl.classList.add('hidden');
       },
       null,
-      () => { loadingEl.classList.add('hidden'); }
+      () => loadEl.classList.add('hidden')
     );
   }
 
@@ -520,87 +476,69 @@ function init() {
       const lz = Math.sin(phi) * Math.sin(theta);
 
       if (viewMode === 'split' || viewMode === 'slider') {
-        if (rendererA && sceneA && cameraA) {
-          cameraA.lookAt(lx, ly, lz);
-          rendererA.render(sceneA, cameraA);
-        }
-        if (rendererB && sceneB && cameraB) {
-          cameraB.lookAt(lx, ly, lz);
-          rendererB.render(sceneB, cameraB);
-        }
+        if (rendererA && sceneA && cameraA) { cameraA.lookAt(lx,ly,lz); rendererA.render(sceneA, cameraA); }
+        if (rendererB && sceneB && cameraB) { cameraB.lookAt(lx,ly,lz); rendererB.render(sceneB, cameraB); }
       } else {
-        if (renderer && threeScene && camera) {
-          camera.lookAt(lx, ly, lz);
-          renderer.render(threeScene, camera);
-        }
+        if (renderer && threeScene && camera) { camera.lookAt(lx,ly,lz); renderer.render(threeScene, camera); }
       }
     }
     loop();
   }
 
   function stopRender() {
-    if (animFrameId !== null) {
-      cancelAnimationFrame(animFrameId);
-      animFrameId = null;
-    }
+    if (animFrameId !== null) { cancelAnimationFrame(animFrameId); animFrameId = null; }
   }
 
   // ============================================================
   // View control
   // ============================================================
   function resetView() {
-    phi   = DEFAULT_PHI;
-    theta = DEFAULT_THETA;
-    fov   = DEFAULT_FOV;
+    phi = DEFAULT_PHI; theta = DEFAULT_THETA; fov = DEFAULT_FOV;
     applyFov();
   }
 
   function applyFov() {
-    if (camera)  { camera.fov  = fov; camera.updateProjectionMatrix();  }
+    if (camera)  { camera.fov  = fov; camera.updateProjectionMatrix(); }
     if (cameraA) { cameraA.fov = fov; cameraA.updateProjectionMatrix(); }
     if (cameraB) { cameraB.fov = fov; cameraB.updateProjectionMatrix(); }
     statusFov.textContent = `FOV: ${Math.round(fov)}°`;
   }
 
   // ============================================================
-  // Toolbar update
+  // Show/hide viewer
   // ============================================================
-  function updateToolbar() {
-    if (viewMode === 'single') {
-      tbSingle.classList.remove('hidden');
-      tbCompare.classList.add('hidden');
-      // Layout button only relevant for split mode
-      compareLayoutBtn.classList.remove('hidden');
-    } else {
-      tbSingle.classList.add('hidden');
-      tbCompare.classList.remove('hidden');
-      // Hide layout button in slider mode
-      compareLayoutBtn.classList.toggle('hidden', viewMode === 'slider');
-    }
+  function showViewerLayout() {
+    uploadSection.classList.add('hidden');
+    viewerLayout.classList.remove('viewer-layout-hidden');
+    // Single mode: show single toolbar, hide compare toolbar and compare container
+    toolbarSingle.style.display  = '';
+    toolbarCompare.style.display = 'none';
+    compareContainer.style.display = 'none';
+    viewerContainer.style.display  = '';
+    updateCompareBtns();
   }
 
   // ============================================================
   // Split compare mode
   // ============================================================
   function enterSplitMode() {
-    if (scenes.length < 2) {
-      showToast('分割比較には2つ以上のシーンが必要です');
-      return;
-    }
+    if (scenes.length < 2) { showToast('分割比較には2枚以上必要です'); return; }
 
-    viewMode = 'split';
+    viewMode    = 'split';
     compareIdxA = currentIdx >= 0 ? currentIdx : 0;
     compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
 
-    viewerContainer.classList.add('hidden');
-    compareContainer.classList.remove('hidden');
+    viewerContainer.style.display    = 'none';
+    toolbarSingle.style.display      = 'none';
+    toolbarCompare.style.display     = '';
+    compareContainer.style.display   = '';
     compareContainer.classList.remove('slider-mode');
-    sliderDivider.classList.add('hidden');
-    paneBEl.style.clipPath = '';
-    paneBEl.style.pointerEvents = '';
+    sliderDivider.style.display      = 'none';
+    paneBEl.style.clipPath           = '';
+    paneBEl.style.pointerEvents      = '';
 
     applyCompareLayout(false);
-    updateToolbar();
+    updateSplitLayoutBtns();
     initCompareRenderers();
     updateCompareSelects();
 
@@ -618,30 +556,29 @@ function init() {
   // Slider compare mode
   // ============================================================
   function enterSliderMode() {
-    if (scenes.length < 2) {
-      showToast('スライダー比較には2つ以上のシーンが必要です');
-      return;
-    }
+    if (scenes.length < 2) { showToast('スライダー比較には2枚以上必要です'); return; }
 
-    viewMode = 'slider';
+    viewMode    = 'slider';
     compareIdxA = currentIdx >= 0 ? currentIdx : 0;
     compareIdxB = compareIdxA === scenes.length - 1 ? compareIdxA - 1 : compareIdxA + 1;
 
-    viewerContainer.classList.add('hidden');
-    compareContainer.classList.remove('hidden');
+    viewerContainer.style.display    = 'none';
+    toolbarSingle.style.display      = 'none';
+    toolbarCompare.style.display     = '';
+    compareContainer.style.display   = '';
     compareContainer.classList.add('slider-mode');
-    sliderDivider.classList.remove('hidden');
-
-    // pane-b: pointer-events off (pane-a handles all interaction)
-    paneBEl.style.pointerEvents = 'none';
-
-    // Remove split layout classes
     compareContainer.classList.remove('stack');
+    sliderDivider.style.display      = '';
+    paneBEl.style.pointerEvents      = 'none';
+
+    // Hide split-only layout buttons
+    layoutSideBtn.style.display  = 'none';
+    layoutStackBtn.style.display = 'none';
+    splitLayoutSep.style.display = 'none';
 
     sliderPos = 50;
     updateSlider(sliderPos);
 
-    updateToolbar();
     initCompareRenderers();
     updateCompareSelects();
 
@@ -659,34 +596,42 @@ function init() {
     if (viewMode === 'single' && !silent) return;
     viewMode = 'single';
 
-    compareContainer.classList.add('hidden');
+    compareContainer.style.display   = 'none';
     compareContainer.classList.remove('slider-mode');
     compareContainer.classList.remove('stack');
-    sliderDivider.classList.add('hidden');
-    paneBEl.style.clipPath    = '';
-    paneBEl.style.pointerEvents = '';
-
-    viewerContainer.classList.remove('hidden');
-    updateToolbar();
+    sliderDivider.style.display      = 'none';
+    paneBEl.style.clipPath           = '';
+    paneBEl.style.pointerEvents      = '';
+    toolbarCompare.style.display     = 'none';
+    toolbarSingle.style.display      = '';
+    viewerContainer.style.display    = '';
 
     stopRender();
-    if (scenes.length > 0) {
-      fitCanvasToContainer();
-      startRender();
-    }
+    if (scenes.length > 0) { fitCanvasToContainer(); startRender(); }
   }
 
   function applyCompareLayout(fit) {
     if (compareLayout === 'stack') {
       compareContainer.classList.add('stack');
-      compareLayoutBtn.textContent = '⊟ レイアウト';
-      compareLayoutBtn.title = '左右表示に切替';
     } else {
       compareContainer.classList.remove('stack');
-      compareLayoutBtn.textContent = '⊞ レイアウト';
-      compareLayoutBtn.title = '上下表示に切替';
     }
+    updateSplitLayoutBtns();
     if (fit !== false) requestAnimationFrame(() => fitComparePanes());
+  }
+
+  function updateSplitLayoutBtns() {
+    if (viewMode === 'slider') {
+      layoutSideBtn.style.display  = 'none';
+      layoutStackBtn.style.display = 'none';
+      splitLayoutSep.style.display = 'none';
+    } else {
+      layoutSideBtn.style.display  = '';
+      layoutStackBtn.style.display = '';
+      splitLayoutSep.style.display = '';
+      layoutSideBtn.classList.toggle('layout-btn-active',  compareLayout === 'side');
+      layoutStackBtn.classList.toggle('layout-btn-active', compareLayout === 'stack');
+    }
   }
 
   function updateCompareSelects() {
@@ -701,8 +646,8 @@ function init() {
         sel.appendChild(opt);
       });
     });
-    flipABtn.classList.toggle('icon-btn-active', scenes[compareIdxA]?.flipH || false);
-    flipBBtn.classList.toggle('icon-btn-active', scenes[compareIdxB]?.flipH || false);
+    flipABtn.classList.toggle('tbtn-active', scenes[compareIdxA]?.flipH || false);
+    flipBBtn.classList.toggle('tbtn-active', scenes[compareIdxB]?.flipH || false);
   }
 
   // ============================================================
@@ -710,8 +655,18 @@ function init() {
   // ============================================================
   function updateSlider(pos) {
     sliderPos = Math.max(2, Math.min(98, pos));
-    paneBEl.style.clipPath = `inset(0 0 0 ${sliderPos}%)`;
-    sliderDivider.style.left = `${sliderPos}%`;
+    paneBEl.style.clipPath    = `inset(0 0 0 ${sliderPos}%)`;
+    sliderDivider.style.left  = `${sliderPos}%`;
+  }
+
+  // ============================================================
+  // A/B swap
+  // ============================================================
+  function swapAB() {
+    [compareIdxA, compareIdxB] = [compareIdxB, compareIdxA];
+    updateCompareSelects();
+    loadCompareSphere('a', compareIdxA);
+    loadCompareSphere('b', compareIdxB);
   }
 
   // ============================================================
@@ -720,7 +675,7 @@ function init() {
   function toggleFlipSingle() {
     if (currentIdx < 0) return;
     scenes[currentIdx].flipH = !scenes[currentIdx].flipH;
-    flipBtn.classList.toggle('ctrl-btn-active', scenes[currentIdx].flipH);
+    flipBtn.classList.toggle('tbtn-active', scenes[currentIdx].flipH);
     applyFlipToMesh(sphere, scenes[currentIdx].flipH);
   }
 
@@ -728,23 +683,15 @@ function init() {
     const idx  = side === 'a' ? compareIdxA : compareIdxB;
     if (idx < 0 || idx >= scenes.length) return;
     scenes[idx].flipH = !scenes[idx].flipH;
-    const btn  = side === 'a' ? flipABtn  : flipBBtn;
-    const mesh = side === 'a' ? sphereA   : sphereB;
-    btn.classList.toggle('icon-btn-active', scenes[idx].flipH);
+    const btn  = side === 'a' ? flipABtn : flipBBtn;
+    const mesh = side === 'a' ? sphereA  : sphereB;
+    btn.classList.toggle('tbtn-active', scenes[idx].flipH);
     applyFlipToMesh(mesh, scenes[idx].flipH);
   }
 
   // ============================================================
   // UI helpers
   // ============================================================
-  function showViewerLayout() {
-    uploadSection.classList.add('hidden');
-    viewerLayout.classList.remove('hidden');
-    toolbar.classList.remove('hidden');
-    updateToolbar();
-    updateCompareBtns();
-  }
-
   function showLoading(visible, msg) {
     loadingOverlay.classList.toggle('hidden', !visible);
     if (msg) loadingMessage.textContent = msg;
@@ -755,9 +702,7 @@ function init() {
     errorOverlay.classList.remove('hidden');
   }
 
-  function hideError() {
-    errorOverlay.classList.add('hidden');
-  }
+  function hideError() { errorOverlay.classList.add('hidden'); }
 
   function showGlobalError(msg) {
     if (!msg) return;
@@ -766,12 +711,12 @@ function init() {
     setTimeout(() => globalError.classList.add('hidden'), 6000);
   }
 
-  function showToast(msg, duration = 3000) {
+  function showToast(msg, dur = 3000) {
     hideToast();
     toast.textContent = msg;
     toast.classList.remove('hidden');
     toast.classList.add('toast-show');
-    toastTimer = setTimeout(hideToast, duration);
+    toastTimer = setTimeout(hideToast, dur);
   }
 
   function hideToast() {
@@ -781,34 +726,30 @@ function init() {
   }
 
   // ============================================================
-  // Drag & Drop (upload zone)
+  // Drag & Drop upload
   // ============================================================
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropZone.classList.add('drag-over');
   });
-
   dropZone.addEventListener('dragleave', (e) => {
     if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
   });
-
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     handleFiles(e.dataTransfer.files);
   });
-
   dropZone.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
   });
-
   fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) handleFiles(fileInput.files);
     fileInput.value = '';
   });
 
   // ============================================================
-  // Interaction helpers
+  // Canvas interaction
   // ============================================================
   const SENSITIVITY = 0.3;
 
@@ -834,8 +775,7 @@ function init() {
 
     canvas.addEventListener('mousedown', (e) => {
       isDragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
+      lastX = e.clientX; lastY = e.clientY;
       canvas.style.cursor = 'grabbing';
     });
 
@@ -872,53 +812,44 @@ function init() {
     }, { passive: false });
 
     canvas.addEventListener('touchend', () => {
-      isDragging    = false;
-      lastTouches   = null;
-      lastPinchDist = null;
+      isDragging = false;
+      lastTouches = null; lastPinchDist = null;
       canvas.style.cursor = 'grab';
     });
   }
 
-  // Attach interaction once for all canvases
+  // Attach once for all three canvases
   attachCanvasInteraction(viewerCanvas);
   attachCanvasInteraction(canvasA);
   attachCanvasInteraction(canvasB);
 
-  // Global mouse move / up
+  // Global mouse events
   window.addEventListener('mousemove', (e) => {
     if (isSliderDragging) {
       const rect = compareContainer.getBoundingClientRect();
-      const pos = ((e.clientX - rect.left) / rect.width) * 100;
-      updateSlider(pos);
+      updateSlider(((e.clientX - rect.left) / rect.width) * 100);
       return;
     }
     if (!isDragging) return;
     rotate(e.clientX - lastX, e.clientY - lastY);
-    lastX = e.clientX;
-    lastY = e.clientY;
+    lastX = e.clientX; lastY = e.clientY;
   });
 
   window.addEventListener('mouseup', () => {
-    if (isSliderDragging) {
-      isSliderDragging = false;
-      return;
-    }
+    if (isSliderDragging) { isSliderDragging = false; return; }
     if (!isDragging) return;
     isDragging = false;
     [viewerCanvas, canvasA, canvasB].forEach(c => { c.style.cursor = 'grab'; });
   });
 
-  // Slider divider mouse drag
+  // Slider divider drag
   sliderDivider.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     isSliderDragging = true;
   });
 
-  // Slider divider touch drag
   sliderDivider.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     isSliderDragging = true;
   }, { passive: false });
 
@@ -927,23 +858,11 @@ function init() {
     e.preventDefault();
     if (e.touches.length === 1) {
       const rect = compareContainer.getBoundingClientRect();
-      const pos = ((e.touches[0].clientX - rect.left) / rect.width) * 100;
-      updateSlider(pos);
+      updateSlider(((e.touches[0].clientX - rect.left) / rect.width) * 100);
     }
   }, { passive: false });
 
-  window.addEventListener('touchend', () => {
-    isSliderDragging = false;
-  });
-
-  // ============================================================
-  // Sidebar help toggle
-  // ============================================================
-  sidebarHelpToggle.addEventListener('click', () => {
-    const expanded = sidebarHelpBody.classList.toggle('hidden');
-    sidebarHelpToggle.setAttribute('aria-expanded', !expanded);
-    sidebarHelpArrow.textContent = expanded ? '▾' : '▴';
-  });
+  window.addEventListener('touchend', () => { isSliderDragging = false; });
 
   // ============================================================
   // Keyboard shortcuts
@@ -951,7 +870,7 @@ function init() {
   document.addEventListener('keydown', (e) => {
     if (document.activeElement?.contentEditable === 'true') return;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-    if (viewerLayout.classList.contains('hidden')) return;
+    if (viewerLayout.classList.contains('viewer-layout-hidden')) return;
 
     switch (e.key) {
       case 'ArrowLeft':
@@ -962,18 +881,27 @@ function init() {
         e.preventDefault();
         if (viewMode === 'single') nextScene();
         break;
-      case 'r': case 'R':
-        resetView();
+      case 'Escape':
+        e.preventDefault();
+        if (viewMode !== 'single') exitCompareMode();
         break;
-      case 'a': case 'A':
-        toggleAutoRotate();
-        break;
+      case 'r': case 'R': resetView(); break;
+      case 'a': case 'A': toggleAutoRotate(); break;
       case 'f': case 'F':
-        if (supportsFullscreen) fullscreenBtn.click();
+        if (supportsFullscreen) {
+          viewMode === 'single' ? fullscreenBtn.click() : compareFsBtn.click();
+        }
+        break;
+      case 'm': case 'M':
+        if (viewMode === 'single') toggleFlipSingle();
         break;
       case 'c': case 'C':
         if (viewMode === 'single') enterSplitMode();
-        else exitCompareMode();
+        else if (viewMode !== 'slider') exitCompareMode();
+        break;
+      case 's': case 'S':
+        if (viewMode === 'single') enterSliderMode();
+        else if (viewMode === 'slider') exitCompareMode();
         break;
       case 'v': case 'V':
         if (viewMode === 'split') {
@@ -984,52 +912,64 @@ function init() {
     }
   });
 
-  function toggleAutoRotate(forcedState) {
-    autoRotate = forcedState !== undefined ? forcedState : !autoRotate;
-    autorotateBtn.classList.toggle('ctrl-btn-active', autoRotate);
-    autorotateBtn.title = autoRotate ? '自動回転をOFF' : '自動回転をON';
-    compareAutorotBtn.classList.toggle('icon-btn-active', autoRotate);
+  function toggleAutoRotate(forced) {
+    autoRotate = forced !== undefined ? forced : !autoRotate;
+    autorotateBtn.classList.toggle('tbtn-active', autoRotate);
+    compareAutorotBtn.classList.toggle('tbtn-active', autoRotate);
     if (autoRotate) showToast('自動回転 ON');
   }
 
   // ============================================================
-  // Control buttons
+  // Button wiring
   // ============================================================
-  splitCompareBtn.addEventListener('click', () => enterSplitMode());
-  sliderCompareBtn.addEventListener('click', () => enterSliderMode());
+  addImgBtn.addEventListener('click', () => fileInput.click());
+  addSceneBtn.addEventListener('click', () => fileInput.click());
+  clearAllBtn.addEventListener('click', clearAllAndShowUpload);
+  backBtn.addEventListener('click', clearAllAndShowUpload);
+
+  splitCompareBtn.addEventListener('click', enterSplitMode);
+  sliderCompareBtn.addEventListener('click', enterSliderMode);
+  exitCompareBtn.addEventListener('click', () => exitCompareMode());
+
   autorotateBtn.addEventListener('click', () => toggleAutoRotate());
   compareAutorotBtn.addEventListener('click', () => toggleAutoRotate());
+
   flipBtn.addEventListener('click', toggleFlipSingle);
   flipABtn.addEventListener('click', () => toggleFlipCompare('a'));
   flipBBtn.addEventListener('click', () => toggleFlipCompare('b'));
+
+  swapAbBtn.addEventListener('click', swapAB);
+
   resetBtn.addEventListener('click', resetView);
   compareResetBtn.addEventListener('click', resetView);
-  backBtn.addEventListener('click', clearAllAndShowUpload);
-  addSceneBtn.addEventListener('click', () => fileInput.click());
-  clearAllBtn.addEventListener('click', clearAllAndShowUpload);
-  exitCompareBtn.addEventListener('click', () => exitCompareMode());
 
-  errorBackBtn.addEventListener('click', () => {
-    hideError();
-    if (scenes.length === 0) clearAllAndShowUpload();
+  layoutSideBtn.addEventListener('click', () => {
+    if (viewMode !== 'split') return;
+    compareLayout = 'side';
+    applyCompareLayout();
+  });
+
+  layoutStackBtn.addEventListener('click', () => {
+    if (viewMode !== 'split') return;
+    compareLayout = 'stack';
+    applyCompareLayout();
   });
 
   compareSelectA.addEventListener('change', () => {
     compareIdxA = parseInt(compareSelectA.value, 10);
-    flipABtn.classList.toggle('icon-btn-active', scenes[compareIdxA]?.flipH || false);
+    flipABtn.classList.toggle('tbtn-active', scenes[compareIdxA]?.flipH || false);
     loadCompareSphere('a', compareIdxA);
   });
 
   compareSelectB.addEventListener('change', () => {
     compareIdxB = parseInt(compareSelectB.value, 10);
-    flipBBtn.classList.toggle('icon-btn-active', scenes[compareIdxB]?.flipH || false);
+    flipBBtn.classList.toggle('tbtn-active', scenes[compareIdxB]?.flipH || false);
     loadCompareSphere('b', compareIdxB);
   });
 
-  compareLayoutBtn.addEventListener('click', () => {
-    if (viewMode !== 'split') return;
-    compareLayout = compareLayout === 'side' ? 'stack' : 'side';
-    applyCompareLayout();
+  errorBackBtn.addEventListener('click', () => {
+    hideError();
+    if (scenes.length === 0) clearAllAndShowUpload();
   });
 
   // ============================================================
@@ -1041,7 +981,7 @@ function init() {
 
   if (!supportsFullscreen) {
     fullscreenBtn.classList.add('hidden');
-    compareFullscreenBtn.classList.add('hidden');
+    compareFsBtn.classList.add('hidden');
   }
 
   fullscreenBtn.addEventListener('click', () => {
@@ -1052,29 +992,26 @@ function init() {
         showGlobalError(`全画面表示に失敗しました: ${err.message}`)
       );
     } else {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (exit) exit.call(document).catch(() => {});
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
     }
   });
 
-  compareFullscreenBtn.addEventListener('click', () => {
+  compareFsBtn.addEventListener('click', () => {
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
     if (!isFs) {
-      const target = compareContainer;
-      const req = target.requestFullscreen || target.webkitRequestFullscreen;
-      if (req) req.call(target).catch(err =>
+      const req = compareContainer.requestFullscreen || compareContainer.webkitRequestFullscreen;
+      if (req) req.call(compareContainer).catch(err =>
         showGlobalError(`全画面表示に失敗しました: ${err.message}`)
       );
     } else {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (exit) exit.call(document).catch(() => {});
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
     }
   });
 
   function onFsChange() {
     const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
     fullscreenIcon.textContent = isFs ? '✕' : '⛶';
-    fullscreenBtn.title = isFs ? '全画面を終了' : '全画面表示';
+    fullscreenBtn.title = isFs ? '全画面を終了 (F)' : '全画面表示 (F)';
     requestAnimationFrame(() => {
       if (viewMode === 'single' && renderer) fitCanvasToContainer();
       if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
@@ -1087,14 +1024,14 @@ function init() {
   // Resize
   // ============================================================
   window.addEventListener('resize', () => {
-    if (viewerLayout.classList.contains('hidden')) return;
+    if (viewerLayout.classList.contains('viewer-layout-hidden')) return;
     if (viewMode === 'single' && renderer) fitCanvasToContainer();
     if (viewMode === 'split' || viewMode === 'slider') fitComparePanes();
   });
 
 } // end init()
 
-// ---- Wait for Three.js to load before running init ----
+// ---- Wait for Three.js ----
 (function waitForThree(retries) {
   if (typeof THREE !== 'undefined') {
     init();
