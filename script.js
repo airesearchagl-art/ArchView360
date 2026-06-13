@@ -179,9 +179,9 @@ function init() {
   let compareInited = false;
 
   // ---- Camera state — shared (single mode + sync ON) ----
-  const DEFAULT_FOV   = 100; // Wide initial FOV so scene appears fully visible on load
+  const DEFAULT_FOV   = 100; // Wide initial FOV
   const MIN_FOV       = 30;
-  const MAX_FOV       = 100;
+  const MAX_FOV       = 120; // v2.5: extended to 120° for ultra-wide
   const DEFAULT_PHI   = Math.PI / 2;
   const DEFAULT_THETA = 0;
   let phi   = DEFAULT_PHI;
@@ -214,8 +214,10 @@ function init() {
   // ---- Project State ----
   const projectState = {
     projectName: 'Untitled Project',
+    projectInfo: { client: '', author: '', date: '', notes: '' },
     floorplans: [], // { id, name, fileName, blobUrl, imgEl }
-    markers:    [], // { id, floorplanId, sceneId, x, y, rotation }
+    markers:    [], // { id, floorplanId, sceneId, x, y, rotation, name }
+    groups:     [], // { id, name } — scene groupings
   };
 
   // ---- FloorMap Navigator state ----
@@ -226,6 +228,11 @@ function init() {
   let isFloormapExpanded  = false;
   let isDraggingMarker    = false;
   let _dragMarkerId       = null;
+
+  // ---- Scene filter / group state (v2.5) ----
+  let sceneFilterFloorplanId = null; // null = all, string = filter by floorplan
+  const collapsedGroups      = new Set();
+  let   _groupPickerSceneIdx = -1;
 
   // ---- Import state ----
   let _importData         = null;
@@ -398,12 +405,14 @@ function init() {
     valid.forEach(f => {
       const blobUrl = URL.createObjectURL(f);
       const scene = {
-        id:       genId(),
-        name:     f.name.replace(/\.[^.]+$/, ''),
-        fileName: f.name,
+        id:          genId(),
+        name:        f.name.replace(/\.[^.]+$/, ''),
+        fileName:    f.name,
         blobUrl,
-        flipH:    false,
-        thumbUrl: null,
+        flipH:       false,
+        thumbUrl:    null,
+        floorplanId: activeFloorplanId || null, // auto-associate with current floor plan
+        groupId:     null,
       };
       scenes.push(scene);
       generateThumb(blobUrl, (dataUrl) => {
@@ -456,7 +465,15 @@ function init() {
     flipBtn.classList.toggle('active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
-    // Update FloorMap marker highlight and list
+    // Auto-sync FloorMap to scene's floor plan (v2.5)
+    if (s.floorplanId && s.floorplanId !== activeFloorplanId) {
+      const fp = projectState.floorplans.find(f => f.id === s.floorplanId);
+      if (fp) {
+        activeFloorplanId = s.floorplanId;
+        _updateFloormapSelect();
+        renderFloorplanList();
+      }
+    }
     if (activeFloorplanId) setTimeout(() => { renderFloormapCanvas(); renderMarkerList(); }, 0);
   }
 
@@ -565,11 +582,16 @@ function init() {
     projectState.floorplans.forEach(fp => URL.revokeObjectURL(fp.blobUrl));
     projectState.floorplans = [];
     projectState.markers    = [];
-    activeFloorplanId       = null;
-    selectedMarkerId        = null;
-    isPlacementMode         = false;
+    projectState.groups     = [];
+    projectState.projectInfo = { client: '', author: '', date: '', notes: '' };
+    activeFloorplanId        = null;
+    selectedMarkerId         = null;
+    isPlacementMode          = false;
+    sceneFilterFloorplanId   = null;
+    collapsedGroups.clear();
     hideEl(floormapNavigator);
     renderFloorplanList();
+    renderSceneFilterBar();
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
     if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
@@ -580,154 +602,333 @@ function init() {
   }
 
   // ============================================================
-  // Render scene list (with thumbnails + drag & drop)
+  // Render scene list — v2.5: filtered + grouped
   // ============================================================
   function renderSceneList() {
     sceneListEl.innerHTML = '';
-    scenes.forEach((s, i) => {
-      const li = document.createElement('li');
-      li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
-      li.draggable = true;
-      li.dataset.idx = i;
 
-      // ---- Thumbnail ----
-      const thumbWrap = document.createElement('div');
-      thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
-      if (s.thumbUrl) {
-        const img = document.createElement('img');
-        img.className = 'scene-thumb';
-        img.src = s.thumbUrl;
-        img.alt = '';
-        img.draggable = false;
-        thumbWrap.appendChild(img);
+    // 1. Filter by active floor plan
+    const visibleIndices = scenes.reduce((acc, s, i) => {
+      if (!sceneFilterFloorplanId || s.floorplanId === sceneFilterFloorplanId) acc.push(i);
+      return acc;
+    }, []);
 
-        // Hover preview (desktop only)
-        thumbWrap.addEventListener('mouseenter', (e) => showThumbPreview(s.thumbUrl, li));
-        thumbWrap.addEventListener('mouseleave', hideThumbPreview);
+    // 2. Group visible scenes by groupId
+    const groupOrder  = [];
+    const byGroup     = {};
+    const ungrouped   = [];
+    visibleIndices.forEach(i => {
+      const s = scenes[i];
+      const gid = s.groupId && projectState.groups.find(g => g.id === s.groupId) ? s.groupId : null;
+      if (gid) {
+        if (!byGroup[gid]) { byGroup[gid] = []; groupOrder.push(gid); }
+        byGroup[gid].push(i);
+      } else {
+        ungrouped.push(i);
       }
-
-      // ---- Bottom row ----
-      const row = document.createElement('div');
-      row.className = 'scene-item-row';
-
-      const numEl = document.createElement('span');
-      numEl.className = 'scene-num';
-      numEl.textContent = i + 1;
-
-      const nameEl = document.createElement('span');
-      nameEl.className = 'scene-name';
-      nameEl.textContent = s.name;
-      nameEl.title = s.name;
-
-      nameEl.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        nameEl.contentEditable = 'true';
-        nameEl.classList.add('editing');
-        const r = document.createRange();
-        r.selectNodeContents(nameEl);
-        const sel = window.getSelection();
-        sel.removeAllRanges(); sel.addRange(r);
-      });
-
-      nameEl.addEventListener('blur', () => {
-        nameEl.contentEditable = 'false';
-        nameEl.classList.remove('editing');
-        const n = nameEl.textContent.trim();
-        s.name = n || s.name;
-        nameEl.textContent = s.name;
-        if (i === currentIdx) currentSceneNameEl.textContent = s.name;
-        if (compareState.mode !== 'single') updateCompareSelects();
-      });
-
-      nameEl.addEventListener('keydown', (e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter')  { e.preventDefault(); nameEl.blur(); }
-        if (e.key === 'Escape') { nameEl.textContent = s.name; nameEl.blur(); }
-      });
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'scene-delete-btn';
-      delBtn.title = 'このシーンを削除';
-      delBtn.textContent = '×';
-      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteScene(i); });
-
-      row.appendChild(numEl);
-      row.appendChild(nameEl);
-      row.appendChild(delBtn);
-
-      li.appendChild(thumbWrap);
-      li.appendChild(row);
-
-      // ---- Click to switch scene ----
-      li.addEventListener('click', () => {
-        if (nameEl.contentEditable === 'true') return;
-        if (i !== currentIdx) switchToScene(i);
-      });
-
-      // ---- Drag & Drop events ----
-      li.addEventListener('dragstart', (e) => {
-        dragSrcIdx = i;
-        li.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', String(i));
-      });
-
-      li.addEventListener('dragend', () => {
-        dragSrcIdx  = -1;
-        dragOverIdx = -1;
-        li.classList.remove('dragging');
-        // Clear all drop indicators
-        sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el => {
-          el.classList.remove('drop-before', 'drop-after');
-        });
-      });
-
-      li.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (dragSrcIdx === i) return;
-        // Determine insert before/after based on mouse position within item
-        const rect = li.getBoundingClientRect();
-        const midY = rect.top + rect.height / 2;
-        const insertBefore = e.clientY < midY;
-        // Clear other indicators
-        sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el => {
-          if (el !== li) el.classList.remove('drop-before', 'drop-after');
-        });
-        if (insertBefore) {
-          li.classList.add('drop-before');
-          li.classList.remove('drop-after');
-          dragOverIdx = i;
-        } else {
-          li.classList.add('drop-after');
-          li.classList.remove('drop-before');
-          dragOverIdx = i + 1;
-        }
-      });
-
-      li.addEventListener('dragleave', () => {
-        li.classList.remove('drop-before', 'drop-after');
-      });
-
-      li.addEventListener('drop', (e) => {
-        e.preventDefault();
-        li.classList.remove('drop-before', 'drop-after');
-        if (dragSrcIdx < 0 || dragSrcIdx === dragOverIdx) return;
-        // dragOverIdx is insert position; adjust for removed item
-        let insertAt = dragOverIdx;
-        if (insertAt > dragSrcIdx) insertAt--;
-        reorderScene(dragSrcIdx, insertAt);
-      });
-
-      sceneListEl.appendChild(li);
     });
 
-    sceneCounter.textContent = scenes.length
-      ? `${currentIdx + 1} / ${scenes.length}`
-      : '0 / 0';
+    const frag = document.createDocumentFragment();
+
+    // 3. Ungrouped scenes first
+    ungrouped.forEach(i => frag.appendChild(_createSceneItem(i)));
+
+    // 4. Grouped scenes with collapsible headers
+    groupOrder.forEach(gid => {
+      const group = projectState.groups.find(g => g.id === gid);
+      if (!group) return;
+      const isCollapsed = collapsedGroups.has(gid);
+      const count = byGroup[gid].length;
+
+      const hdr = document.createElement('li');
+      hdr.className = 'scene-group-header';
+      hdr.dataset.gid = gid;
+
+      const toggle = document.createElement('span');
+      toggle.className = 'scene-group-toggle';
+      toggle.textContent = isCollapsed ? '▶' : '▼';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'scene-group-name';
+      nameSpan.textContent = group.name;
+
+      const countSpan = document.createElement('span');
+      countSpan.className = 'scene-group-count';
+      countSpan.textContent = count;
+
+      hdr.appendChild(toggle); hdr.appendChild(nameSpan); hdr.appendChild(countSpan);
+      hdr.addEventListener('click', () => {
+        if (collapsedGroups.has(gid)) collapsedGroups.delete(gid); else collapsedGroups.add(gid);
+        renderSceneList();
+      });
+      frag.appendChild(hdr);
+
+      if (!isCollapsed) {
+        byGroup[gid].forEach(i => {
+          const li = _createSceneItem(i);
+          li.classList.add('scene-in-group');
+          frag.appendChild(li);
+        });
+      }
+    });
+
+    sceneListEl.appendChild(frag);
+
+    // 5. Update counter
+    const shown = visibleIndices.length;
+    const total = scenes.length;
+    if (!total) {
+      sceneCounter.textContent = '0 / 0';
+    } else if (sceneFilterFloorplanId) {
+      sceneCounter.textContent = `${shown} / ${total}`;
+    } else {
+      sceneCounter.textContent = `${currentIdx + 1} / ${total}`;
+    }
 
     sceneListEl.querySelector('.scene-item.active')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  function _createSceneItem(i) {
+    const s = scenes[i];
+    const li = document.createElement('li');
+    li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
+    li.draggable = true;
+    li.dataset.idx = i;
+
+    // Thumbnail
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
+    if (s.thumbUrl) {
+      const img = document.createElement('img');
+      img.className = 'scene-thumb'; img.src = s.thumbUrl; img.alt = ''; img.draggable = false;
+      thumbWrap.appendChild(img);
+      thumbWrap.addEventListener('mouseenter', () => showThumbPreview(s.thumbUrl, li));
+      thumbWrap.addEventListener('mouseleave', hideThumbPreview);
+    }
+
+    // Bottom row
+    const row = document.createElement('div');
+    row.className = 'scene-item-row';
+
+    const numEl = document.createElement('span');
+    numEl.className = 'scene-num';
+    numEl.textContent = i + 1;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'scene-name';
+    nameEl.textContent = s.name;
+    nameEl.title = s.name;
+
+    nameEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      nameEl.contentEditable = 'true';
+      nameEl.classList.add('editing');
+      const r = document.createRange();
+      r.selectNodeContents(nameEl);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
+    nameEl.addEventListener('blur', () => {
+      nameEl.contentEditable = 'false';
+      nameEl.classList.remove('editing');
+      const n = nameEl.textContent.trim();
+      s.name = n || s.name;
+      nameEl.textContent = s.name;
+      if (i === currentIdx) currentSceneNameEl.textContent = s.name;
+      if (compareState.mode !== 'single') updateCompareSelects();
+    });
+    nameEl.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter')  { e.preventDefault(); nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = s.name; nameEl.blur(); }
+    });
+
+    // Floor plan badge
+    const fp = s.floorplanId ? projectState.floorplans.find(f => f.id === s.floorplanId) : null;
+    if (fp) {
+      const badge = document.createElement('span');
+      badge.className = 'scene-floor-badge';
+      badge.textContent = fp.name.slice(0, 3);
+      badge.title = fp.name;
+      row.appendChild(numEl);
+      row.appendChild(nameEl);
+      row.appendChild(badge);
+    } else {
+      row.appendChild(numEl);
+      row.appendChild(nameEl);
+    }
+
+    // Group button
+    const groupBtn = document.createElement('button');
+    const curGroup = s.groupId ? projectState.groups.find(g => g.id === s.groupId) : null;
+    groupBtn.className = 'scene-group-btn' + (curGroup ? ' has-group' : '');
+    groupBtn.title = curGroup ? `グループ: ${curGroup.name}（クリックで変更）` : 'グループを設定';
+    groupBtn.textContent = '📁';
+    groupBtn.addEventListener('click', (e) => { e.stopPropagation(); openGroupPicker(i, groupBtn); });
+    row.appendChild(groupBtn);
+
+    // Delete button
+    const delBtn = document.createElement('button');
+    delBtn.className = 'scene-delete-btn';
+    delBtn.title = 'このシーンを削除';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteScene(i); });
+    row.appendChild(delBtn);
+
+    li.appendChild(thumbWrap);
+    li.appendChild(row);
+
+    // Click to switch scene
+    li.addEventListener('click', () => {
+      if (nameEl.contentEditable === 'true') return;
+      if (i !== currentIdx) switchToScene(i);
+    });
+
+    // Drag & Drop
+    li.addEventListener('dragstart', (e) => {
+      dragSrcIdx = i; li.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(i));
+    });
+    li.addEventListener('dragend', () => {
+      dragSrcIdx = -1; dragOverIdx = -1;
+      li.classList.remove('dragging');
+      sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el =>
+        el.classList.remove('drop-before', 'drop-after'));
+    });
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      if (dragSrcIdx === i) return;
+      const rect = li.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top + rect.height / 2;
+      sceneListEl.querySelectorAll('.drop-before,.drop-after').forEach(el => {
+        if (el !== li) el.classList.remove('drop-before', 'drop-after');
+      });
+      if (insertBefore) {
+        li.classList.add('drop-before'); li.classList.remove('drop-after'); dragOverIdx = i;
+      } else {
+        li.classList.add('drop-after'); li.classList.remove('drop-before'); dragOverIdx = i + 1;
+      }
+    });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-before', 'drop-after'));
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      li.classList.remove('drop-before', 'drop-after');
+      if (dragSrcIdx < 0 || dragSrcIdx === dragOverIdx) return;
+      let insertAt = dragOverIdx;
+      if (insertAt > dragSrcIdx) insertAt--;
+      reorderScene(dragSrcIdx, insertAt);
+    });
+
+    return li;
+  }
+
+  // ============================================================
+  // Scene filter bar (v2.5)
+  // ============================================================
+  function renderSceneFilterBar() {
+    const bar = $('scene-filter-bar');
+    if (!bar) return;
+    if (!projectState.floorplans.length) { hideEl(bar); return; }
+    showEl(bar);
+    bar.innerHTML = '';
+
+    const allBtn = document.createElement('button');
+    allBtn.className = 'scene-filter-btn' + (!sceneFilterFloorplanId ? ' active' : '');
+    allBtn.textContent = `すべて (${scenes.length})`;
+    allBtn.addEventListener('click', () => {
+      sceneFilterFloorplanId = null;
+      renderSceneFilterBar(); renderSceneList();
+    });
+    bar.appendChild(allBtn);
+
+    projectState.floorplans.forEach(fp => {
+      const count = scenes.filter(s => s.floorplanId === fp.id).length;
+      const btn = document.createElement('button');
+      btn.className = 'scene-filter-btn' + (sceneFilterFloorplanId === fp.id ? ' active' : '');
+      btn.textContent = `${fp.name} (${count})`;
+      btn.title = fp.name;
+      btn.addEventListener('click', () => {
+        sceneFilterFloorplanId = fp.id;
+        if (fp.id !== activeFloorplanId) setActiveFloorplan(fp.id);
+        renderSceneFilterBar(); renderSceneList();
+      });
+      bar.appendChild(btn);
+    });
+  }
+
+  // ============================================================
+  // Group picker (v2.5)
+  // ============================================================
+  function openGroupPicker(sceneIdx, anchorEl) {
+    _groupPickerSceneIdx = sceneIdx;
+    const picker = $('group-picker');
+    _renderGroupPickerList();
+    showEl(picker);
+    const rect = anchorEl.getBoundingClientRect();
+    picker.style.left = Math.min(rect.left, window.innerWidth - 230) + 'px';
+    picker.style.top  = Math.min(rect.bottom + 4, window.innerHeight - 250) + 'px';
+    setTimeout(() => document.addEventListener('click', _onGroupPickerOutside, { once: true }), 0);
+  }
+
+  function _onGroupPickerOutside(e) {
+    const picker = $('group-picker');
+    if (picker && !picker.contains(e.target)) {
+      closeGroupPicker();
+    } else {
+      document.addEventListener('click', _onGroupPickerOutside, { once: true });
+    }
+  }
+
+  function closeGroupPicker() {
+    const picker = $('group-picker');
+    if (picker) hideEl(picker);
+    _groupPickerSceneIdx = -1;
+  }
+
+  function _renderGroupPickerList() {
+    const list = $('group-picker-list');
+    list.innerHTML = '';
+    const s = _groupPickerSceneIdx >= 0 ? scenes[_groupPickerSceneIdx] : null;
+
+    const noneItem = document.createElement('li');
+    noneItem.className = 'group-picker-item' + (!s?.groupId ? ' active' : '');
+    noneItem.textContent = '未分類';
+    noneItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (s) s.groupId = null;
+      closeGroupPicker(); renderSceneList();
+    });
+    list.appendChild(noneItem);
+
+    projectState.groups.forEach(g => {
+      const item = document.createElement('li');
+      item.className = 'group-picker-item' + (s?.groupId === g.id ? ' active' : '');
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = g.name;
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'group-picker-del';
+      delBtn.textContent = '×';
+      delBtn.title = 'グループを削除';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        scenes.forEach(sc => { if (sc.groupId === g.id) sc.groupId = null; });
+        projectState.groups = projectState.groups.filter(x => x.id !== g.id);
+        collapsedGroups.delete(g.id);
+        _renderGroupPickerList(); renderSceneList();
+      });
+
+      item.appendChild(nameSpan); item.appendChild(delBtn);
+      item.addEventListener('click', (e) => {
+        if (e.target === delBtn) return;
+        e.stopPropagation();
+        if (s) s.groupId = g.id;
+        closeGroupPicker(); renderSceneList();
+      });
+      list.appendChild(item);
+    });
   }
 
   // ============================================================
@@ -1914,6 +2115,7 @@ function init() {
     if (!activeFloorplanId && projectState.floorplans.length)
       activeFloorplanId = projectState.floorplans[0].id;
     renderFloorplanList();
+    renderSceneFilterBar();
     showToast(`平面図を ${valid.length} 件追加しました`);
   }
 
@@ -1922,10 +2124,15 @@ function init() {
     if (fp) URL.revokeObjectURL(fp.blobUrl);
     projectState.floorplans = projectState.floorplans.filter(f => f.id !== id);
     projectState.markers    = projectState.markers.filter(m => m.floorplanId !== id);
+    // Clear floorplanId from scenes that referenced deleted floor plan
+    scenes.forEach(s => { if (s.floorplanId === id) s.floorplanId = null; });
     if (activeFloorplanId === id)
       activeFloorplanId = projectState.floorplans[0]?.id || null;
+    if (sceneFilterFloorplanId === id) sceneFilterFloorplanId = null;
     renderFloorplanList();
     renderFloormap();
+    renderSceneFilterBar();
+    renderSceneList();
   }
 
   function setActiveFloorplan(id) {
@@ -1933,6 +2140,8 @@ function init() {
     selectedMarkerId  = null;
     renderFloorplanList();
     renderFloormap();
+    renderSceneFilterBar();
+    renderMarkerList();
   }
 
   function renderFloorplanList() {
@@ -2350,10 +2559,16 @@ function init() {
              x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name };
       projectState.markers.push(mk);
     }
+    // Auto-associate scene with current floor plan (v2.5)
+    if (activeFloorplanId && !curScene.floorplanId) {
+      curScene.floorplanId = activeFloorplanId;
+      renderSceneFilterBar();
+    }
     selectedMarkerId = mk.id;
     renderFloormapCanvas();
     _updateInfoPanel();
     renderMarkerList();
+    renderSceneList(); // update floor badges
     showToast(`「${curScene.name}」のマーカーを配置しました（向き: ${initialRot}°）`);
   });
 
@@ -2540,20 +2755,80 @@ function init() {
     floorplanInput.value = '';
   });
 
+  // Group picker add button wiring
+  const groupPickerInput  = $('group-picker-input');
+  const groupPickerAddBtn = $('group-picker-add-btn');
+  groupPickerAddBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const name = groupPickerInput.value.trim();
+    if (!name) return;
+    const group = { id: genId(), name };
+    projectState.groups.push(group);
+    if (_groupPickerSceneIdx >= 0 && scenes[_groupPickerSceneIdx]) {
+      scenes[_groupPickerSceneIdx].groupId = group.id;
+    }
+    groupPickerInput.value = '';
+    closeGroupPicker();
+    renderSceneList();
+  });
+  groupPickerInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); groupPickerAddBtn.click(); }
+    if (e.key === 'Escape') { e.stopPropagation(); closeGroupPicker(); }
+  });
+  groupPickerInput.addEventListener('click', (e) => e.stopPropagation());
+
+  // ============================================================
+  // Project Info Modal (v2.5)
+  // ============================================================
+  function openProjectInfoModal() {
+    $('pi-name').value   = projectState.projectName || '';
+    $('pi-client').value = projectState.projectInfo.client || '';
+    $('pi-author').value = projectState.projectInfo.author || '';
+    $('pi-date').value   = projectState.projectInfo.date   || '';
+    $('pi-notes').value  = projectState.projectInfo.notes  || '';
+    showEl($('project-info-modal'));
+  }
+
+  function closeProjectInfoModal() { hideEl($('project-info-modal')); }
+
+  function saveProjectInfo() {
+    const name = $('pi-name').value.trim();
+    if (name) projectState.projectName = name;
+    projectState.projectInfo.client = $('pi-client').value.trim();
+    projectState.projectInfo.author = $('pi-author').value.trim();
+    projectState.projectInfo.date   = $('pi-date').value;
+    projectState.projectInfo.notes  = $('pi-notes').value.trim();
+    closeProjectInfoModal();
+    showToast('プロジェクト情報を保存しました');
+  }
+
+  $('project-info-btn').addEventListener('click', openProjectInfoModal);
+  $('pi-close-btn').addEventListener('click',  closeProjectInfoModal);
+  $('pi-cancel-btn').addEventListener('click', closeProjectInfoModal);
+  $('pi-save-btn').addEventListener('click',   saveProjectInfo);
+  $('project-info-modal').addEventListener('click', (e) => {
+    if (e.target === $('project-info-modal')) closeProjectInfoModal();
+  });
+
   // ============================================================
   // JSON Export
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.4',
+      appVersion:  '2.5',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
+      projectInfo: { ...projectState.projectInfo },
       scenes: scenes.map(s => ({
-        id:       s.id,
-        name:     s.name,
-        fileName: s.fileName || `${s.name}.jpg`,
-        flipped:  s.flipH || false,
+        id:          s.id,
+        name:        s.name,
+        fileName:    s.fileName || `${s.name}.jpg`,
+        flipped:     s.flipH || false,
+        floorplanId: s.floorplanId || null,
+        groupId:     s.groupId     || null,
       })),
+      groups: projectState.groups.map(g => ({ ...g })),
       floorplans: projectState.floorplans.map(f => ({
         id:       f.id,
         name:     f.name,
@@ -2637,6 +2912,13 @@ function init() {
     const fileMap = {};
     Array.from(fileList).forEach(f => { fileMap[f.name] = f; });
 
+    // Restore groups (v2.5) — before scenes so groupId references work
+    const importedGroups = _importData.groups || [];
+    const existingGroupIds = new Set(projectState.groups.map(g => g.id));
+    importedGroups.forEach(g => {
+      if (!existingGroupIds.has(g.id)) projectState.groups.push({ id: g.id, name: g.name });
+    });
+
     // Restore scenes
     let restoredScenes = 0;
     const newScenes = [];
@@ -2644,7 +2926,12 @@ function init() {
       const file = fileMap[sd.fileName];
       if (!file) return;
       const blobUrl = URL.createObjectURL(file);
-      const scene   = { id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl, flipH: sd.flipped || false, thumbUrl: null };
+      const scene = {
+        id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl,
+        flipH: sd.flipped || false, thumbUrl: null,
+        floorplanId: sd.floorplanId || null, // v2.5
+        groupId:     sd.groupId     || null, // v2.5
+      };
       newScenes.push(scene);
       restoredScenes++;
       generateThumb(blobUrl, (dataUrl) => { scene.thumbUrl = dataUrl; renderSceneList(); });
@@ -2714,8 +3001,13 @@ function init() {
     }
 
     if (_importData.projectName) projectState.projectName = _importData.projectName;
+    // Restore project info (v2.5)
+    if (_importData.projectInfo) {
+      projectState.projectInfo = { ...projectState.projectInfo, ..._importData.projectInfo };
+    }
 
     renderFloormap();
+    renderSceneFilterBar();
     hideEl(importModal);
     _importData = null;
     showToast(`復元完了: シーン ${restoredScenes} / 平面図 ${restoredFPs} / マーカー ${restoredMk} / 比較セット ${restoredCs}`);

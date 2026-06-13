@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260614a" />
+  <link rel="stylesheet" href="style.css?v=20260614b" />
 </head>
 <body>
   <header class="header">
@@ -80,6 +80,7 @@
             <button id="clear-all-btn" class="sidebar-btn sidebar-btn-danger" title="すべてクリア">🗑</button>
           </div>
         </div>
+        <div id="scene-filter-bar" class="scene-filter-bar" style="display:none"></div>
 
         <ul id="scene-list" class="scene-list"></ul>
 
@@ -173,6 +174,9 @@
           <!-- 【プロジェクト】グループ -->
           <button id="add-floorplan-btn" class="toolbar-btn" title="平面図を追加">
             <span class="btn-icon">🗺</span><span class="btn-label">平面図</span>
+          </button>
+          <button id="project-info-btn" class="toolbar-btn" title="案件名・施主名・作成者などのプロジェクト情報を編集">
+            <span class="btn-icon">📋</span><span class="btn-label">案件情報</span>
           </button>
           <button id="export-json-btn" class="toolbar-btn" title="JSON設定ファイルを書き出します">
             <span class="btn-icon">⬇</span><span class="btn-label">設定を書き出し</span>
@@ -409,6 +413,41 @@
     </div>
   </div>
 
+  <!-- グループピッカー -->
+  <div id="group-picker" class="group-picker" style="display:none">
+    <ul id="group-picker-list" class="group-picker-list"></ul>
+    <div class="group-picker-add">
+      <input type="text" id="group-picker-input" class="group-picker-input" placeholder="新しいグループ名" maxlength="40" autocomplete="off" />
+      <button id="group-picker-add-btn" class="group-picker-add-btn">追加</button>
+    </div>
+  </div>
+
+  <!-- プロジェクト情報モーダル -->
+  <div id="project-info-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pi-modal-title">
+    <div class="modal-box" style="max-width:460px">
+      <div class="modal-hd">
+        <span class="modal-title" id="pi-modal-title">プロジェクト情報</span>
+        <button id="pi-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="modal-label" for="pi-name">案件名</label>
+        <input type="text" id="pi-name" class="modal-input" maxlength="100" autocomplete="off" placeholder="例: ○○オフィスビル新築工事" />
+        <label class="modal-label" for="pi-client">施主名</label>
+        <input type="text" id="pi-client" class="modal-input" maxlength="80" autocomplete="off" placeholder="施主・クライアント名" />
+        <label class="modal-label" for="pi-author">作成者</label>
+        <input type="text" id="pi-author" class="modal-input" maxlength="80" autocomplete="off" placeholder="設計者・担当者名" />
+        <label class="modal-label" for="pi-date">作成日</label>
+        <input type="date" id="pi-date" class="modal-input" />
+        <label class="modal-label" for="pi-notes">備考</label>
+        <textarea id="pi-notes" class="modal-textarea" rows="3" placeholder="備考・メモ" maxlength="500"></textarea>
+      </div>
+      <div class="modal-ft">
+        <button id="pi-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="pi-save-btn" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 比較セット名入力モーダル -->
   <div id="set-name-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="set-name-modal-title">
     <div class="modal-box">
@@ -429,6 +468,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260614a" defer></script>
+  <script src="script.js?v=20260614b" defer></script>
 </body>
 </html>

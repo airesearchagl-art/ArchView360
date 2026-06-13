@@ -421,6 +421,194 @@ body {
 .scene-item:hover .scene-delete-btn { opacity: 1; }
 .scene-delete-btn:hover { color: var(--error); }
 
+/* ===== v2.5: Scene filter bar ===== */
+.scene-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(15,17,23,.5);
+  flex-shrink: 0;
+}
+
+.scene-filter-btn {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 7px;
+  font-size: .65rem;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background .1s, color .1s, border-color .1s;
+}
+.scene-filter-btn:hover { background: var(--surface-2); color: var(--text); }
+.scene-filter-btn.active {
+  background: rgba(79,124,255,.2);
+  border-color: var(--accent);
+  color: var(--accent-h);
+  font-weight: 600;
+}
+
+/* ===== v2.5: Scene group header ===== */
+.scene-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.scene-group-header:hover { background: var(--surface-3); }
+.scene-group-toggle { font-size: .6rem; flex-shrink: 0; color: var(--text-muted); }
+.scene-group-name { flex: 1; font-size: .72rem; font-weight: 600; color: var(--text); }
+.scene-group-count {
+  font-size: .6rem;
+  background: var(--surface-3);
+  border-radius: 10px;
+  padding: 1px 6px;
+  color: var(--text-muted);
+}
+
+/* Scene items inside groups */
+.scene-in-group { border-left: 2px solid rgba(79,124,255,.3); }
+
+/* Floor plan badge on scene item */
+.scene-floor-badge {
+  flex-shrink: 0;
+  font-size: .58rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  background: rgba(79,124,255,.18);
+  color: var(--accent-h);
+  border-radius: 3px;
+  max-width: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Group button on scene item */
+.scene-group-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: .7rem;
+  padding: 1px 2px;
+  opacity: 0;
+  transition: opacity .1s;
+  line-height: 1;
+}
+.scene-item:hover .scene-group-btn { opacity: .7; }
+.scene-group-btn:hover { opacity: 1 !important; }
+.scene-group-btn.has-group { opacity: 1; color: var(--accent-h); }
+
+/* ===== v2.5: Group picker ===== */
+.group-picker {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.6);
+  min-width: 160px;
+  max-width: 220px;
+  overflow: hidden;
+}
+
+.group-picker-list {
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.group-picker-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: .78rem;
+  color: var(--text);
+  gap: 4px;
+  transition: background .1s;
+}
+.group-picker-item:hover { background: var(--surface-2); }
+.group-picker-item.active { color: var(--accent-h); font-weight: 600; }
+.group-picker-item > span { flex: 1; }
+
+.group-picker-del {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: .72rem;
+  padding: 0 2px;
+  opacity: .4;
+  line-height: 1;
+}
+.group-picker-del:hover { color: var(--error); opacity: 1; }
+
+.group-picker-add {
+  display: flex;
+  gap: 4px;
+  padding: 5px 6px;
+  border-top: 1px solid var(--border);
+  background: rgba(26,29,39,.6);
+}
+
+.group-picker-input {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: .72rem;
+  padding: 3px 6px;
+  font-family: inherit;
+  min-width: 0;
+}
+.group-picker-input:focus { outline: 1px solid var(--accent); }
+
+.group-picker-add-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font-size: .72rem;
+  padding: 3px 8px;
+  font-family: inherit;
+}
+.group-picker-add-btn:hover { background: var(--accent-h); }
+
+/* ===== v2.5: Project info modal ===== */
+.modal-textarea {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: .85rem;
+  padding: 8px 10px;
+  font-family: inherit;
+  resize: vertical;
+  margin-bottom: 12px;
+  min-height: 64px;
+}
+.modal-textarea:focus { outline: 1px solid var(--accent); }
+
 /* ===== Scene item D&D states ===== */
 .scene-item.dragging {
   opacity: .45;
