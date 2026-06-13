@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260613g" />
+  <link rel="stylesheet" href="style.css?v=20260613h" />
 </head>
 <body>
   <header class="header">
@@ -28,6 +28,18 @@
           <p class="drop-sub">または</p>
           <label class="btn btn-primary" for="file-input">ファイルを選択</label>
           <p class="drop-hint">JPEG / PNG / WebP ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）・ 複数ファイル同時選択可</p>
+        </div>
+      </div>
+      <!-- 設定JSONから開く -->
+      <div class="json-open-card">
+        <div class="json-open-or">または</div>
+        <div class="json-open-content">
+          <span class="json-open-icon">📂</span>
+          <div class="json-open-text">
+            <p class="json-open-title">設定JSONからプロジェクトを開く</p>
+            <p class="json-open-desc">JSON + 画像ファイル一式があれば別環境でもプロジェクトを完全復元できます</p>
+          </div>
+          <button id="open-json-btn" class="btn btn-secondary">設定JSONを開く</button>
         </div>
       </div>
       <div class="usage-card">
@@ -297,6 +309,7 @@
         <!-- ===== FloorMap Navigator ===== -->
         <div id="floormap-navigator" class="floormap-navigator" style="display:none">
           <div id="floormap-resize-handle" class="floormap-resize-handle"></div>
+          <div id="floormap-resize-handle-left" class="floormap-resize-handle-left"></div>
           <div class="floormap-hd">
             <select id="floormap-fp-select" class="floormap-fp-select"></select>
             <div class="floormap-hd-actions">
@@ -393,6 +406,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260613g" defer></script>
+  <script src="script.js?v=20260613h" defer></script>
 </body>
 </html>

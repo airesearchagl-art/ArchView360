@@ -1570,8 +1570,16 @@ function init() {
       theta -= dx * SENSITIVITY * r;
       phi   -= dy * SENSITIVITY * r;
       phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+      // Update current scene's marker rotation in real time
+      if (activeFloorplanId && currentIdx >= 0) {
+        const curSceneId = scenes[currentIdx]?.id;
+        if (curSceneId) {
+          const mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curSceneId);
+          if (mk) mk.rotation = Math.round(((-theta * 180 / Math.PI) % 360 + 360) % 360);
+        }
+      }
     }
-    // Real-time floormap redraw to reflect current yaw on canvas
+    // Throttled floormap redraw
     if (activeFloorplanId && !_floormapRotRafPending) {
       _floormapRotRafPending = true;
       requestAnimationFrame(() => { _floormapRotRafPending = false; renderFloormapCanvas(); });
@@ -2223,7 +2231,8 @@ function init() {
   } catch {}
 
   // Drag resize handle (top edge → resize height of floormap-body)
-  const floormapResizeHandle = document.getElementById('floormap-resize-handle');
+  const floormapResizeHandle     = document.getElementById('floormap-resize-handle');
+  const floormapResizeHandleLeft = document.getElementById('floormap-resize-handle-left');
   let _fmResizing = false, _fmResizeStartY = 0, _fmResizeStartH = 0;
   floormapResizeHandle.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -2238,7 +2247,6 @@ function init() {
     const dy = _fmResizeStartY - e.clientY; // dragging up increases height
     const newH = Math.max(100, Math.min(window.innerHeight * 0.7, _fmResizeStartH + dy));
     floormapBody.style.height = newH + 'px';
-    // Resize canvas
     floormapCanvas.width  = floormapBody.clientWidth;
     floormapCanvas.height = newH;
     renderFloormapCanvas();
@@ -2248,6 +2256,35 @@ function init() {
     document.removeEventListener('mousemove', _fmResizeMove);
     document.removeEventListener('mouseup',   _fmResizeUp);
     try { localStorage.setItem('archview360.floormapHeight', floormapBody.clientHeight); } catch {}
+  }
+
+  // Drag resize handle (left edge → resize width)
+  let _fmResizingW = false, _fmResizeStartX = 0, _fmResizeStartW = 0;
+  floormapResizeHandleLeft.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    _fmResizingW = true;
+    _fmResizeStartX = e.clientX;
+    _fmResizeStartW = floormapNavigator.offsetWidth;
+    document.addEventListener('mousemove', _fmResizeMoveW);
+    document.addEventListener('mouseup',   _fmResizeUpW);
+  });
+  function _fmResizeMoveW(e) {
+    if (!_fmResizingW) return;
+    const dx = _fmResizeStartX - e.clientX; // dragging left increases width
+    const newW = Math.max(240, Math.min(window.innerWidth * 0.85, _fmResizeStartW + dx));
+    floormapNavigator.style.width = newW + 'px';
+    requestAnimationFrame(() => {
+      const bw = floormapBody.clientWidth;
+      const bh = floormapBody.clientHeight;
+      if (bw > 0 && bh > 0) { floormapCanvas.width = bw; floormapCanvas.height = bh; }
+      renderFloormapCanvas();
+    });
+  }
+  function _fmResizeUpW() {
+    _fmResizingW = false;
+    document.removeEventListener('mousemove', _fmResizeMoveW);
+    document.removeEventListener('mouseup',   _fmResizeUpW);
+    try { localStorage.setItem(FM_LS_KEY, floormapNavigator.offsetWidth); } catch {}
   }
 
   // Restore saved height
@@ -2280,7 +2317,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.1',
+      appVersion:  '2.2',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       scenes: scenes.map(s => ({
@@ -2334,26 +2371,36 @@ function init() {
 
   function _showImportModal() {
     if (!_importData) return;
-    const allFiles = new Set([
-      ...(_importData.scenes     || []).map(s => s.fileName),
-      ...(_importData.floorplans || []).map(f => f.fileName),
-    ]);
+    const sceneFiles = (_importData.scenes     || []).map(s => s.fileName);
+    const fpFiles    = (_importData.floorplans || []).map(f => f.fileName);
+    const sceneCount = _importData.scenes?.length     || 0;
+    const fpCount    = _importData.floorplans?.length || 0;
+    const mkCount    = _importData.markers?.length    || 0;
+    const csCount    = _importData.compareSets?.length || 0;
+    const totalFiles = sceneFiles.length + fpFiles.length;
 
-    const sceneCount  = _importData.scenes?.length     || 0;
-    const fpCount     = _importData.floorplans?.length || 0;
-    const mkCount     = _importData.markers?.length    || 0;
-    const csCount     = _importData.compareSets?.length || 0;
+    const panoList = sceneFiles.map(fn =>
+      `<li class="import-file-item"><span class="import-file-cat">🖼️</span>${_esc(fn)}</li>`
+    ).join('');
+    const fpList = fpFiles.map(fn =>
+      `<li class="import-file-item"><span class="import-file-cat">🗺️</span>${_esc(fn)}</li>`
+    ).join('');
 
     importModalBody.innerHTML =
       `<div class="import-summary">` +
-        `シーン ${sceneCount} / 平面図 ${fpCount} / マーカー ${mkCount} / 比較セット ${csCount}` +
+        `<span class="import-badge">シーン ${sceneCount}</span>` +
+        `<span class="import-badge">平面図 ${fpCount}</span>` +
+        `<span class="import-badge">マーカー ${mkCount}</span>` +
+        `<span class="import-badge">比較セット ${csCount}</span>` +
       `</div>` +
-      `<p class="import-files-label">必要な画像ファイル（${allFiles.size} 件）:</p>` +
+      `<p class="import-files-label">必要な画像ファイル（合計 ${totalFiles} 件）— 同名ファイルを選択してください</p>` +
       `<ul class="import-files-list">` +
-        [...allFiles].map(fn => `<li class="import-file-item" data-filename="${_esc(fn)}">◌ ${_esc(fn)}</li>`).join('') +
+        (panoList || `<li class="import-file-item import-file-none">パノラマ画像なし</li>`) +
+        (fpList   || '') +
       `</ul>` +
-      `<p class="import-note">ℹ️ JSONには画像データが含まれません。同名のファイルをアップロードして復元してください。別PCで復元するには画像一式が必要です。</p>`;
+      `<p class="import-note">ℹ️ JSONには画像データが含まれません。ファイル名が完全一致したものだけ復元されます。別PCで復元するには画像ファイル一式が必要です。</p>`;
 
+    importUploadBtn.textContent = '画像ファイルを選択して復元';
     showEl(importModal);
   }
 
@@ -2408,19 +2455,25 @@ function init() {
       renderFloorplanList();
     }
 
-    // Markers (always restore, even if some scenes/FPs missing)
+    // Markers — use restored scene/FP IDs (JSON IDs preserved)
     const validSceneIds = new Set(scenes.map(s => s.id));
     const validFpIds    = new Set(projectState.floorplans.map(f => f.id));
     const newMarkers = (_importData.markers || []).filter(m =>
       validSceneIds.has(m.sceneId) && validFpIds.has(m.floorplanId)
-    );
-    // Replace markers for restored scenes/floorplans
-    const existingIds = new Set(newMarkers.map(m => m.id));
-    projectState.markers = [...projectState.markers.filter(m => !existingIds.has(m.id)), ...newMarkers];
+    ).map(m => ({ ...m })); // deep copy so we don't mutate _importData
+    // Merge: remove existing markers with same id, then push new
+    const newMarkerIds = new Set(newMarkers.map(m => m.id));
+    projectState.markers = [
+      ...projectState.markers.filter(m => !newMarkerIds.has(m.id)),
+      ...newMarkers,
+    ];
+    const restoredMk = newMarkers.length;
 
     // Compare sets
+    let restoredCs = 0;
     if (_importData.compareSets?.length) {
       _saveCompareSetsToStorage(_importData.compareSets);
+      restoredCs = _importData.compareSets.length;
       setTimeout(() => renderCompareSets(), 0);
     }
 
@@ -2429,7 +2482,7 @@ function init() {
     renderFloormap();
     hideEl(importModal);
     _importData = null;
-    showToast(`復元: シーン ${restoredScenes} 件 / 平面図 ${restoredFPs} 件`);
+    showToast(`復元完了: シーン ${restoredScenes} / 平面図 ${restoredFPs} / マーカー ${restoredMk} / 比較セット ${restoredCs}`);
   }
 
   // Import modal wiring
@@ -2486,6 +2539,10 @@ function init() {
 
   exportJsonBtn.addEventListener('click', exportProjectJSON);
   importJsonBtn.addEventListener('click', openImportJSON);
+
+  // Upload-page "設定JSONから開く" button
+  const openJsonBtn = document.getElementById('open-json-btn');
+  if (openJsonBtn) openJsonBtn.addEventListener('click', openImportJSON);
 
 } // end init()
 

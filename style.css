@@ -146,6 +146,63 @@ body {
   white-space: nowrap;
 }
 
+/* ===== JSON Open Card ===== */
+.json-open-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.json-open-or {
+  color: var(--text-muted);
+  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.json-open-or::before,
+.json-open-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.json-open-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.json-open-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+}
+
+.json-open-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.json-open-title {
+  font-size: .95rem;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.json-open-desc {
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+
 /* ===== Usage Card ===== */
 .usage-card {
   background: var(--surface);
@@ -525,17 +582,28 @@ body {
 .floormap-resize-handle {
   position: absolute;
   top: 0;
-  left: 0;
+  left: 5px;
   right: 0;
   height: 5px;
   cursor: ns-resize;
   background: transparent;
-  z-index: 5;
-  border-radius: 10px 10px 0 0;
+  z-index: 10;
+  border-radius: 0 10px 0 0;
 }
-.floormap-resize-handle:hover {
-  background: rgba(79,124,255,.3);
+.floormap-resize-handle:hover { background: rgba(79,124,255,.3); }
+
+.floormap-resize-handle-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 10;
+  border-radius: 10px 0 0 10px;
 }
+.floormap-resize-handle-left:hover { background: rgba(79,124,255,.3); }
 
 .floormap-navigator.collapsed .floormap-body,
 .floormap-navigator.collapsed .floormap-mk-bar,
@@ -712,9 +780,24 @@ body {
 
 /* ===== Import Modal — file list ===== */
 .import-summary {
-  font-size: .82rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 8px;
+}
+
+.import-badge {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: .78rem;
   color: var(--text-muted);
-  padding: 6px 0 2px;
+  white-space: nowrap;
+}
+
+.import-file-cat {
+  margin-right: 5px;
 }
 
 .import-files-label {
