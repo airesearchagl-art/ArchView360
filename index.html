@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260615b" />
+  <link rel="stylesheet" href="style.css?v=20260615c" />
 </head>
 <body>
   <header class="header">
@@ -352,8 +352,8 @@
           <div id="floormap-info-panel" class="floormap-info-panel" style="display:none">
             <div class="floormap-info-row">
               <div class="floormap-info-cell floormap-info-cell-order">
-                <div class="floormap-info-label">番号</div>
-                <div class="floormap-info-order">---</div>
+                <div class="floormap-info-label">番号 <span class="floormap-info-edit-hint">✏</span></div>
+                <div id="floormap-info-order" class="floormap-info-order" title="クリックして番号を編集">---</div>
               </div>
               <div class="floormap-info-cell floormap-info-cell-name">
                 <div class="floormap-info-label">名称</div>
@@ -377,6 +377,10 @@
           </div>
           <!-- マーカー一覧 -->
           <div id="floormap-mk-list" class="floormap-mk-list">
+            <div class="floormap-mk-list-hd">
+              <span class="floormap-mk-list-hd-label">マーカー一覧</span>
+              <button id="floormap-reseq-btn" class="floormap-icon-btn" title="番号を1,2,3...に整理">番号を整理</button>
+            </div>
             <ul id="floormap-mk-list-ul" class="floormap-mk-list-ul"></ul>
             <div id="floormap-mk-list-empty" class="floormap-mk-list-empty" style="display:none">マーカーなし</div>
           </div>
@@ -488,6 +492,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260615b" defer></script>
+  <script src="script.js?v=20260615c" defer></script>
 </body>
 </html>

@@ -258,6 +258,44 @@ function init() {
     return orders.length ? Math.max(...orders) + 1 : 1;
   }
 
+  // Set marker order and resolve duplicates (v2.8)
+  function setMarkerOrder(markerId, newOrder) {
+    const v = parseInt(newOrder, 10);
+    if (!Number.isInteger(v) || v < 1) return false;
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk) return false;
+    mk.order = v;
+    _resolveOrderConflicts(mk.floorplanId, markerId);
+    return true;
+  }
+
+  // Bump colliding markers up; pinned marker keeps its slot (v2.8)
+  function _resolveOrderConflicts(floorplanId, pinnedId) {
+    const pinned = projectState.markers.find(m => m.id === pinnedId && m.floorplanId === floorplanId);
+    if (!pinned) return;
+    const others = projectState.markers
+      .filter(m => m.floorplanId === floorplanId && m.id !== pinnedId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const used = new Set([pinned.order]);
+    others.forEach(m => {
+      let o = m.order || 1;
+      while (used.has(o)) o++;
+      m.order = o;
+      used.add(o);
+    });
+  }
+
+  // Re-sequence to 1,2,3... in current order (v2.8)
+  function resequenceMarkers() {
+    if (!activeFloorplanId) return;
+    projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .forEach((m, i) => { m.order = i + 1; });
+    renderMarkerList(); renderFloormapCanvas();
+    showToast('番号を整理しました');
+  }
+
   // ---- Import state ----
   let _importData         = null;
 
@@ -927,6 +965,12 @@ function init() {
     showEl(bar);
     bar.innerHTML = '';
 
+    // Label (v2.8)
+    const label = document.createElement('div');
+    label.className = 'scene-filter-label';
+    label.textContent = '表示範囲';
+    bar.appendChild(label);
+
     const allBtn = document.createElement('button');
     allBtn.className = 'scene-filter-btn' + (!sceneFilterFloorplanId ? ' active' : '');
     allBtn.textContent = `すべて (${scenes.length})`;
@@ -982,12 +1026,21 @@ function init() {
       `<div class="dashboard-cell"><span class="dashboard-val">${scenes.length}</span><span class="dashboard-lbl">シーン</span></div>` +
       `<div class="dashboard-cell"><span class="dashboard-val">${projectState.floorplans.length}</span><span class="dashboard-lbl">FloorMap</span></div>` +
       `<div class="dashboard-cell"><span class="dashboard-val">${projectState.markers.length}</span><span class="dashboard-lbl">マーカー</span></div>` +
-      `<div class="dashboard-cell"><span class="dashboard-val dashboard-placed">${placedCount}</span><span class="dashboard-lbl">配置済</span></div>` +
-      `<div class="dashboard-cell"><span class="dashboard-val dashboard-unplaced">${unplacedCount}</span><span class="dashboard-lbl">未配置</span></div>` +
+      `<div class="dashboard-cell dashboard-cell-placed" title="配置済シーンをフィルタ" style="cursor:pointer"><span class="dashboard-val dashboard-placed">${placedCount}</span><span class="dashboard-lbl">配置済</span></div>` +
+      `<div class="dashboard-cell dashboard-cell-unplaced" title="未配置シーンをフィルタ" style="cursor:pointer"><span class="dashboard-val dashboard-unplaced">${unplacedCount}</span><span class="dashboard-lbl">未配置</span></div>` +
       `<div class="dashboard-cell"><span class="dashboard-val">${projectState.groups.length}</span><span class="dashboard-lbl">グループ</span></div>` +
       `<div class="dashboard-cell"><span class="dashboard-val">${csets.length}</span><span class="dashboard-lbl">比較セット</span></div>` +
       `<div class="dashboard-cell dashboard-cell-rate"><span class="dashboard-val dashboard-rate">${placedPct}%</span><span class="dashboard-lbl">配置率</span></div>` +
       `</div>`;
+    // Click handlers for placed/unplaced cells (v2.8)
+    el.querySelector('.dashboard-cell-unplaced')?.addEventListener('click', () => {
+      sceneFilterFloorplanId = '__unplaced__';
+      renderSceneFilterBar(); renderSceneList();
+    });
+    el.querySelector('.dashboard-cell-placed')?.addEventListener('click', () => {
+      sceneFilterFloorplanId = null;
+      renderSceneFilterBar(); renderSceneList();
+    });
   }
 
   // ============================================================
@@ -2555,13 +2608,41 @@ function init() {
       floormapInfoName.textContent  = mk.name || sc?.name || '---';
       floormapInfoScene.textContent = sc?.name || '---';
       floormapInfoDir.textContent   = (mk.rotation || 0) + '°';
-      // Show order in dir cell (v2.7)
-      const orderEl = floormapInfoPanel.querySelector('.floormap-info-order');
-      if (orderEl) orderEl.textContent = `#${mk.order || '?'}`;
+      // Order cell (v2.8): click to edit inline
+      const orderEl = $('floormap-info-order');
+      if (orderEl) {
+        orderEl.textContent = `#${mk.order || '?'}`;
+        orderEl.onclick = null;
+        orderEl.onclick = () => _startInfoOrderEdit(mk, orderEl);
+      }
       showEl(floormapInfoPanel);
     } else {
       hideEl(floormapInfoPanel);
     }
+  }
+
+  function _startInfoOrderEdit(mk, orderEl) {
+    if (orderEl.querySelector('input')) return; // already editing
+    const prev = mk.order || 1;
+    orderEl.textContent = '';
+    const input = document.createElement('input');
+    input.type = 'number'; input.min = '1'; input.max = '999';
+    input.value = prev;
+    input.className = 'floormap-order-input';
+    orderEl.appendChild(input);
+    input.focus(); input.select();
+    const commit = () => {
+      const ok = setMarkerOrder(mk.id, input.value);
+      if (!ok) mk.order = prev;
+      renderMarkerList(); renderFloormapCanvas(); _updateInfoPanel();
+    };
+    const cancel = () => { mk.order = prev; _updateInfoPanel(); };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter')  { e.preventDefault(); input.removeEventListener('blur', commit); commit(); }
+      if (e.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
+    });
   }
 
   function renderMarkerList() {
@@ -2589,30 +2670,33 @@ function init() {
         + (isCur ? ' current-scene' : '')
         + (isSel ? ' active' : '');
 
-      // Order number (editable on dblclick)
+      // Order number chip — single click to edit (v2.8)
       const numEl = document.createElement('div');
       numEl.className = 'floormap-mk-list-num';
       numEl.textContent = mk.order || (listIdx + 1);
-      numEl.title = 'ダブルクリックで番号編集';
-      numEl.addEventListener('dblclick', (e) => {
+      numEl.title = 'クリックして番号を変更';
+      numEl.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (numEl.querySelector('input')) return;
+        const prev = mk.order || (listIdx + 1);
+        numEl.textContent = '';
         const input = document.createElement('input');
         input.type = 'number'; input.min = '1'; input.max = '999';
-        input.value = mk.order || (listIdx + 1);
-        input.style.cssText = 'width:36px;font-size:.7rem;padding:1px 3px;background:var(--surface-3);border:1px solid var(--accent);border-radius:3px;color:var(--text);font-family:inherit;';
-        numEl.textContent = '';
+        input.value = prev;
+        input.className = 'floormap-order-input';
         numEl.appendChild(input);
         input.focus(); input.select();
-        const save = () => {
-          const v = parseInt(input.value, 10);
-          if (v > 0) mk.order = v;
-          renderMarkerList(); renderFloormapCanvas();
+        const commit = () => {
+          const ok = setMarkerOrder(mk.id, input.value);
+          if (!ok) mk.order = prev;
+          renderMarkerList(); renderFloormapCanvas(); _updateInfoPanel();
         };
-        input.addEventListener('blur', save);
+        const cancel = () => { mk.order = prev; renderMarkerList(); };
+        input.addEventListener('blur', commit);
         input.addEventListener('keydown', (ev) => {
           ev.stopPropagation();
-          if (ev.key === 'Enter') { ev.preventDefault(); input.removeEventListener('blur', save); save(); }
-          if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderMarkerList(); }
+          if (ev.key === 'Enter')  { ev.preventDefault(); input.removeEventListener('blur', commit); commit(); }
+          if (ev.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
         });
       });
 
@@ -2937,6 +3021,7 @@ function init() {
   }
   floormapPlaceBtn.addEventListener('click', togglePlacementMode);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
+  $('floormap-reseq-btn')?.addEventListener('click', resequenceMarkers);
   floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
   floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
   floormapDelMk.addEventListener('click', deleteSelectedMarker);

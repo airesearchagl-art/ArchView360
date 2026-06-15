@@ -980,16 +980,19 @@ body {
 /* === Marker list === */
 .floormap-mk-list {
   border-top: 1px solid var(--border);
-  max-height: 130px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  display: flex;
+  flex-direction: column;
+  max-height: 150px;
 }
 
 .floormap-mk-list-ul {
   list-style: none;
   padding: 0;
   margin: 0;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .floormap-mk-list-item {
@@ -1015,9 +1018,9 @@ body {
 
 .floormap-mk-list-num {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
   background: var(--surface-3);
   border: 1px solid var(--border);
   font-size: .62rem;
@@ -1026,7 +1029,11 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 3px;
+  transition: background .1s, border-color .1s;
 }
+.floormap-mk-list-num:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .floormap-mk-list-item.current-scene .floormap-mk-list-num {
   background: var(--accent);
@@ -2377,4 +2384,55 @@ body {
   font-size: .78rem;
   font-weight: 700;
   color: var(--accent-h);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 3px;
+  transition: background .1s;
 }
+.floormap-info-order:hover { background: var(--surface-3); }
+.floormap-info-edit-hint { font-size: .6rem; color: var(--text-muted); }
+
+/* ===== v2.8: Inline order input (info panel + marker list) ===== */
+.floormap-order-input {
+  width: 44px;
+  font-size: .72rem;
+  padding: 1px 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ===== v2.8: Marker list header with 番号を整理 button ===== */
+.floormap-mk-list-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(20,22,32,.6);
+}
+.floormap-mk-list-hd-label {
+  font-size: .62rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ===== v2.8: Scene filter label ===== */
+.scene-filter-label {
+  width: 100%;
+  font-size: .6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 0 1px 2px;
+  opacity: .7;
+}
+
+/* ===== v2.8: Dashboard clickable cells ===== */
+.dashboard-cell-placed:hover { background: rgba(79,200,138,.12); }
+.dashboard-cell-unplaced:hover { background: rgba(255,165,0,.12); }
