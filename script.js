@@ -2511,8 +2511,7 @@ function init() {
     markers.filter(m => m.sceneId !== curSceneId).forEach(m => {
       const px = dx + m.x * dw;
       const py = dy + m.y * dh;
-      const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
-      const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
+      const label = m.order || '?';
       const displayDeg = ((m.rotation || 0) + (fp.rotationOffset || 0) + 360) % 360;
       _drawMarker(ctx, px, py, displayDeg, false, m.id === selectedMarkerId, label, null);
     });
@@ -2520,8 +2519,7 @@ function init() {
     markers.filter(m => m.sceneId === curSceneId).forEach(m => {
       const px = dx + m.x * dw;
       const py = dy + m.y * dh;
-      const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
-      const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
+      const label = m.order || '?';
       // Use shared fov in single/sync mode
       const coneFov = (compareState.mode === 'single' || compareState.syncViews) ? fov : null;
       const displayDeg = ((m.rotation || 0) + (fp.rotationOffset || 0) + 360) % 360;
