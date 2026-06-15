@@ -2659,6 +2659,8 @@ function init() {
     }
     hideEl(floormapMkListEmpty);
 
+    let _mkDragSrcIdx = -1;
+
     markers.forEach((mk, listIdx) => {
       const sc    = scenes.find(s => s.id === mk.sceneId);
       const isCur = mk.sceneId === curSceneId;
@@ -2667,6 +2669,14 @@ function init() {
       li.className = 'floormap-mk-list-item'
         + (isCur ? ' current-scene' : '')
         + (isSel ? ' active' : '');
+      li.draggable = true;
+      li.dataset.mkid = mk.id;
+
+      // Drag handle (v2.9)
+      const handleEl = document.createElement('div');
+      handleEl.className = 'floormap-mk-drag-handle';
+      handleEl.textContent = '⠿';
+      handleEl.title = 'ドラッグして並び替え';
 
       // Order number chip — single click to edit (v2.8)
       const numEl = document.createElement('div');
@@ -2713,11 +2723,15 @@ function init() {
       dirEl.className = 'floormap-mk-list-dir';
       dirEl.textContent = (mk.rotation || 0) + '°';
 
+      li.appendChild(handleEl);
       li.appendChild(numEl);
       li.appendChild(textEl);
       li.appendChild(dirEl);
 
-      li.addEventListener('click', () => {
+      // Row click: navigate to scene (but not when clicking num/handle)
+      li.addEventListener('click', (e) => {
+        if (e.target === numEl || numEl.contains(e.target)) return;
+        if (e.target === handleEl) return;
         selectedMarkerId = mk.id;
         const idx = scenes.findIndex(s => s.id === mk.sceneId);
         if (idx >= 0) switchToScene(idx);
@@ -2726,9 +2740,137 @@ function init() {
         renderMarkerList();
       });
 
+      // Drag & drop for reordering (v2.9)
+      li.addEventListener('dragstart', (e) => {
+        _mkDragSrcIdx = listIdx;
+        li.classList.add('mk-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', mk.id);
+      });
+      li.addEventListener('dragend', () => {
+        _mkDragSrcIdx = -1;
+        floormapMkListUl.querySelectorAll('.mk-drop-before,.mk-drop-after,.mk-dragging')
+          .forEach(el => el.classList.remove('mk-drop-before', 'mk-drop-after', 'mk-dragging'));
+      });
+      li.addEventListener('dragover', (e) => {
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+        if (_mkDragSrcIdx === listIdx) return;
+        floormapMkListUl.querySelectorAll('.mk-drop-before,.mk-drop-after')
+          .forEach(el => { if (el !== li) el.classList.remove('mk-drop-before', 'mk-drop-after'); });
+        const mid = li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2;
+        if (e.clientY < mid) { li.classList.add('mk-drop-before'); li.classList.remove('mk-drop-after'); }
+        else                  { li.classList.add('mk-drop-after');  li.classList.remove('mk-drop-before'); }
+      });
+      li.addEventListener('dragleave', () => li.classList.remove('mk-drop-before', 'mk-drop-after'));
+      li.addEventListener('drop', (e) => {
+        e.preventDefault();
+        li.classList.remove('mk-drop-before', 'mk-drop-after');
+        if (_mkDragSrcIdx < 0 || _mkDragSrcIdx === listIdx) return;
+        const isBefore = e.clientY < li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2;
+        let insertAt = isBefore ? listIdx : listIdx + 1;
+        if (_mkDragSrcIdx < insertAt) insertAt--;
+        // Reorder: remove from src, insert at dest
+        const moved = markers.splice(_mkDragSrcIdx, 1)[0];
+        markers.splice(insertAt, 0, moved);
+        // Re-sequence orders 1,2,3...
+        markers.forEach((m, i) => { m.order = i + 1; });
+        renderMarkerList(); renderFloormapCanvas();
+        showToast('マーカーを並び替えました');
+      });
+
       floormapMkListUl.appendChild(li);
     });
   }
+
+  // ============================================================
+  // FloorMap pin right-click context menu (v2.9)
+  // ============================================================
+  let _ctxMenuEl = null;
+
+  function _closeCtxMenu() {
+    if (_ctxMenuEl) { _ctxMenuEl.remove(); _ctxMenuEl = null; }
+    document.removeEventListener('click',   _closeCtxMenu);
+    document.removeEventListener('keydown', _ctxMenuKey);
+  }
+  function _ctxMenuKey(e) { if (e.key === 'Escape') _closeCtxMenu(); }
+
+  floormapCanvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    _closeCtxMenu();
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp?._renderArea) return;
+    const rect = floormapCanvas.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (floormapCanvas.width  / rect.width);
+    const cy = (e.clientY - rect.top)  * (floormapCanvas.height / rect.height);
+    const mk = _findMarkerAt(cx, cy);
+    if (!mk) return;
+
+    // Build sorted list for prev/next
+    const fpMarkers = projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const mkPos = fpMarkers.findIndex(m => m.id === mk.id);
+
+    const menu = document.createElement('div');
+    menu.className = 'mk-ctx-menu';
+    _ctxMenuEl = menu;
+
+    const items = [
+      { label: '↑ 番号を前へ', disabled: mkPos <= 0, action: () => {
+        const prev = fpMarkers[mkPos - 1];
+        [mk.order, prev.order] = [prev.order, mk.order];
+        renderMarkerList(); renderFloormapCanvas();
+      }},
+      { label: '↓ 番号を後ろへ', disabled: mkPos >= fpMarkers.length - 1, action: () => {
+        const next = fpMarkers[mkPos + 1];
+        [mk.order, next.order] = [next.order, mk.order];
+        renderMarkerList(); renderFloormapCanvas();
+      }},
+      { label: '🔢 番号を変更', action: () => {
+        selectedMarkerId = mk.id;
+        _updateInfoPanel(); renderMarkerList();
+        // Trigger edit on info panel order cell
+        const orderEl = $('floormap-info-order');
+        if (orderEl) setTimeout(() => _startInfoOrderEdit(mk, orderEl), 50);
+      }},
+      { label: '✏ 名称変更', action: () => {
+        selectedMarkerId = mk.id;
+        _updateInfoPanel();
+        setTimeout(() => floormapRenameBtn.click(), 50);
+      }},
+      { label: '× 削除', danger: true, action: () => {
+        selectedMarkerId = mk.id;
+        deleteSelectedMarker();
+      }},
+    ];
+
+    items.forEach(item => {
+      const btn = document.createElement('button');
+      btn.className = 'mk-ctx-item' + (item.danger ? ' mk-ctx-danger' : '');
+      btn.textContent = item.label;
+      if (item.disabled) btn.disabled = true;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _closeCtxMenu();
+        if (!item.disabled) item.action();
+      });
+      menu.appendChild(btn);
+    });
+
+    document.body.appendChild(menu);
+    // Position: avoid clipping
+    const mw = 160, mh = items.length * 28 + 8;
+    let left = e.clientX, top = e.clientY;
+    if (left + mw > window.innerWidth)  left = window.innerWidth  - mw - 4;
+    if (top  + mh > window.innerHeight) top  = window.innerHeight - mh - 4;
+    menu.style.left = left + 'px';
+    menu.style.top  = top  + 'px';
+
+    setTimeout(() => {
+      document.addEventListener('click',   _closeCtxMenu, { once: true });
+      document.addEventListener('keydown', _ctxMenuKey);
+    }, 0);
+  });
 
   // FloorMap canvas events
   floormapCanvas.addEventListener('mousedown', (e) => {
