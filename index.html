@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260614b" />
+  <link rel="stylesheet" href="style.css?v=20260615a" />
 </head>
 <body>
   <header class="header">
@@ -271,6 +271,9 @@
             <span id="current-scene-name" class="scene-name-display"></span>
           </div>
           <div id="scene-fade-overlay" class="scene-fade-overlay"></div>
+          <div id="unplaced-warning" class="unplaced-warning" style="display:none">
+            ⚠️ このシーンは平面図に配置されていません
+          </div>
           <div id="loading-overlay" class="loading-overlay" style="display:none">
             <div class="spinner"></div>
             <p id="loading-message">画像を読み込み中…</p>
@@ -317,7 +320,7 @@
           <div id="floormap-resize-handle" class="floormap-resize-handle"></div>
           <div id="floormap-resize-handle-left" class="floormap-resize-handle-left"></div>
           <div class="floormap-hd">
-            <select id="floormap-fp-select" class="floormap-fp-select"></select>
+            <div id="floormap-fp-tabs" class="floormap-fp-tabs"></div>
             <div class="floormap-hd-actions">
               <button class="floormap-icon-btn floormap-size-btn" data-size="240" title="S">S</button>
               <button class="floormap-icon-btn floormap-size-btn" data-size="360" title="M">M</button>
@@ -326,6 +329,18 @@
               <button id="floormap-place-btn" class="floormap-icon-btn" title="マーカー配置モード">📍</button>
               <button id="floormap-toggle-btn" class="floormap-icon-btn" title="折りたたむ">−</button>
             </div>
+          </div>
+          <div id="floormap-orient-bar" class="floormap-orient-bar" style="display:none">
+            <span class="floormap-orient-label">方位補正</span>
+            <button id="floormap-orient-l" class="floormap-icon-btn" title="反時計回り15°">↺</button>
+            <span id="floormap-orient-val" class="floormap-orient-val">0°</span>
+            <button id="floormap-orient-r" class="floormap-icon-btn" title="時計回り15°">↻</button>
+            <select id="floormap-orient-preset" class="floormap-orient-preset" title="プリセット">
+              <option value="0">0°</option>
+              <option value="90">90°</option>
+              <option value="180">180°</option>
+              <option value="270">270°</option>
+            </select>
           </div>
           <div id="floormap-body" class="floormap-body">
             <canvas id="floormap-canvas" class="floormap-canvas" width="340" height="255"></canvas>
@@ -468,6 +483,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260614b" defer></script>
+  <script src="script.js?v=20260615a" defer></script>
 </body>
 </html>

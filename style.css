@@ -2207,3 +2207,125 @@ body {
   .scene-panel { width: 220px; }
   .toolbar-select { max-width: 110px; }
 }
+
+/* ===== v2.6: FloorMap tabs ===== */
+.floormap-fp-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.floormap-fp-tabs::-webkit-scrollbar { display: none; }
+.floormap-fp-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 7px;
+  font-size: .65rem;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .1s, color .1s, border-color .1s;
+}
+.floormap-fp-tab:hover { background: var(--surface-2); color: var(--text); }
+.floormap-fp-tab.active {
+  background: rgba(79,124,255,.2);
+  border-color: var(--accent);
+  color: var(--accent-h);
+  font-weight: 600;
+}
+
+/* ===== v2.6: Orientation offset bar ===== */
+.floormap-orient-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(20,22,32,.6);
+}
+.floormap-orient-label {
+  font-size: .62rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.floormap-orient-val {
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.floormap-orient-preset {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: .65rem;
+  padding: 2px 5px;
+  font-family: inherit;
+  cursor: pointer;
+  margin-left: auto;
+}
+.floormap-orient-preset:focus { outline: 1px solid var(--accent); }
+
+/* ===== v2.6: Unplaced warning banner ===== */
+.unplaced-warning {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,165,0,.18);
+  border: 1px solid rgba(255,165,0,.5);
+  color: #ffa500;
+  font-size: .75rem;
+  padding: 5px 14px;
+  border-radius: 6px;
+  z-index: 6;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ===== v2.6: Group header action buttons ===== */
+.scene-group-rename-btn,
+.scene-group-del-btn {
+  appearance: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 3px;
+  font-size: .7rem;
+  color: var(--text-muted);
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .15s, color .1s;
+}
+.scene-group-header:hover .scene-group-rename-btn,
+.scene-group-header:hover .scene-group-del-btn { opacity: 1; }
+.scene-group-rename-btn:hover { color: var(--text); }
+.scene-group-del-btn:hover { color: var(--error); }
+
+/* Inline group name edit input */
+.scene-group-name-input {
+  flex: 1;
+  background: var(--surface-3);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: .72rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 1px 5px;
+  outline: none;
+  min-width: 0;
+}

@@ -75,7 +75,12 @@ function init() {
 
   // FloorMap Navigator
   const floormapNavigator  = $('floormap-navigator');
-  const floormapFpSelect   = $('floormap-fp-select');
+  const floormapFpTabs     = $('floormap-fp-tabs');
+  const floormapOrientBar  = $('floormap-orient-bar');
+  const floormapOrientL    = $('floormap-orient-l');
+  const floormapOrientR    = $('floormap-orient-r');
+  const floormapOrientVal  = $('floormap-orient-val');
+  const floormapOrientPreset = $('floormap-orient-preset');
   const floormapPlaceBtn   = $('floormap-place-btn');
   const floormapToggleBtn  = $('floormap-toggle-btn');
   const floormapBody       = $('floormap-body');
@@ -96,6 +101,8 @@ function init() {
   const floormapMkListEmpty = $('floormap-mk-list-empty');
   // Scene fade overlay (v2.4)
   const sceneFadeOverlay   = $('scene-fade-overlay');
+  // Unplaced warning (v2.6)
+  const unplacedWarning    = $('unplaced-warning');
 
   // Viewer drop overlay
   const viewerDropOverlay  = $('viewer-drop-overlay');
@@ -607,9 +614,11 @@ function init() {
   function renderSceneList() {
     sceneListEl.innerHTML = '';
 
-    // 1. Filter by active floor plan
+    // 1. Filter by active floor plan or unplaced
     const visibleIndices = scenes.reduce((acc, s, i) => {
-      if (!sceneFilterFloorplanId || s.floorplanId === sceneFilterFloorplanId) acc.push(i);
+      if (!sceneFilterFloorplanId) acc.push(i);
+      else if (sceneFilterFloorplanId === '__unplaced__') { if (!s.floorplanId) acc.push(i); }
+      else if (s.floorplanId === sceneFilterFloorplanId) acc.push(i);
       return acc;
     }, []);
 
@@ -656,7 +665,32 @@ function init() {
       countSpan.className = 'scene-group-count';
       countSpan.textContent = count;
 
+      // Rename button
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'scene-group-rename-btn';
+      renameBtn.title = 'グループ名を変更';
+      renameBtn.textContent = '✏';
+      renameBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _startGroupRename(hdr, group, nameSpan, renameBtn);
+      });
+
+      // Delete button
+      const delBtn = document.createElement('button');
+      delBtn.className = 'scene-group-del-btn';
+      delBtn.title = 'グループを削除';
+      delBtn.textContent = '🗑';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('グループを削除しますか？シーンは削除されません。未分類へ移動します。')) return;
+        scenes.forEach(s => { if (s.groupId === gid) s.groupId = null; });
+        projectState.groups = projectState.groups.filter(g => g.id !== gid);
+        collapsedGroups.delete(gid);
+        renderSceneList();
+      });
+
       hdr.appendChild(toggle); hdr.appendChild(nameSpan); hdr.appendChild(countSpan);
+      hdr.appendChild(renameBtn); hdr.appendChild(delBtn);
       hdr.addEventListener('click', () => {
         if (collapsedGroups.has(gid)) collapsedGroups.delete(gid); else collapsedGroups.add(gid);
         renderSceneList();
@@ -683,6 +717,12 @@ function init() {
       sceneCounter.textContent = `${shown} / ${total}`;
     } else {
       sceneCounter.textContent = `${currentIdx + 1} / ${total}`;
+    }
+    // Show/hide unplaced warning
+    if (currentIdx >= 0) {
+      const curFpId = scenes[currentIdx]?.floorplanId;
+      if (projectState.floorplans.length && !curFpId) showEl(unplacedWarning);
+      else hideEl(unplacedWarning);
     }
 
     sceneListEl.querySelector('.scene-item.active')
@@ -855,6 +895,20 @@ function init() {
       });
       bar.appendChild(btn);
     });
+
+    // Unplaced tab
+    const unplacedCount = scenes.filter(s => !s.floorplanId).length;
+    if (unplacedCount > 0) {
+      const btn = document.createElement('button');
+      btn.className = 'scene-filter-btn' + (sceneFilterFloorplanId === '__unplaced__' ? ' active' : '');
+      btn.textContent = `未配置 (${unplacedCount})`;
+      btn.title = '平面図に配置されていないシーン';
+      btn.addEventListener('click', () => {
+        sceneFilterFloorplanId = '__unplaced__';
+        renderSceneFilterBar(); renderSceneList();
+      });
+      bar.appendChild(btn);
+    }
   }
 
   // ============================================================
@@ -928,6 +982,33 @@ function init() {
         closeGroupPicker(); renderSceneList();
       });
       list.appendChild(item);
+    });
+  }
+
+  // ============================================================
+  // Group rename (v2.6)
+  // ============================================================
+  function _startGroupRename(hdr, group, nameSpan, renameBtn) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'scene-group-name-input';
+    input.value = group.name;
+    input.maxLength = 40;
+    hdr.replaceChild(input, nameSpan);
+    renameBtn.style.opacity = '0';
+    input.focus();
+    input.select();
+    const commit = () => {
+      const v = input.value.trim();
+      if (v) group.name = v;
+      renderSceneList();
+    };
+    const cancel = () => renderSceneList();
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter')  { e.preventDefault(); input.removeEventListener('blur', commit); commit(); }
+      if (e.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
     });
   }
 
@@ -2108,7 +2189,7 @@ function init() {
       const blobUrl = URL.createObjectURL(f);
       const imgEl   = new Image();
       imgEl.src = blobUrl;
-      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, imgEl };
+      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, imgEl, rotationOffset: 0 };
       imgEl.onload = () => { if (!activeFloorplanId) setActiveFloorplan(fp.id); renderFloormap(); };
       projectState.floorplans.push(fp);
     });
@@ -2228,13 +2309,31 @@ function init() {
   }
 
   function _updateFloormapSelect() {
-    floormapFpSelect.innerHTML = '';
+    renderFloormapTabs();
+  }
+
+  function renderFloormapTabs() {
+    floormapFpTabs.innerHTML = '';
     projectState.floorplans.forEach(fp => {
-      const opt = document.createElement('option');
-      opt.value = fp.id; opt.textContent = fp.name;
-      if (fp.id === activeFloorplanId) opt.selected = true;
-      floormapFpSelect.appendChild(opt);
+      const count = projectState.markers.filter(m => m.floorplanId === fp.id).length;
+      const btn = document.createElement('button');
+      btn.className = 'floormap-fp-tab' + (fp.id === activeFloorplanId ? ' active' : '');
+      btn.textContent = `${fp.name} (${count})`;
+      btn.title = fp.name;
+      btn.addEventListener('click', () => {
+        if (fp.id !== activeFloorplanId) setActiveFloorplan(fp.id);
+      });
+      floormapFpTabs.appendChild(btn);
     });
+    // Show/hide orientation bar
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (fp) {
+      showEl(floormapOrientBar);
+      floormapOrientVal.textContent = `${fp.rotationOffset || 0}°`;
+      floormapOrientPreset.value = String((fp.rotationOffset || 0) % 360);
+    } else {
+      hideEl(floormapOrientBar);
+    }
   }
 
   function renderFloormapCanvas() {
@@ -2279,7 +2378,8 @@ function init() {
       const py = dy + m.y * dh;
       const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
       const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
-      _drawMarker(ctx, px, py, m.rotation || 0, false, m.id === selectedMarkerId, label, null);
+      const displayDeg = ((m.rotation || 0) + (fp.rotationOffset || 0) + 360) % 360;
+      _drawMarker(ctx, px, py, displayDeg, false, m.id === selectedMarkerId, label, null);
     });
     // Draw current marker on top with FOV cone
     markers.filter(m => m.sceneId === curSceneId).forEach(m => {
@@ -2289,7 +2389,8 @@ function init() {
       const label = sceneIdx >= 0 ? sceneIdx + 1 : '?';
       // Use shared fov in single/sync mode
       const coneFov = (compareState.mode === 'single' || compareState.syncViews) ? fov : null;
-      _drawMarker(ctx, px, py, m.rotation || 0, true, m.id === selectedMarkerId, label, coneFov);
+      const displayDeg = ((m.rotation || 0) + (fp.rotationOffset || 0) + 360) % 360;
+      _drawMarker(ctx, px, py, displayDeg, true, m.id === selectedMarkerId, label, coneFov);
     });
   }
 
@@ -2704,11 +2805,23 @@ function init() {
   } catch {}
 
   // FloorMap button wiring
-  floormapFpSelect.addEventListener('change', () => {
-    activeFloorplanId = floormapFpSelect.value;
-    selectedMarkerId  = null;
-    renderFloorplanList(); renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
+  floormapOrientL.addEventListener('click', () => _adjustOrientOffset(-15));
+  floormapOrientR.addEventListener('click', () => _adjustOrientOffset(+15));
+  floormapOrientPreset.addEventListener('change', () => {
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp) return;
+    fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
+    floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+    renderFloormapCanvas();
   });
+  function _adjustOrientOffset(delta) {
+    const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
+    if (!fp) return;
+    fp.rotationOffset = ((fp.rotationOffset || 0) + delta + 360) % 360;
+    floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+    floormapOrientPreset.value = String(fp.rotationOffset);
+    renderFloormapCanvas();
+  }
   floormapPlaceBtn.addEventListener('click', togglePlacementMode);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
   floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
@@ -2816,7 +2929,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.5',
+      appVersion:  '2.6',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
@@ -2830,9 +2943,10 @@ function init() {
       })),
       groups: projectState.groups.map(g => ({ ...g })),
       floorplans: projectState.floorplans.map(f => ({
-        id:       f.id,
-        name:     f.name,
-        fileName: f.fileName,
+        id:             f.id,
+        name:           f.name,
+        fileName:       f.fileName,
+        rotationOffset: f.rotationOffset || 0,
       })),
       markers: projectState.markers.map(m => ({ ...m })),
       compareSets: _loadCompareSets(),
@@ -2947,7 +3061,7 @@ function init() {
       const imgEl   = new Image();
       imgEl.onload  = () => renderFloormapCanvas();
       imgEl.src     = blobUrl;
-      newFPs.push({ id: fd.id, name: fd.name, fileName: fd.fileName, blobUrl, imgEl });
+      newFPs.push({ id: fd.id, name: fd.name, fileName: fd.fileName, blobUrl, imgEl, rotationOffset: fd.rotationOffset || 0 });
       restoredFPs++;
     });
 
