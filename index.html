@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260615a" />
+  <link rel="stylesheet" href="style.css?v=20260615b" />
 </head>
 <body>
   <header class="header">
@@ -81,6 +81,7 @@
           </div>
         </div>
         <div id="scene-filter-bar" class="scene-filter-bar" style="display:none"></div>
+        <div id="project-dashboard" class="project-dashboard" style="display:none"></div>
 
         <ul id="scene-list" class="scene-list"></ul>
 
@@ -350,6 +351,10 @@
           <!-- マーカー情報パネル -->
           <div id="floormap-info-panel" class="floormap-info-panel" style="display:none">
             <div class="floormap-info-row">
+              <div class="floormap-info-cell floormap-info-cell-order">
+                <div class="floormap-info-label">番号</div>
+                <div class="floormap-info-order">---</div>
+              </div>
               <div class="floormap-info-cell floormap-info-cell-name">
                 <div class="floormap-info-label">名称</div>
                 <div id="floormap-info-name" class="floormap-info-name" title="ダブルクリックで名称編集">---</div>
@@ -483,6 +488,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260615a" defer></script>
+  <script src="script.js?v=20260615b" defer></script>
 </body>
 </html>

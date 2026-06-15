@@ -2329,3 +2329,52 @@ body {
   outline: none;
   min-width: 0;
 }
+
+/* ===== v2.7: Project Dashboard ===== */
+.project-dashboard {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(15,17,23,.6);
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.dashboard-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 3px 4px;
+}
+.dashboard-cell-rate {
+  background: rgba(79,124,255,.12);
+}
+.dashboard-val {
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.dashboard-lbl {
+  font-size: .57rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.dashboard-placed  { color: #4fc88a; }
+.dashboard-unplaced { color: #ffa500; }
+.dashboard-rate    { color: var(--accent-h); }
+
+/* ===== v2.7: Info panel order cell ===== */
+.floormap-info-cell-order {
+  flex-shrink: 0;
+  min-width: 36px;
+}
+.floormap-info-order {
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--accent-h);
+}

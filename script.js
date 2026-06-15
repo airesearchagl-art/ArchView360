@@ -237,9 +237,26 @@ function init() {
   let _dragMarkerId       = null;
 
   // ---- Scene filter / group state (v2.5) ----
-  let sceneFilterFloorplanId = null; // null = all, string = filter by floorplan
+  let sceneFilterFloorplanId = null; // null = all, string = filter by floorplan, '__unplaced__' = unplaced
   const collapsedGroups      = new Set();
   let   _groupPickerSceneIdx = -1;
+
+  // ---- Marker placement helpers (v2.7) ----
+  // A scene is "placed" if it has at least one marker on any floorplan
+  function isScenePlaced(scene) {
+    return projectState.markers.some(m => m.sceneId === scene.id);
+  }
+  // A scene is "on" a specific floorplan if it has a marker on that floorplan
+  function isSceneOnFloorplan(scene, floorplanId) {
+    return projectState.markers.some(m => m.sceneId === scene.id && m.floorplanId === floorplanId);
+  }
+  // Next auto order for current floorplan
+  function _nextMarkerOrder() {
+    const orders = projectState.markers
+      .filter(m => m.floorplanId === activeFloorplanId)
+      .map(m => m.order || 0);
+    return orders.length ? Math.max(...orders) + 1 : 1;
+  }
 
   // ---- Import state ----
   let _importData         = null;
@@ -444,6 +461,8 @@ function init() {
       sceneListEl.querySelectorAll('.scene-item')[firstNewIdx]
         ?.scrollIntoView({ block: 'nearest' });
     }
+    renderSceneFilterBar();
+    renderDashboard();
   }
 
   let _fadePending = false;
@@ -472,11 +491,13 @@ function init() {
     flipBtn.classList.toggle('active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
-    // Auto-sync FloorMap to scene's floor plan (v2.5)
-    if (s.floorplanId && s.floorplanId !== activeFloorplanId) {
-      const fp = projectState.floorplans.find(f => f.id === s.floorplanId);
+    // Auto-sync FloorMap: v2.7 uses marker-based lookup first, then scene.floorplanId fallback
+    const markerForScene = projectState.markers.find(m => m.sceneId === s.id);
+    const targetFpId = markerForScene?.floorplanId || s.floorplanId || null;
+    if (targetFpId && targetFpId !== activeFloorplanId) {
+      const fp = projectState.floorplans.find(f => f.id === targetFpId);
       if (fp) {
-        activeFloorplanId = s.floorplanId;
+        activeFloorplanId = targetFpId;
         _updateFloormapSelect();
         renderFloorplanList();
       }
@@ -484,14 +505,44 @@ function init() {
     if (activeFloorplanId) setTimeout(() => { renderFloormapCanvas(); renderMarkerList(); }, 0);
   }
 
+  function _getNavOrder() {
+    // Priority 1: markers on active floorplan sorted by order
+    if (activeFloorplanId) {
+      const fpMarkers = projectState.markers
+        .filter(m => m.floorplanId === activeFloorplanId)
+        .sort((a, b) => (a.order || 999) - (b.order || 999));
+      if (fpMarkers.length) {
+        return fpMarkers.map(m => scenes.findIndex(s => s.id === m.sceneId)).filter(i => i >= 0);
+      }
+    }
+    // Priority 2: filtered scene indices
+    if (sceneFilterFloorplanId) {
+      return scenes.reduce((acc, s, i) => {
+        if (sceneFilterFloorplanId === '__unplaced__') { if (!isScenePlaced(s)) acc.push(i); }
+        else if (isSceneOnFloorplan(s, sceneFilterFloorplanId)) acc.push(i);
+        return acc;
+      }, []);
+    }
+    // Priority 3: all scenes in order
+    return scenes.map((_, i) => i);
+  }
+
   function prevScene() {
     if (!scenes.length) return;
-    switchToScene((currentIdx - 1 + scenes.length) % scenes.length);
+    const order = _getNavOrder();
+    if (order.length <= 1) { switchToScene((currentIdx - 1 + scenes.length) % scenes.length); return; }
+    const pos = order.indexOf(currentIdx);
+    const nextPos = pos < 0 ? 0 : (pos - 1 + order.length) % order.length;
+    switchToScene(order[nextPos]);
   }
 
   function nextScene() {
     if (!scenes.length) return;
-    switchToScene((currentIdx + 1) % scenes.length);
+    const order = _getNavOrder();
+    if (order.length <= 1) { switchToScene((currentIdx + 1) % scenes.length); return; }
+    const pos = order.indexOf(currentIdx);
+    const nextPos = pos < 0 ? 0 : (pos + 1) % order.length;
+    switchToScene(order[nextPos]);
   }
 
   function deleteScene(idx) {
@@ -511,6 +562,8 @@ function init() {
     const sceneIds = new Set(scenes.map(s => s.id));
     projectState.markers = projectState.markers.filter(m => sceneIds.has(m.sceneId));
     if (activeFloorplanId) setTimeout(() => renderFloormapCanvas(), 0);
+    renderSceneFilterBar();
+    renderDashboard();
 
     // Adjust indices
     if (idx < compareState.sceneAIndex) compareState.sceneAIndex--;
@@ -599,6 +652,7 @@ function init() {
     hideEl(floormapNavigator);
     renderFloorplanList();
     renderSceneFilterBar();
+    const dashEl = $('project-dashboard'); if (dashEl) hideEl(dashEl);
 
     const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
     if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFs)
@@ -614,11 +668,11 @@ function init() {
   function renderSceneList() {
     sceneListEl.innerHTML = '';
 
-    // 1. Filter by active floor plan or unplaced
+    // 1. Filter by active floor plan or unplaced (v2.7: marker-based)
     const visibleIndices = scenes.reduce((acc, s, i) => {
       if (!sceneFilterFloorplanId) acc.push(i);
-      else if (sceneFilterFloorplanId === '__unplaced__') { if (!s.floorplanId) acc.push(i); }
-      else if (s.floorplanId === sceneFilterFloorplanId) acc.push(i);
+      else if (sceneFilterFloorplanId === '__unplaced__') { if (!isScenePlaced(s)) acc.push(i); }
+      else if (isSceneOnFloorplan(s, sceneFilterFloorplanId)) acc.push(i);
       return acc;
     }, []);
 
@@ -718,10 +772,10 @@ function init() {
     } else {
       sceneCounter.textContent = `${currentIdx + 1} / ${total}`;
     }
-    // Show/hide unplaced warning
+    // Show/hide unplaced warning (v2.7: marker-based)
     if (currentIdx >= 0) {
-      const curFpId = scenes[currentIdx]?.floorplanId;
-      if (projectState.floorplans.length && !curFpId) showEl(unplacedWarning);
+      const curScene = scenes[currentIdx];
+      if (projectState.floorplans.length && curScene && !isScenePlaced(curScene)) showEl(unplacedWarning);
       else hideEl(unplacedWarning);
     }
 
@@ -883,7 +937,7 @@ function init() {
     bar.appendChild(allBtn);
 
     projectState.floorplans.forEach(fp => {
-      const count = scenes.filter(s => s.floorplanId === fp.id).length;
+      const count = scenes.filter(s => isSceneOnFloorplan(s, fp.id)).length;
       const btn = document.createElement('button');
       btn.className = 'scene-filter-btn' + (sceneFilterFloorplanId === fp.id ? ' active' : '');
       btn.textContent = `${fp.name} (${count})`;
@@ -896,19 +950,44 @@ function init() {
       bar.appendChild(btn);
     });
 
-    // Unplaced tab
-    const unplacedCount = scenes.filter(s => !s.floorplanId).length;
+    // Unplaced tab (marker-based)
+    const unplacedCount = scenes.filter(s => !isScenePlaced(s)).length;
     if (unplacedCount > 0) {
       const btn = document.createElement('button');
       btn.className = 'scene-filter-btn' + (sceneFilterFloorplanId === '__unplaced__' ? ' active' : '');
       btn.textContent = `未配置 (${unplacedCount})`;
-      btn.title = '平面図に配置されていないシーン';
+      btn.title = 'マーカーが配置されていないシーン';
       btn.addEventListener('click', () => {
         sceneFilterFloorplanId = '__unplaced__';
         renderSceneFilterBar(); renderSceneList();
       });
       bar.appendChild(btn);
     }
+  }
+
+  // ============================================================
+  // Project Dashboard (v2.7)
+  // ============================================================
+  function renderDashboard() {
+    const el = $('project-dashboard');
+    if (!el) return;
+    if (!scenes.length && !projectState.floorplans.length) { hideEl(el); return; }
+    showEl(el);
+    const placedCount   = scenes.filter(s => isScenePlaced(s)).length;
+    const unplacedCount = scenes.length - placedCount;
+    const placedPct     = scenes.length ? Math.round(placedCount / scenes.length * 100) : 0;
+    const csets         = _loadCompareSets();
+    el.innerHTML =
+      `<div class="dashboard-grid">` +
+      `<div class="dashboard-cell"><span class="dashboard-val">${scenes.length}</span><span class="dashboard-lbl">シーン</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val">${projectState.floorplans.length}</span><span class="dashboard-lbl">FloorMap</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val">${projectState.markers.length}</span><span class="dashboard-lbl">マーカー</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val dashboard-placed">${placedCount}</span><span class="dashboard-lbl">配置済</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val dashboard-unplaced">${unplacedCount}</span><span class="dashboard-lbl">未配置</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val">${projectState.groups.length}</span><span class="dashboard-lbl">グループ</span></div>` +
+      `<div class="dashboard-cell"><span class="dashboard-val">${csets.length}</span><span class="dashboard-lbl">比較セット</span></div>` +
+      `<div class="dashboard-cell dashboard-cell-rate"><span class="dashboard-val dashboard-rate">${placedPct}%</span><span class="dashboard-lbl">配置率</span></div>` +
+      `</div>`;
   }
 
   // ============================================================
@@ -2197,6 +2276,7 @@ function init() {
       activeFloorplanId = projectState.floorplans[0].id;
     renderFloorplanList();
     renderSceneFilterBar();
+    renderDashboard();
     showToast(`平面図を ${valid.length} 件追加しました`);
   }
 
@@ -2214,6 +2294,7 @@ function init() {
     renderFloormap();
     renderSceneFilterBar();
     renderSceneList();
+    renderDashboard();
   }
 
   function setActiveFloorplan(id) {
@@ -2315,7 +2396,8 @@ function init() {
   function renderFloormapTabs() {
     floormapFpTabs.innerHTML = '';
     projectState.floorplans.forEach(fp => {
-      const count = projectState.markers.filter(m => m.floorplanId === fp.id).length;
+      // count = scenes with a marker on this floorplan
+      const count = scenes.filter(s => isSceneOnFloorplan(s, fp.id)).length;
       const btn = document.createElement('button');
       btn.className = 'floormap-fp-tab' + (fp.id === activeFloorplanId ? ' active' : '');
       btn.textContent = `${fp.name} (${count})`;
@@ -2473,6 +2555,9 @@ function init() {
       floormapInfoName.textContent  = mk.name || sc?.name || '---';
       floormapInfoScene.textContent = sc?.name || '---';
       floormapInfoDir.textContent   = (mk.rotation || 0) + '°';
+      // Show order in dir cell (v2.7)
+      const orderEl = floormapInfoPanel.querySelector('.floormap-info-order');
+      if (orderEl) orderEl.textContent = `#${mk.order || '?'}`;
       showEl(floormapInfoPanel);
     } else {
       hideEl(floormapInfoPanel);
@@ -2481,13 +2566,10 @@ function init() {
 
   function renderMarkerList() {
     if (!activeFloorplanId) return;
+    // Sort by order (v2.7)
     const markers = projectState.markers
       .filter(m => m.floorplanId === activeFloorplanId)
-      .sort((a, b) => {
-        const ia = scenes.findIndex(s => s.id === a.sceneId);
-        const ib = scenes.findIndex(s => s.id === b.sceneId);
-        return ia - ib;
-      });
+      .sort((a, b) => (a.order || 999) - (b.order || 999));
 
     const curSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
     floormapMkListUl.innerHTML = '';
@@ -2498,24 +2580,46 @@ function init() {
     }
     hideEl(floormapMkListEmpty);
 
-    markers.forEach(mk => {
-      const sc       = scenes.find(s => s.id === mk.sceneId);
-      const scIdx    = scenes.findIndex(s => s.id === mk.sceneId);
-      const isCur    = mk.sceneId === curSceneId;
-      const isSel    = mk.id === selectedMarkerId;
-      const li       = document.createElement('li');
-      li.className   = 'floormap-mk-list-item'
+    markers.forEach((mk, listIdx) => {
+      const sc    = scenes.find(s => s.id === mk.sceneId);
+      const isCur = mk.sceneId === curSceneId;
+      const isSel = mk.id === selectedMarkerId;
+      const li    = document.createElement('li');
+      li.className = 'floormap-mk-list-item'
         + (isCur ? ' current-scene' : '')
         + (isSel ? ' active' : '');
 
-      const numEl  = document.createElement('div');
-      numEl.className   = 'floormap-mk-list-num';
-      numEl.textContent = scIdx >= 0 ? scIdx + 1 : '?';
+      // Order number (editable on dblclick)
+      const numEl = document.createElement('div');
+      numEl.className = 'floormap-mk-list-num';
+      numEl.textContent = mk.order || (listIdx + 1);
+      numEl.title = 'ダブルクリックで番号編集';
+      numEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const input = document.createElement('input');
+        input.type = 'number'; input.min = '1'; input.max = '999';
+        input.value = mk.order || (listIdx + 1);
+        input.style.cssText = 'width:36px;font-size:.7rem;padding:1px 3px;background:var(--surface-3);border:1px solid var(--accent);border-radius:3px;color:var(--text);font-family:inherit;';
+        numEl.textContent = '';
+        numEl.appendChild(input);
+        input.focus(); input.select();
+        const save = () => {
+          const v = parseInt(input.value, 10);
+          if (v > 0) mk.order = v;
+          renderMarkerList(); renderFloormapCanvas();
+        };
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter') { ev.preventDefault(); input.removeEventListener('blur', save); save(); }
+          if (ev.key === 'Escape') { input.removeEventListener('blur', save); renderMarkerList(); }
+        });
+      });
 
       const textEl = document.createElement('div');
-      textEl.className  = 'floormap-mk-list-text';
+      textEl.className = 'floormap-mk-list-text';
       const nameEl = document.createElement('div');
-      nameEl.className  = 'floormap-mk-list-name';
+      nameEl.className = 'floormap-mk-list-name';
       nameEl.textContent = mk.name || sc?.name || '---';
       const sceneEl = document.createElement('div');
       sceneEl.className = 'floormap-mk-list-scene';
@@ -2523,8 +2627,8 @@ function init() {
       textEl.appendChild(nameEl);
       textEl.appendChild(sceneEl);
 
-      const dirEl  = document.createElement('div');
-      dirEl.className   = 'floormap-mk-list-dir';
+      const dirEl = document.createElement('div');
+      dirEl.className = 'floormap-mk-list-dir';
       dirEl.textContent = (mk.rotation || 0) + '°';
 
       li.appendChild(numEl);
@@ -2653,23 +2757,24 @@ function init() {
     // Use current yaw (theta) as initial rotation; snap to 15° increments
     const initialRot = Math.round(thetaToFloorRotation(theta, curScene.flipH || false) / 15) * 15 % 360;
     let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
+    const isNew = !mk;
     if (mk) {
       mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
     } else {
       mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id,
-             x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name };
+             x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name,
+             order: _nextMarkerOrder() };
       projectState.markers.push(mk);
     }
-    // Auto-associate scene with current floor plan (v2.5)
-    if (activeFloorplanId && !curScene.floorplanId) {
-      curScene.floorplanId = activeFloorplanId;
-      renderSceneFilterBar();
-    }
+    // Auto-associate scene with current floor plan
+    curScene.floorplanId = activeFloorplanId;
     selectedMarkerId = mk.id;
     renderFloormapCanvas();
     _updateInfoPanel();
     renderMarkerList();
-    renderSceneList(); // update floor badges
+    renderSceneList();
+    renderSceneFilterBar();
+    if (isNew) renderDashboard();
     showToast(`「${curScene.name}」のマーカーを配置しました（向き: ${initialRot}°）`);
   });
 
@@ -2708,9 +2813,17 @@ function init() {
 
   function deleteSelectedMarker() {
     if (!selectedMarkerId) return;
-    projectState.markers = projectState.markers.filter(m => m.id !== selectedMarkerId);
+    const mk = projectState.markers.find(m => m.id === selectedMarkerId);
+    if (mk) {
+      const sceneId = mk.sceneId;
+      projectState.markers = projectState.markers.filter(m => m.id !== selectedMarkerId);
+      // If scene has no more markers, clear its floorplanId
+      const scene = scenes.find(s => s.id === sceneId);
+      if (scene && !isScenePlaced(scene)) scene.floorplanId = null;
+    }
     selectedMarkerId = null;
     renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
+    renderSceneList(); renderSceneFilterBar(); renderDashboard();
     showToast('マーカーを削除しました');
   }
 
@@ -2883,6 +2996,7 @@ function init() {
     groupPickerInput.value = '';
     closeGroupPicker();
     renderSceneList();
+    renderDashboard();
   });
   groupPickerInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
@@ -2929,7 +3043,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.6',
+      appVersion:  '2.7',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
@@ -2948,7 +3062,7 @@ function init() {
         fileName:       f.fileName,
         rotationOffset: f.rotationOffset || 0,
       })),
-      markers: projectState.markers.map(m => ({ ...m })),
+      markers: projectState.markers.map((m, i) => ({ ...m, order: m.order || (i + 1) })),
       compareSets: _loadCompareSets(),
     };
 
@@ -3093,10 +3207,10 @@ function init() {
 
     const newMarkers = (_importData.markers || []).filter(m =>
       validSceneIds.has(m.sceneId) && validFpIds.has(m.floorplanId)
-    ).map(m => ({
+    ).map((m, i) => ({
       ...m,
-      // Restore name; fallback to scene name for older JSON without name field
-      name: m.name || sceneNameById[m.sceneId] || '',
+      name:  m.name  || sceneNameById[m.sceneId] || '',
+      order: m.order || (i + 1), // auto-fill order for old JSON (v2.7)
     }));
     // Merge: remove existing markers with same id, then push new
     const newMarkerIds = new Set(newMarkers.map(m => m.id));
@@ -3120,8 +3234,16 @@ function init() {
       projectState.projectInfo = { ...projectState.projectInfo, ..._importData.projectInfo };
     }
 
+    // Rebuild scene.floorplanId from markers (v2.7: marker-based source of truth)
+    scenes.forEach(s => {
+      const mk = projectState.markers.find(m => m.sceneId === s.id);
+      if (mk) s.floorplanId = mk.floorplanId;
+      else if (!projectState.floorplans.some(f => f.id === s.floorplanId)) s.floorplanId = null;
+    });
+
     renderFloormap();
     renderSceneFilterBar();
+    renderDashboard();
     hideEl(importModal);
     _importData = null;
     showToast(`復元完了: シーン ${restoredScenes} / 平面図 ${restoredFPs} / マーカー ${restoredMk} / 比較セット ${restoredCs}`);
