@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260615f" />
+  <link rel="stylesheet" href="style.css?v=20260615g" />
 </head>
 <body>
   <header class="header">
@@ -139,6 +139,9 @@
           <!-- 【画像】グループ -->
           <button id="add-img-btn" class="toolbar-btn" data-action="add">
             <span class="btn-icon">＋</span><span class="btn-label">画像追加</span>
+          </button>
+          <button id="update-scene-btn" class="toolbar-btn" data-action="update-scene" title="現在のシーンの画像を更新（scene.id・marker・比較セット等は維持）">
+            <span class="btn-icon">🔄</span><span class="btn-label">シーン更新</span>
           </button>
           <button id="back-btn" class="toolbar-btn toolbar-btn-muted" data-action="back">
             <span class="btn-icon">🗑</span><span class="btn-label">すべてクリア</span>
@@ -493,6 +496,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260615f" defer></script>
+  <script src="script.js?v=20260615g" defer></script>
 </body>
 </html>

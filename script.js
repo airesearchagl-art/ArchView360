@@ -28,6 +28,7 @@ function init() {
   // Single toolbar
   const toolbarSingle      = $('toolbar-single');
   const addImgBtn          = $('add-img-btn');
+  const updateSceneBtn     = $('update-scene-btn');
   const splitCompareBtn    = $('split-compare-btn');
   const sliderCompareBtn   = $('slider-compare-btn');
   const flipBtn            = $('flip-btn');
@@ -554,7 +555,7 @@ function init() {
 
     URL.revokeObjectURL(oldBlobUrl);
     renderSceneList();
-    showToast(`「${s.name}」の画像を差し替えました`);
+    showToast('シーンを更新しました');
   });
 
   let _fadePending = false;
@@ -2281,6 +2282,10 @@ function init() {
   // ============================================================
   addImgBtn.addEventListener('click',    () => fileInput.click());
   addSceneBtn.addEventListener('click',  () => fileInput.click());
+  updateSceneBtn.addEventListener('click', () => {
+    if (currentIdx < 0 || !scenes.length) { showToast('シーンがありません'); return; }
+    openReplaceScenePicker(currentIdx);
+  });
   clearAllBtn.addEventListener('click',  clearAllAndShowUpload);
   backBtn.addEventListener('click',      clearAllAndShowUpload);
 
