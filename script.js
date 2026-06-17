@@ -116,6 +116,7 @@ function init() {
   const floorplanInput     = $('floorplan-input');
   const jsonImportInput    = $('json-import-input');
   const importImagesInput  = $('import-images-input');
+  const replaceSceneInput  = $('replace-scene-input');
 
   // Import modal
   const importModal        = $('import-modal');
@@ -502,6 +503,59 @@ function init() {
     renderSceneFilterBar();
     renderDashboard();
   }
+
+  // ============================================================
+  // Scene image replacement (v2.9.1) — keeps scene.id and all
+  // references (markers/compareSets/groups/floorplan linkage) intact,
+  // only swaps the image data (blobUrl/thumbUrl/fileName).
+  // ============================================================
+  let _replaceTargetIdx = -1;
+  function openReplaceScenePicker(idx) {
+    _replaceTargetIdx = idx;
+    replaceSceneInput.value = '';
+    replaceSceneInput.click();
+  }
+
+  replaceSceneInput.addEventListener('change', () => {
+    const f = replaceSceneInput.files[0];
+    const idx = _replaceTargetIdx;
+    _replaceTargetIdx = -1;
+    if (!f || idx < 0 || idx >= scenes.length) return;
+
+    const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
+    const maxBytes = 100 * 1024 * 1024;
+    if (!allowed.has(f.type) || f.size > maxBytes) {
+      showGlobalError('有効な画像ファイルではありません。JPEG・PNG・WebP（100MB以下）を選択してください。');
+      return;
+    }
+
+    const s = scenes[idx];
+    const oldBlobUrl = s.blobUrl;
+    const newBlobUrl = URL.createObjectURL(f);
+
+    s.blobUrl  = newBlobUrl;
+    s.fileName = f.name;
+    s.thumbUrl = null;
+    // scene.id, markers, compareSets, groups, floorplanId, projectInfo references all untouched
+
+    generateThumb(newBlobUrl, (dataUrl) => {
+      s.thumbUrl = dataUrl;
+      renderSceneList();
+    });
+
+    if (idx === currentIdx && compareState.mode === 'single') {
+      loadPanorama(s.blobUrl, s.name, s.flipH);
+    }
+    if (compareState.mode !== 'single') {
+      if (idx === compareState.sceneAIndex) loadCompareSphere('a', idx);
+      if (idx === compareState.sceneBIndex) loadCompareSphere('b', idx);
+      updateCompareSelects();
+    }
+
+    URL.revokeObjectURL(oldBlobUrl);
+    renderSceneList();
+    showToast(`「${s.name}」の画像を差し替えました`);
+  });
 
   let _fadePending = false;
   function switchToScene(idx) {
@@ -898,6 +952,14 @@ function init() {
     groupBtn.textContent = '📁';
     groupBtn.addEventListener('click', (e) => { e.stopPropagation(); openGroupPicker(i, groupBtn); });
     row.appendChild(groupBtn);
+
+    // Replace image button
+    const replaceBtn = document.createElement('button');
+    replaceBtn.className = 'scene-replace-btn';
+    replaceBtn.title = '画像を差し替え（markers/比較セット/グループ/平面図紐付けは維持）';
+    replaceBtn.textContent = '🖼差し替え';
+    replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); openReplaceScenePicker(i); });
+    row.appendChild(replaceBtn);
 
     // Delete button
     const delBtn = document.createElement('button');
@@ -2222,11 +2284,30 @@ function init() {
   clearAllBtn.addEventListener('click',  clearAllAndShowUpload);
   backBtn.addEventListener('click',      clearAllAndShowUpload);
 
-  splitCompareBtn.addEventListener('click',   enterSplitMode);
-  sliderCompareBtn.addEventListener('click',  enterSliderMode);
+  splitCompareBtn.addEventListener('click',   () => enterSplitMode());
+  sliderCompareBtn.addEventListener('click',  () => enterSliderMode());
   exitCompareBtn.addEventListener('click',    () => exitCompareMode());
-  switchToSplitBtn.addEventListener('click',  enterSplitMode);
-  switchToSliderBtn.addEventListener('click', enterSliderMode);
+  // Switching between split/slider while already comparing must keep the current A/B pair
+  // (not the click MouseEvent, which would be misread as the options arg and trigger
+  // the "fresh entry" currentIdx-based fallback inside enterSplitMode/enterSliderMode).
+  switchToSplitBtn.addEventListener('click', () => {
+    if (compareState.mode === 'single') { enterSplitMode(); return; }
+    enterSplitMode({
+      idxA: compareState.sceneAIndex,
+      idxB: compareState.sceneBIndex,
+      layout: compareState.layout,
+      syncViews: compareState.syncViews,
+    });
+  });
+  switchToSliderBtn.addEventListener('click', () => {
+    if (compareState.mode === 'single') { enterSliderMode(); return; }
+    enterSliderMode({
+      idxA: compareState.sceneAIndex,
+      idxB: compareState.sceneBIndex,
+      sliderPos: compareState.sliderPosition,
+      syncViews: compareState.syncViews,
+    });
+  });
 
   flipBtn.addEventListener('click',   toggleFlipSingle);
   flipABtn.addEventListener('click',  () => toggleFlipCompare('a'));

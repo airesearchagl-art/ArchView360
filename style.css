@@ -421,6 +421,27 @@ body {
 .scene-item:hover .scene-delete-btn { opacity: 1; }
 .scene-delete-btn:hover { color: var(--error); }
 
+/* ===== v2.9.1: Scene image replace button ===== */
+.scene-replace-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: .62rem;
+  font-family: inherit;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: opacity .15s, color .15s;
+}
+.scene-item:hover .scene-replace-btn { opacity: .8; }
+.scene-replace-btn:hover { opacity: 1 !important; color: var(--accent-h); }
+
 /* ===== v2.5: Scene filter bar ===== */
 .scene-filter-bar {
   display: flex;
