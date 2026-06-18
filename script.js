@@ -878,34 +878,29 @@ function init() {
 
   function _createSceneItem(i) {
     const s = scenes[i];
+    const isActive = i === currentIdx;
     const li = document.createElement('li');
-    li.className = 'scene-item' + (i === currentIdx ? ' active' : '');
+    li.className = 'scene-item' + (isActive ? ' active' : '');
     li.draggable = true;
     li.dataset.idx = i;
 
-    // Thumbnail
-    const thumbWrap = document.createElement('div');
-    thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
-    if (s.thumbUrl) {
-      const img = document.createElement('img');
-      img.className = 'scene-thumb'; img.src = s.thumbUrl; img.alt = ''; img.draggable = false;
-      thumbWrap.appendChild(img);
-      thumbWrap.addEventListener('mouseenter', () => showThumbPreview(s.thumbUrl, li));
-      thumbWrap.addEventListener('mouseleave', hideThumbPreview);
-    }
+    // ---- Left: meta block (number/name row + sub-info row) ----
+    const main = document.createElement('div');
+    main.className = 'scene-item-main';
 
-    // Bottom row
-    const row = document.createElement('div');
-    row.className = 'scene-item-row';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'scene-item-title-row';
 
     const numEl = document.createElement('span');
     numEl.className = 'scene-num';
     numEl.textContent = i + 1;
+    titleRow.appendChild(numEl);
 
     const nameEl = document.createElement('span');
     nameEl.className = 'scene-name';
     nameEl.textContent = s.name;
     nameEl.title = s.name;
+    titleRow.appendChild(nameEl);
 
     nameEl.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -921,6 +916,7 @@ function init() {
       const n = nameEl.textContent.trim();
       s.name = n || s.name;
       nameEl.textContent = s.name;
+      nameEl.title = s.name;
       if (i === currentIdx) currentSceneNameEl.textContent = s.name;
       if (compareState.mode !== 'single') updateCompareSelects();
     });
@@ -930,48 +926,100 @@ function init() {
       if (e.key === 'Escape') { nameEl.textContent = s.name; nameEl.blur(); }
     });
 
-    // Floor plan badge
+    // Marker order badge (e.g. "#1") — prefers a marker on the active floorplan
+    const marker = projectState.markers.find(m => m.sceneId === s.id && m.floorplanId === activeFloorplanId)
+                 || projectState.markers.find(m => m.sceneId === s.id);
+    if (marker && marker.order) {
+      const ordEl = document.createElement('span');
+      ordEl.className = 'scene-order-badge';
+      ordEl.textContent = `#${marker.order}`;
+      ordEl.title = 'FloorMap上の番号';
+      titleRow.appendChild(ordEl);
+    }
+
+    main.appendChild(titleRow);
+
+    const subRow = document.createElement('div');
+    subRow.className = 'scene-item-sub-row';
+
     const fp = s.floorplanId ? projectState.floorplans.find(f => f.id === s.floorplanId) : null;
     if (fp) {
       const badge = document.createElement('span');
       badge.className = 'scene-floor-badge';
-      badge.textContent = fp.name.slice(0, 3);
+      badge.textContent = fp.name;
       badge.title = fp.name;
-      row.appendChild(numEl);
-      row.appendChild(nameEl);
-      row.appendChild(badge);
-    } else {
-      row.appendChild(numEl);
-      row.appendChild(nameEl);
+      subRow.appendChild(badge);
     }
 
-    // Group button
-    const groupBtn = document.createElement('button');
     const curGroup = s.groupId ? projectState.groups.find(g => g.id === s.groupId) : null;
+    if (curGroup) {
+      const gTag = document.createElement('span');
+      gTag.className = 'scene-group-tag';
+      gTag.textContent = curGroup.name;
+      gTag.title = `グループ: ${curGroup.name}`;
+      subRow.appendChild(gTag);
+    }
+
+    if (projectState.floorplans.length) {
+      const placed = isScenePlaced(s);
+      const statusEl = document.createElement('span');
+      statusEl.className = 'scene-status-tag' + (placed ? ' placed' : ' unplaced');
+      statusEl.textContent = placed ? '配置済' : '未配置';
+      subRow.appendChild(statusEl);
+    }
+
+    main.appendChild(subRow);
+
+    // ---- Right: fixed-size thumbnail ----
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'scene-thumb-wrap' + (s.thumbUrl ? '' : ' scene-thumb-placeholder');
+    if (s.thumbUrl) {
+      const img = document.createElement('img');
+      img.className = 'scene-thumb'; img.src = s.thumbUrl; img.alt = ''; img.draggable = false;
+      thumbWrap.appendChild(img);
+      thumbWrap.addEventListener('mouseenter', () => showThumbPreview(s.thumbUrl, li));
+      thumbWrap.addEventListener('mouseleave', hideThumbPreview);
+    }
+    if (compareState.mode !== 'single') {
+      if (i === compareState.sceneAIndex) {
+        const ab = document.createElement('span');
+        ab.className = 'scene-ab-badge scene-ab-badge-a'; ab.textContent = 'A';
+        thumbWrap.appendChild(ab);
+      } else if (i === compareState.sceneBIndex) {
+        const ab = document.createElement('span');
+        ab.className = 'scene-ab-badge scene-ab-badge-b'; ab.textContent = 'B';
+        thumbWrap.appendChild(ab);
+      }
+    }
+
+    // ---- Actions: compact, revealed on hover/focus ----
+    const actions = document.createElement('div');
+    actions.className = 'scene-item-actions';
+
+    const groupBtn = document.createElement('button');
     groupBtn.className = 'scene-group-btn' + (curGroup ? ' has-group' : '');
     groupBtn.title = curGroup ? `グループ: ${curGroup.name}（クリックで変更）` : 'グループを設定';
     groupBtn.textContent = '📁';
     groupBtn.addEventListener('click', (e) => { e.stopPropagation(); openGroupPicker(i, groupBtn); });
-    row.appendChild(groupBtn);
+    actions.appendChild(groupBtn);
 
-    // Replace image button
     const replaceBtn = document.createElement('button');
     replaceBtn.className = 'scene-replace-btn';
     replaceBtn.title = '画像を差し替え（markers/比較セット/グループ/平面図紐付けは維持）';
-    replaceBtn.textContent = '🖼差し替え';
+    replaceBtn.textContent = '🖼';
     replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); openReplaceScenePicker(i); });
-    row.appendChild(replaceBtn);
+    actions.appendChild(replaceBtn);
 
-    // Delete button
     const delBtn = document.createElement('button');
     delBtn.className = 'scene-delete-btn';
     delBtn.title = 'このシーンを削除';
     delBtn.textContent = '×';
     delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteScene(i); });
-    row.appendChild(delBtn);
+    actions.appendChild(delBtn);
 
+    li.appendChild(main);
     li.appendChild(thumbWrap);
-    li.appendChild(row);
+    li.appendChild(actions);
 
     // Click to switch scene
     li.addEventListener('click', () => {
