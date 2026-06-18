@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>セキュリティポリシー - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="/docs/manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>🔒 セキュリティポリシー</h1>
+    <p class="lead">ArchView360はサーバーを使わない、ブラウザ完結型のツールです。読み込んだデータがどこにも送信されない設計になっています。</p>
+
+    <h2>データの取り扱い</h2>
+    <table class="m-table">
+      <thead><tr><th>データ</th><th>外部送信</th><th>保存先</th></tr></thead>
+      <tbody>
+        <tr><td>パノラマ画像</td><td>なし</td><td>ブラウザのメモリ内のみ</td></tr>
+        <tr><td>平面図（FloorMap）画像</td><td>なし</td><td>ブラウザのメモリ内のみ</td></tr>
+        <tr><td>プロジェクトJSON</td><td>なし</td><td>ユーザーが明示的に書き出した場合のみローカルファイルとして保存</td></tr>
+        <tr><td>比較セット</td><td>なし</td><td>ブラウザのlocalStorage内のみ</td></tr>
+      </tbody>
+    </table>
+
+    <div class="m-callout">
+      <strong>ローカル完結型ツール：</strong> ArchView360にはサーバー側のバックエンドが存在しません。画像・平面図・JSONはすべてブラウザ内（クライアントサイド）で処理され、インターネット上のどこにもアップロードされません。
+    </div>
+
+    <h2>なぜ安全なのか</h2>
+    <ul>
+      <li>ファイル読み込みはブラウザの File API（ローカル処理）のみを使用しています。</li>
+      <li>ネットワーク通信を行うのは、アプリ本体（HTML/CSS/JS）とビューワーライブラリ（Three.js）の配信時のみです。</li>
+      <li>読み込んだ画像・JSONを送信するAPIエンドポイントは存在しません。</li>
+      <li>プロジェクトの共有は、JSON＋画像ファイルをユーザー自身が任意の方法（メール・共有フォルダ等）で送付することで行います。</li>
+    </ul>
+
+    <h2>注意事項</h2>
+    <p>ブラウザのタブを閉じる、またはページを再読み込みすると、読み込んだ画像やシーン構成は破棄されます（永続化されません）。重要なプロジェクトは「JSON書き出し」で随時保存してください。</p>
+
+    <div class="m-pager">
+      <a href="/docs/shortcuts.html">← キーボードショートカット</a>
+      <a href="/docs/index.html">マニュアルトップへ →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="/docs/manual.js"></script>
+<script>ArchViewManual.renderManualChrome('security');</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260615i" />
+  <link rel="stylesheet" href="style.css?v=20260618a" />
 </head>
 <body>
   <header class="header">
@@ -12,11 +12,14 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
+        <span id="app-version-badge" class="app-version-badge">v2.9.5</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
+      <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
       <div class="header-actions">
         <button id="quick-help-btn" class="header-link-btn" title="クイックヘルプを開く">❔ クイックヘルプ</button>
         <a id="manual-link-btn" class="header-link-btn" href="/docs/index.html" target="_blank" rel="noopener" title="ユーザーマニュアルを開く">📖 マニュアル</a>
+        <a id="security-link-btn" class="header-link-btn" href="/docs/security.html" target="_blank" rel="noopener" title="セキュリティポリシーを開く">🔒 セキュリティ</a>
       </div>
     </div>
   </header>
@@ -69,6 +72,16 @@
           </tbody>
         </table>
         <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。</p>
+      </div>
+      <div class="security-card">
+        <h2 class="security-title">🔒 セキュリティについて</h2>
+        <ul class="security-list">
+          <li>画像は外部送信されません</li>
+          <li>平面図は外部送信されません</li>
+          <li>JSONは外部送信されません</li>
+          <li>処理はすべてブラウザ内で完結します</li>
+        </ul>
+        <p class="security-more">詳しくは <a href="/docs/security.html" target="_blank" rel="noopener">🔒 セキュリティポリシー</a> をご覧ください。</p>
       </div>
     </section>
 
@@ -413,7 +426,7 @@
   </main>
 
   <footer class="footer">
-    <p>ArchView360 &mdash; 360° Panorama Viewer for Architecture</p>
+    <p>ArchView360 v2.9.5 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
   </footer>
 
   <script src="vendor/three.min.js"></script>

@@ -61,6 +61,42 @@ body {
 .logo-text  { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.03em; }
 .header-desc { font-size: 0.82rem; color: var(--text-muted); flex: 1; }
 
+/* ===== v2.9.5: Version badge / local-processing badge ===== */
+.app-version-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  color: var(--accent-h);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 7px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.local-badge {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+/* ===== v2.9.5: Security info card (upload screen) ===== */
+.security-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.security-title { font-size: 1rem; margin: 0 0 10px; }
+.security-list { margin: 0 0 10px; padding-left: 22px; font-size: .85rem; color: var(--text-muted); line-height: 1.7; }
+.security-more { font-size: .8rem; color: var(--text-muted); margin: 0; }
+.security-more a { color: var(--accent-h); }
+
 /* ===== v2.9.4: Header manual / quick help buttons ===== */
 .header-actions {
   display: flex;

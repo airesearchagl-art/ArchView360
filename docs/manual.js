@@ -8,6 +8,7 @@
     { id: 'compare',          file: '/docs/compare.html',           label: '比較モード' },
     { id: 'project-json',     file: '/docs/project-json.html',      label: 'プロジェクトJSON' },
     { id: 'shortcuts',        file: '/docs/shortcuts.html',         label: 'キーボードショートカット' },
+    { id: 'security',         file: '/docs/security.html',          label: 'セキュリティポリシー' },
   ];
 
   function renderManualChrome(activeId) {
