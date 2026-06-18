@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>シーン管理 - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>🗂️ シーン管理</h1>
+    <p class="lead">左サイドバーの「シーン一覧」では、読み込んだ各パノラマ画像（シーン）の追加・並び替え・グループ化・名前変更・画像差し替え・削除ができます。</p>
+
+    <figure class="m-illustration">
+      <svg width="560" height="120" viewBox="0 0 560 120" role="img" aria-label="シーンカードのレイアウト図">
+        <rect x="0" y="0" width="560" height="120" rx="10" fill="#1d212c" stroke="#2a2f3d"/>
+        <rect x="20" y="25" width="400" height="70" rx="8" fill="rgba(79,124,255,.18)" stroke="#4f7cff"/>
+        <text x="34" y="50" fill="#7fa0ff" font-size="12" font-family="sans-serif">① リビング #1</text>
+        <text x="34" y="68" fill="#9aa0b0" font-size="10" font-family="sans-serif">1F平面図 ／ グループ:1階 ／ 配置済</text>
+        <rect x="330" y="40" width="72" height="40" rx="5" fill="#262b38" stroke="#4f7cff"/>
+        <text x="366" y="63" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">サムネイル</text>
+        <text x="450" y="55" fill="#9aa0b0" font-size="10" font-family="sans-serif">📁 🖼 ×</text>
+        <text x="450" y="70" fill="#9aa0b0" font-size="8" font-family="sans-serif">（hoverで表示）</text>
+      </svg>
+      <figcaption>図3：シーンカードの構成（左：名前/状態、右：サムネイル、右端：操作ボタン）</figcaption>
+    </figure>
+
+    <h2>シーンを追加する</h2>
+    <ul>
+      <li>ツールバーの「＋画像追加」、またはサイドバーの「＋追加」から新しい画像を読み込めます。</li>
+      <li>複数ファイルを同時に選択できます。</li>
+    </ul>
+
+    <h2>シーン名を変更する</h2>
+    <p>シーン名をダブルクリックするとその場で編集できます。<span class="m-key">Enter</span> で確定、<span class="m-key">Esc</span> でキャンセルします。</p>
+
+    <h2>画像を差し替える（v2.9.1〜）</h2>
+    <p>シーンを削除して再登録すると、紐づいているマーカーや比較セットの参照が切れてしまいます。<strong>画像だけを差し替えたい場合</strong>は次のいずれかの方法を使います。</p>
+    <ol>
+      <li>ツールバーの「🔄シーン更新」ボタン — 現在表示中のシーンの画像を更新します。</li>
+      <li>シーンカードの「🖼」ボタン（hoverで表示）— 任意のシーンの画像を個別に更新します。</li>
+    </ol>
+    <div class="m-callout">
+      <strong>差し替え時に維持される情報：</strong> シーンID、マーカー（FloorMap上の配置）、マーカー番号、比較セット、グループ、平面図との紐付け、プロジェクトJSONの参照。差し替わるのは画像データ（ファイル名・サムネイル）だけです。
+    </div>
+
+    <h2>並び替え・グループ化</h2>
+    <ul>
+      <li>シーンカードをドラッグ＆ドロップすると一覧内の順序を変更できます。</li>
+      <li>「📁」ボタンでグループを設定・変更できます。グループはヘッダーごとに折りたたみ可能です。</li>
+    </ul>
+
+    <h2>絞り込み表示</h2>
+    <p>FloorMapを登録している場合、サイドバー上部の「表示範囲」フィルタで「すべて」「各FloorMap」「未配置」を切り替えてシーンを絞り込めます。未配置のシーンをクリックすると、FloorMapを切り替えずにそのシーンへジャンプできます。</p>
+
+    <h2>シーンの削除</h2>
+    <p>シーンカードの「×」ボタン（hoverで表示）で個別に削除できます。削除すると、そのシーンに紐づくマーカーも自動的に取り除かれます。</p>
+
+    <div class="m-pager">
+      <a href="getting-started.html">← はじめに</a>
+      <a href="floormap.html">次へ：FloorMap →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="manual.js"></script>
+<script>ArchViewManual.renderManualChrome('scene-management');</script>
+</body>
+</html>

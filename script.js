@@ -140,6 +140,12 @@ function init() {
   const setNameCancelBtn   = $('set-name-cancel-btn');
   const setNameCloseBtn    = $('set-name-close-btn');
 
+  // Quick help modal (v2.9.4)
+  const quickHelpBtn       = $('quick-help-btn');
+  const quickHelpModal     = $('quick-help-modal');
+  const quickHelpCloseBtn  = $('quick-help-close-btn');
+  const quickHelpOkBtn     = $('quick-help-ok-btn');
+
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
   const viewerContainer    = $('viewer-container');
@@ -1748,6 +1754,17 @@ function init() {
   setNameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter')  { e.preventDefault(); _closeSetNameModal(true); }
     if (e.key === 'Escape') { e.preventDefault(); _closeSetNameModal(false); }
+  });
+
+  // ---- Quick help modal (v2.9.4) ----
+  function openQuickHelp() { showEl(quickHelpModal); }
+  function closeQuickHelp() { hideEl(quickHelpModal); }
+  quickHelpBtn.addEventListener('click', openQuickHelp);
+  quickHelpCloseBtn.addEventListener('click', closeQuickHelp);
+  quickHelpOkBtn.addEventListener('click', closeQuickHelp);
+  quickHelpModal.addEventListener('click', (e) => { if (e.target === quickHelpModal) closeQuickHelp(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && quickHelpModal.style.display !== 'none') closeQuickHelp();
   });
 
   // ---- Save / Restore / Delete / Rename ----

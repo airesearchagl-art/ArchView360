@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>はじめに - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>🚀 はじめに</h1>
+    <p class="lead">ArchView360はブラウザだけで動く360°パノラマビューワーです。サーバーへのアップロードは行われず、選んだ画像はそのままブラウザ内（メモリ）で表示されます。</p>
+
+    <h2>対応している画像</h2>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td>形式</td><td>JPEG / PNG / WebP</td></tr>
+        <tr><td>推奨投影方式</td><td>正距円筒図法（Equirectangular）、推奨サイズ 4096×2048（2:1）</td></tr>
+        <tr><td>ファイルサイズ</td><td>1ファイルあたり 100MB 以下</td></tr>
+        <tr><td>複数選択</td><td>可（一度に複数のシーンを追加できます）</td></tr>
+      </tbody>
+    </table>
+    <p>D5 Render など多くのレンダラーには「360°パノラマ（正距円筒図法）」での書き出しオプションがあります。書き出し時にこの形式を選んでください。</p>
+
+    <h2>画像を読み込む</h2>
+    <ol>
+      <li>トップ画面の点線エリアに画像ファイルをドラッグ＆ドロップする。</li>
+      <li>またはエリア内の「ファイルを選択」ボタンからファイルダイアログで選ぶ。</li>
+      <li>読み込みが完了すると自動的にビューワー画面に切り替わります。</li>
+    </ol>
+
+    <figure class="m-illustration">
+      <svg width="560" height="170" viewBox="0 0 560 170" role="img" aria-label="ドラッグ＆ドロップで画像を読み込む様子">
+        <rect x="0" y="0" width="560" height="170" rx="10" fill="#1d212c" stroke="#2a2f3d"/>
+        <rect x="40" y="30" width="220" height="110" rx="10" fill="none" stroke="#4f7cff" stroke-dasharray="6 5" stroke-width="2"/>
+        <text x="150" y="70" fill="#e8eaf0" font-size="13" text-anchor="middle" font-family="sans-serif">🖼️</text>
+        <text x="150" y="95" fill="#9aa0b0" font-size="11" text-anchor="middle" font-family="sans-serif">ここに画像をドロップ</text>
+        <text x="150" y="115" fill="#9aa0b0" font-size="10" text-anchor="middle" font-family="sans-serif">またはクリックして選択</text>
+        <path d="M280 85 L340 85" stroke="#4f7cff" stroke-width="2" marker-end="url(#arrow)"/>
+        <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4f7cff"/></marker></defs>
+        <rect x="360" y="30" width="160" height="110" rx="8" fill="#161922" stroke="#2a2f3d"/>
+        <circle cx="440" cy="85" r="38" fill="none" stroke="#4f7cff" stroke-width="2"/>
+        <text x="440" y="89" fill="#e8eaf0" font-size="11" text-anchor="middle" font-family="sans-serif">360°ビュー</text>
+      </svg>
+      <figcaption>図2：画像をドロップすると360°ビューワーが起動します</figcaption>
+    </figure>
+
+    <h2>基本操作</h2>
+    <ul>
+      <li><strong>視点の操作：</strong> マウスでドラッグ（タッチ端末はスワイプ）して見回せます。</li>
+      <li><strong>ズーム：</strong> マウスホイール、またはタッチ端末ではピンチ操作。</li>
+      <li><strong>シーン切替：</strong> 左サイドバーのシーンをクリック、またはキーボードの <span class="m-key">←</span> <span class="m-key">→</span>。</li>
+      <li><strong>視点リセット：</strong> ツールバーの「リセット」、またはキー <span class="m-key">R</span>。</li>
+      <li><strong>左右反転：</strong> 鏡面合成などで反転している画像を直す場合に使用（キー <span class="m-key">M</span>）。</li>
+    </ul>
+
+    <div class="m-callout">
+      <strong>ヒント：</strong> 設定JSON（プロジェクトファイル）と画像をまとめてドロップすると、シーン構成・FloorMap・マーカー・グループなどをそのまま復元できます。詳しくは「<a href="project-json.html">プロジェクトJSON</a>」を参照してください。
+    </div>
+
+    <div class="m-pager">
+      <span></span>
+      <a href="scene-management.html">次へ：シーン管理 →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="manual.js"></script>
+<script>ArchViewManual.renderManualChrome('getting-started');</script>
+</body>
+</html>

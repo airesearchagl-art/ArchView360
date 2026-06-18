@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260615h" />
+  <link rel="stylesheet" href="style.css?v=20260615i" />
 </head>
 <body>
   <header class="header">
@@ -14,6 +14,10 @@
         <span class="logo-text">ArchView360</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
+      <div class="header-actions">
+        <button id="quick-help-btn" class="header-link-btn" title="クイックヘルプを開く">❔ クイックヘルプ</button>
+        <a id="manual-link-btn" class="header-link-btn" href="docs/index.html" target="_blank" rel="noopener" title="ユーザーマニュアルを開く">📖 マニュアル</a>
+      </div>
     </div>
   </header>
 
@@ -496,6 +500,49 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260615h" defer></script>
+  <!-- ===== Quick Help modal (v2.9.4) ===== -->
+  <div id="quick-help-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="quick-help-title">
+    <div class="modal-box quick-help-box">
+      <div class="modal-hd">
+        <span class="modal-title" id="quick-help-title">❔ クイックヘルプ</span>
+        <button id="quick-help-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body quick-help-body">
+        <section class="qh-section">
+          <h3 class="qh-heading">🚀 はじめに</h3>
+          <p class="qh-text">360°パノラマ画像（JPEG/PNG/WebP）をドラッグ＆ドロップ、または「ファイルを選択」で読み込みます。複数枚を同時に追加できます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">⌨️ 主なショートカット</h3>
+          <table class="qh-table">
+            <tbody>
+              <tr><td class="qh-key">← →</td><td>シーン切替</td></tr>
+              <tr><td class="qh-key">R</td><td>視点リセット</td></tr>
+              <tr><td class="qh-key">A</td><td>自動回転 ON/OFF</td></tr>
+              <tr><td class="qh-key">F</td><td>全画面</td></tr>
+              <tr><td class="qh-key">M</td><td>左右反転</td></tr>
+              <tr><td class="qh-key">C</td><td>分割比較 ON/OFF</td></tr>
+              <tr><td class="qh-key">S</td><td>スライダー比較 ON/OFF</td></tr>
+              <tr><td class="qh-key">Esc</td><td>通常表示に戻る</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">🗺️ FloorMap</h3>
+          <p class="qh-text">平面図画像を追加し、配置モードで平面図をクリックするとその位置にシーンのマーカーを置けます。マーカー番号で ← → の移動順を制御できます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">⊞ 比較モード</h3>
+          <p class="qh-text">ツールバーの「分割比較」「スライダー比較」で2つのシーンを並べて比較できます。比較セットとして保存すれば後から呼び出せます。</p>
+        </section>
+        <p class="qh-more">さらに詳しい説明は <a href="docs/index.html" target="_blank" rel="noopener">📖 ユーザーマニュアル</a> をご覧ください。</p>
+      </div>
+      <div class="modal-ft">
+        <button id="quick-help-ok-btn" class="btn btn-primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=20260615i" defer></script>
 </body>
 </html>

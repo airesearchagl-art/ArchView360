@@ -1,0 +1,225 @@
+/* ArchView360 User Manual — shared stylesheet */
+:root {
+  --bg: #0f1117;
+  --surface: #161922;
+  --surface-2: #1d212c;
+  --surface-3: #262b38;
+  --border: #2a2f3d;
+  --text: #e8eaf0;
+  --text-muted: #9aa0b0;
+  --accent: #4f7cff;
+  --accent-h: #7fa0ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Hiragino Sans, "Yu Gothic", Meiryo, sans-serif;
+  line-height: 1.7;
+}
+
+a { color: var(--accent-h); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+img, svg { max-width: 100%; }
+
+/* ===== Header ===== */
+.m-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.m-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.m-header-title .icon { color: var(--accent); font-size: 1.3rem; }
+
+.m-header-back {
+  font-size: .82rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 11px;
+  color: var(--text);
+}
+.m-header-back:hover { border-color: var(--accent); color: var(--accent-h); text-decoration: none; }
+
+/* ===== Layout: top nav + content ===== */
+.m-layout {
+  display: flex;
+  max-width: 1100px;
+  margin: 0 auto;
+  min-height: calc(100vh - 58px);
+}
+
+.m-nav {
+  flex: 0 0 220px;
+  border-right: 1px solid var(--border);
+  padding: 18px 12px;
+}
+
+.m-nav-heading {
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  padding: 0 8px 6px;
+}
+
+.m-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.m-nav-list a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: .85rem;
+}
+.m-nav-list a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.m-nav-list a.active { background: rgba(79,124,255,.16); color: var(--accent-h); font-weight: 600; }
+
+.m-content {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 32px 60px;
+}
+
+.m-content h1 { font-size: 1.6rem; margin: 0 0 6px; }
+.m-content h2 { font-size: 1.2rem; margin: 32px 0 10px; border-top: 1px solid var(--border); padding-top: 22px; }
+.m-content h2:first-of-type { border-top: none; padding-top: 0; }
+.m-content h3 { font-size: 1rem; margin: 20px 0 8px; color: var(--accent-h); }
+.m-content p { color: var(--text-muted); }
+.m-content .lead { font-size: .95rem; color: var(--text); }
+
+.m-content ul, .m-content ol { color: var(--text-muted); padding-left: 22px; }
+.m-content li { margin-bottom: 4px; }
+
+code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: .85em;
+}
+pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: .8rem;
+}
+
+.m-key {
+  font-family: monospace;
+  font-weight: 700;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 7px;
+  color: var(--accent-h);
+}
+
+/* ===== Card grid (manual top page) ===== */
+.m-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.m-card {
+  display: block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  transition: border-color .15s, transform .15s;
+}
+.m-card:hover { border-color: var(--accent); transform: translateY(-1px); text-decoration: none; }
+.m-card-icon { font-size: 1.5rem; }
+.m-card-title { font-size: .95rem; font-weight: 700; color: var(--text); margin: 8px 0 4px; }
+.m-card-desc { font-size: .8rem; color: var(--text-muted); margin: 0; }
+
+/* ===== Illustration boxes (vector diagrams, no external image assets) ===== */
+.m-illustration {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 14px 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.m-illustration figcaption {
+  text-align: center;
+  font-size: .76rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.m-callout {
+  border-left: 3px solid var(--accent);
+  background: rgba(79,124,255,.08);
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  font-size: .85rem;
+  color: var(--text);
+  margin: 16px 0;
+}
+.m-callout strong { color: var(--accent-h); }
+
+.m-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .85rem;
+  margin: 10px 0 20px;
+}
+.m-table th, .m-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 10px;
+  text-align: left;
+}
+.m-table th { color: var(--text-muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+
+.m-footer {
+  text-align: center;
+  font-size: .76rem;
+  color: var(--text-muted);
+  padding: 24px 0;
+}
+
+.m-pager {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 36px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: .85rem;
+}
+
+@media (max-width: 760px) {
+  .m-layout { flex-direction: column; }
+  .m-nav { flex: none; border-right: none; border-bottom: 1px solid var(--border); }
+  .m-content { padding: 22px 18px 40px; }
+}
