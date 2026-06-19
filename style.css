@@ -1923,6 +1923,23 @@ body {
   color: var(--accent-h);
 }
 
+/* ===== v2.10.1: VR mode caveat note ===== */
+.vr-note-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -4px;
+  border-radius: 50%;
+  font-size: .68rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: help;
+  flex-shrink: 0;
+}
+.vr-note-badge:hover { color: var(--accent-h); border-color: var(--accent); }
+
 /* Small variant */
 .toolbar-btn-sm {
   padding: 5px 9px;

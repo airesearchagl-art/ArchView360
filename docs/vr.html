@@ -31,6 +31,30 @@
       <figcaption>図7：通常表示（マウス操作）から単体VRモード（HMD姿勢）への切り替え</figcaption>
     </figure>
 
+    <h2>推奨環境</h2>
+    <div class="m-callout">
+      <strong>推奨：</strong> Meta Quest Browser（Quest単体のブラウザ）で、HTTPS上にホストされたArchView360を開いてVRモードを使用してください。WebXRはQuest単体ブラウザでは対応しやすく、最も安定して動作します。
+    </div>
+
+    <h2>PC編集 → Quest確認の推奨フロー</h2>
+    <p>シーンの作成・編集はPCで行い、VRでの確認はQuestで行うのが推奨の運用です。</p>
+    <ol>
+      <li>PCでArchView360を開く</li>
+      <li>画像・平面図・マーカー・比較セットを設定する</li>
+      <li>設定（プロジェクトJSON）を書き出す</li>
+      <li>Quest BrowserでArchView360を開く</li>
+      <li>書き出したJSONと画像一式を読み込む</li>
+      <li>VRモードで確認する</li>
+    </ol>
+
+    <h2>Quest Link / USB接続 / PC画面拡張について</h2>
+    <p>Meta Quest LinkやUSB接続でPC画面をHMDに拡張表示する運用は、<strong>非推奨（検証扱い）</strong>です。</p>
+    <ul>
+      <li>通常の画面拡張は、ArchView360にとってのVR表示（WebXRセッション）ではありません。PC画面がHMD内に映っているだけです。</li>
+      <li>VRモードを使うにはWebXRの <code>immersive-vr</code> セッションが必要です。画面拡張だけではこのセッションは開始されません。</li>
+      <li>PCブラウザ＋Quest Link経由では、HMDがWebXRデバイスとして安定して認識されない場合があり、環境依存が大きいため推奨しません。</li>
+    </ul>
+
     <h2>対応環境</h2>
     <table class="m-table">
       <thead><tr><th>環境</th><th>VRボタン</th></tr></thead>

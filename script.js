@@ -2491,7 +2491,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta QuestなどのWebXR対応ブラウザでVR表示します';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260619a" />
+  <link rel="stylesheet" href="style.css?v=20260619b" />
 </head>
 <body>
   <header class="header">
@@ -179,9 +179,10 @@
           <button id="fullscreen-btn" class="toolbar-btn" data-action="fullscreen">
             <span class="btn-icon" id="fullscreen-icon">⛶</span><span class="btn-label">全画面</span>
           </button>
-          <button id="vr-btn" class="toolbar-btn" data-action="vr" title="Meta QuestなどのWebXR対応ブラウザでVR表示します">
+          <button id="vr-btn" class="toolbar-btn" data-action="vr" title="Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。">
             <span class="btn-icon">🥽</span><span class="btn-label">VRモード</span>
           </button>
+          <span class="vr-note-badge" title="VRモードはMeta Quest BrowserなどのWebXR対応ブラウザ向けです。PC画面拡張や通常モニター表示ではVR表示にならない場合があります。">ⓘ</span>
 
           <div class="tb-sep"></div>
 
@@ -550,6 +551,10 @@
         <section class="qh-section">
           <h3 class="qh-heading">⊞ 比較モード</h3>
           <p class="qh-text">ツールバーの「分割比較」「スライダー比較」で2つのシーンを並べて比較できます。比較セットとして保存すれば後から呼び出せます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">🥽 VRモード</h3>
+          <p class="qh-text">Quest Browserでの利用を推奨。PC画面拡張ではVR表示にならない場合があります。</p>
         </section>
         <p class="qh-more">さらに詳しい説明は <a href="/docs/index.html" target="_blank" rel="noopener">📖 ユーザーマニュアル</a> をご覧ください。</p>
       </div>
