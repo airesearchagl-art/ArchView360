@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VRモード - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="/docs/manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>🥽 VRモード（単体VR）</h1>
+    <p class="lead">Meta QuestなどのWebXR対応ブラウザでは、現在表示中の360°パノラマシーンを1つだけ、HMDの向きで見回せる没入表示（VRモード）に切り替えられます。</p>
+
+    <figure class="m-illustration">
+      <svg width="560" height="170" viewBox="0 0 560 170" role="img" aria-label="通常表示からVRモードへ切り替える図">
+        <rect x="0" y="0" width="560" height="170" rx="10" fill="#1d212c" stroke="#2a2f3d"/>
+        <rect x="30" y="30" width="200" height="110" rx="8" fill="#161922" stroke="#2a2f3d"/>
+        <circle cx="130" cy="80" r="36" fill="none" stroke="#4f7cff" stroke-width="2" stroke-dasharray="4 4"/>
+        <text x="130" y="84" fill="#e8eaf0" font-size="11" text-anchor="middle" font-family="sans-serif">通常表示</text>
+        <text x="130" y="128" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">マウス／タッチで見回し</text>
+        <path d="M250 85 L310 85" stroke="#4f7cff" stroke-width="2" marker-end="url(#vrarrow)"/>
+        <defs><marker id="vrarrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4f7cff"/></marker></defs>
+        <text x="280" y="70" fill="#7fa0ff" font-size="10" text-anchor="middle" font-family="sans-serif">🥽 VRモード</text>
+        <rect x="330" y="30" width="200" height="110" rx="8" fill="rgba(79,124,255,.18)" stroke="#4f7cff"/>
+        <text x="430" y="80" fill="#e8eaf0" font-size="11" text-anchor="middle" font-family="sans-serif">🥽 HMD</text>
+        <text x="430" y="98" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">頭の向きで見回し</text>
+      </svg>
+      <figcaption>図7：通常表示（マウス操作）から単体VRモード（HMD姿勢）への切り替え</figcaption>
+    </figure>
+
+    <h2>対応環境</h2>
+    <table class="m-table">
+      <thead><tr><th>環境</th><th>VRボタン</th></tr></thead>
+      <tbody>
+        <tr><td>Meta Quest Browser（Quest 2 / 3 / Pro等）</td><td>有効（WebXR対応）</td></tr>
+        <tr><td>その他のWebXR（<code>immersive-vr</code>）対応ブラウザ</td><td>有効</td></tr>
+        <tr><td>通常のPCブラウザ（Chrome/Edge/Safari等、HMD未接続）</td><td>無効（自動でdisabled）</td></tr>
+        <tr><td>HTTP（非HTTPS）環境</td><td>無効・VR開始不可</td></tr>
+      </tbody>
+    </table>
+    <div class="m-callout">
+      <strong>仕様：</strong> 起動時に <code>navigator.xr.isSessionSupported('immersive-vr')</code> でWebXR対応を判定します。非対応ブラウザではツールバーの「🥽 VRモード」ボタンが無効化され、ボタンのツールチップに「このブラウザはWebXR VRに対応していません」と表示されます。
+    </div>
+
+    <h2>使い方</h2>
+    <ol>
+      <li>パノラマ画像、またはJSONプロジェクトを読み込みます。</li>
+      <li>通常表示でVRで見たいシーンを選択します。</li>
+      <li>上部ツールバーの「🥽 VRモード」ボタンをクリックします（WebXR対応ブラウザのみ有効）。</li>
+      <li>VR表示に切り替わります。HMDの向きで360°空間を見回せます。</li>
+      <li>VRを終了すると、自動的に通常表示（マウス操作）に戻ります。</li>
+    </ol>
+
+    <h2>Meta Questでの操作手順</h2>
+    <ol>
+      <li>Quest BrowserでArchView360を開く</li>
+      <li>パノラマ画像またはJSONプロジェクトを読み込む</li>
+      <li>通常表示で見たいシーンを選択する</li>
+      <li>上部ツールバーの「🥽 VRモード」を押す</li>
+      <li>VR表示に入る</li>
+      <li>HMDの向きで見回す</li>
+      <li>終了すると通常表示へ戻る</li>
+    </ol>
+
+    <h2>通常表示に戻る方法</h2>
+    <p>HMDまたはブラウザ側のVR終了操作（Questの場合は本体ボタン操作でのセッション終了等）でVRセッションを終了すると、ArchView360は自動的に通常表示に戻ります。VR中に自動回転は一時停止され、終了後は元の設定に復帰します。</p>
+
+    <h2>対象外の機能（今回のバージョンでは非対応）</h2>
+    <ul>
+      <li>比較VR（分割比較・スライダー比較のVR表示）</li>
+      <li>FloorMap VR（平面図のVR表示）</li>
+      <li>コメントVR</li>
+      <li>mp4パノラマ動画のVR表示</li>
+      <li>INSP / INSV などInsta360ネイティブ形式のVR表示</li>
+    </ul>
+    <div class="m-callout">
+      <strong>仕様：</strong> 分割比較中・スライダー比較中はVRボタンが無効化され、ツールチップに「VRモードは通常表示のみ対応です」と表示されます。通常表示に戻ると再度有効になります。VR表示中かどうかの状態はプロジェクトJSONには保存されません（一時的な閲覧状態のため）。
+    </div>
+
+    <h2>トラブルシュート</h2>
+    <table class="m-table">
+      <thead><tr><th>症状</th><th>原因・対処</th></tr></thead>
+      <tbody>
+        <tr><td>VRボタンが押せない（disabled）</td><td>ブラウザがWebXRに対応していない、またはHTTPS環境でない可能性があります。Meta Quest BrowserなどのWebXR対応ブラウザ＋HTTPS環境でお試しください。</td></tr>
+        <tr><td>「このブラウザはVR表示に対応していません」と表示される</td><td><code>navigator.xr</code> が存在しないブラウザです。WebXR対応ブラウザでアクセスしてください。</td></tr>
+        <tr><td>「VRセッションを開始できませんでした」と表示される</td><td>HMDが接続されていない、ユーザー操作なしでの起動、またはブラウザ側でVRセッションの許可が得られなかった可能性があります。VRボタンを直接クリックして再試行してください。</td></tr>
+        <tr><td>比較モード中にVRボタンが無効</td><td>仕様です。通常表示（単体シーン表示）に戻すとVRボタンが有効になります。</td></tr>
+        <tr><td>VR中に画面が固まる／映像が動かない</td><td>VRセッションを終了し、ページを再読み込みしてから再度お試しください。</td></tr>
+      </tbody>
+    </table>
+
+    <div class="m-pager">
+      <a href="/docs/security.html">← セキュリティポリシー</a>
+      <a href="/docs/index.html">マニュアルトップへ →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="/docs/manual.js"></script>
+<script>ArchViewManual.renderManualChrome('vr');</script>
+</body>
+</html>

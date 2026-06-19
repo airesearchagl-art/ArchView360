@@ -9,6 +9,7 @@
     { id: 'project-json',     file: '/docs/project-json.html',      label: 'プロジェクトJSON' },
     { id: 'shortcuts',        file: '/docs/shortcuts.html',         label: 'キーボードショートカット' },
     { id: 'security',         file: '/docs/security.html',          label: 'セキュリティポリシー' },
+    { id: 'vr',               file: '/docs/vr.html',                 label: 'VRモード' },
   ];
 
   function renderManualChrome(activeId) {

@@ -186,6 +186,13 @@ function init() {
   let renderer, threeScene, camera, sphere;
   let animFrameId = null;
 
+  // ---- WebXR / VR (v2.10) ----
+  const vrBtn = $('vr-btn');
+  let xrSupported  = false; // navigator.xr.isSessionSupported('immersive-vr') result
+  let xrSession    = null;
+  let inVrSession  = false;
+  let autoRotateWasOnBeforeVr = false;
+
   // ---- Three.js (compare) ----
   let rendererA = null, rendererB = null;
   let sceneA    = null, sceneB    = null;
@@ -717,6 +724,7 @@ function init() {
   }
 
   function clearAllAndShowUpload() {
+    if (inVrSession) exitVr();
     if (compareState.mode !== 'single') exitCompareMode(true);
     stopRender();
     hideToast();
@@ -1301,6 +1309,7 @@ function init() {
     sliderCompareBtn.title = ok ? 'スライダーで2シーンを比較 (S)' : '2枚以上のシーンが必要です';
     switchToSplitBtn.disabled  = !ok;
     switchToSliderBtn.disabled = !ok;
+    updateVrBtn();
   }
 
   // ============================================================
@@ -1528,6 +1537,7 @@ function init() {
       loadCompareSphere('b', compareState.sceneBIndex);
     });
     stopRender(); startRender();
+    updateVrBtn();
   }
 
   // ============================================================
@@ -1579,6 +1589,7 @@ function init() {
       loadCompareSphere('b', compareState.sceneBIndex);
     });
     stopRender(); startRender();
+    updateVrBtn();
   }
 
   function _exitCompareUI() {
@@ -1602,6 +1613,7 @@ function init() {
 
     stopRender();
     if (scenes.length) { fitSingleCanvas(); startRender(); }
+    updateVrBtn();
   }
 
   function applyCompareLayout(fit) {
@@ -2453,6 +2465,98 @@ function init() {
   }
   document.addEventListener('fullscreenchange', onFsChange);
   document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  // ============================================================
+  // WebXR / VR mode (v2.10 — single scene only)
+  // ============================================================
+  function checkXrSupport() {
+    if (!navigator.xr || !navigator.xr.isSessionSupported) {
+      xrSupported = false;
+      updateVrBtn();
+      return;
+    }
+    navigator.xr.isSessionSupported('immersive-vr')
+      .then((supported) => { xrSupported = !!supported; updateVrBtn(); })
+      .catch(() => { xrSupported = false; updateVrBtn(); });
+  }
+
+  function updateVrBtn() {
+    if (!vrBtn) return;
+    const compareActive = compareState.mode !== 'single';
+    if (!xrSupported) {
+      vrBtn.disabled = true;
+      vrBtn.title = 'このブラウザはWebXR VRに対応していません';
+    } else if (compareActive) {
+      vrBtn.disabled = true;
+      vrBtn.title = 'VRモードは通常表示のみ対応です';
+    } else {
+      vrBtn.disabled = false;
+      vrBtn.title = 'Meta QuestなどのWebXR対応ブラウザでVR表示します';
+    }
+    vrBtn.classList.toggle('active', inVrSession);
+  }
+
+  function vrLoop() {
+    if (renderer && threeScene && camera) renderer.render(threeScene, camera);
+  }
+
+  function onVrSessionEnd() {
+    inVrSession = false;
+    xrSession = null;
+    if (renderer) {
+      renderer.setAnimationLoop(null);
+      renderer.xr.enabled = false;
+    }
+    autoRotate = autoRotateWasOnBeforeVr;
+    if (compareState.mode === 'single' && scenes.length) {
+      fitSingleCanvas();
+      startRender();
+    }
+    updateVrBtn();
+    showToast('VRモードを終了しました');
+  }
+
+  async function enterVr() {
+    if (!vrBtn || vrBtn.disabled || inVrSession) return;
+    if (!window.isSecureContext) { showToast('VR表示にはHTTPS環境が必要です'); return; }
+    if (!navigator.xr) { showToast('このブラウザはVR表示に対応していません'); return; }
+    if (compareState.mode !== 'single' || !renderer || !camera || !threeScene) {
+      showToast('VRモードは通常表示のみ対応です');
+      return;
+    }
+    try {
+      const session = await navigator.xr.requestSession('immersive-vr', {
+        optionalFeatures: ['local-floor', 'bounded-floor']
+      });
+      xrSession = session;
+      inVrSession = true;
+      autoRotateWasOnBeforeVr = autoRotate;
+      autoRotate = false;
+      stopRender();
+      renderer.xr.enabled = true;
+      await renderer.xr.setSession(session);
+      session.addEventListener('end', onVrSessionEnd);
+      renderer.setAnimationLoop(vrLoop);
+      updateVrBtn();
+      showToast('VRモードを開始しました');
+    } catch (err) {
+      inVrSession = false;
+      xrSession = null;
+      if (renderer) renderer.xr.enabled = false;
+      updateVrBtn();
+      showToast('VRセッションを開始できませんでした');
+      if (scenes.length) startRender();
+    }
+  }
+
+  function exitVr() {
+    if (xrSession) xrSession.end().catch(() => {});
+  }
+
+  if (vrBtn) {
+    vrBtn.addEventListener('click', () => { inVrSession ? exitVr() : enterVr(); });
+  }
+  checkXrSupport();
 
   window.addEventListener('resize', () => {
     if (!viewerActive) return;
@@ -3419,7 +3523,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.9.5',
+      appVersion:  '2.10',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

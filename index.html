@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260618a" />
+  <link rel="stylesheet" href="style.css?v=20260619a" />
 </head>
 <body>
   <header class="header">
@@ -12,7 +12,7 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.9.5</span>
+        <span id="app-version-badge" class="app-version-badge">v2.10</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
@@ -178,6 +178,9 @@
           </button>
           <button id="fullscreen-btn" class="toolbar-btn" data-action="fullscreen">
             <span class="btn-icon" id="fullscreen-icon">⛶</span><span class="btn-label">全画面</span>
+          </button>
+          <button id="vr-btn" class="toolbar-btn" data-action="vr" title="Meta QuestなどのWebXR対応ブラウザでVR表示します">
+            <span class="btn-icon">🥽</span><span class="btn-label">VRモード</span>
           </button>
 
           <div class="tb-sep"></div>
