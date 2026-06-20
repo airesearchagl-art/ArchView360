@@ -193,6 +193,23 @@ function init() {
   let inVrSession  = false;
   let autoRotateWasOnBeforeVr = false;
 
+  // ---- VR Observer Mode (v2.11) ----
+  // Transient, browser-local only — never persisted to project JSON.
+  const observerBtn = $('observer-btn');
+  const observerPanel = $('observer-panel');
+  const observerState = {
+    enabled: false,
+    role: null,        // 'observer' | 'viewer'
+    sessionId: null,
+    connected: false,
+    sceneId: null,
+    markerId: null,
+    floorplanId: null,
+    yaw: 0,            // degrees, 0-360, floor-map heading
+    fov: 100,
+    updatedAt: null
+  };
+
   // ---- Three.js (compare) ----
   let rendererA = null, rendererB = null;
   let sceneA    = null, sceneB    = null;
@@ -609,6 +626,100 @@ function init() {
       }
     }
     if (activeFloorplanId) setTimeout(() => { renderFloormapCanvas(); renderMarkerList(); }, 0);
+    _updateObserverForScene(s);
+  }
+
+  // ---- VR Observer Mode (v2.11) ----
+  function _thetaToFloorDeg(t) {
+    // theta increases counter-clockwise from +X axis; floor heading is clockwise from north (0°)
+    return ((90 - (t * 180 / Math.PI)) + 360) % 360;
+  }
+
+  function _updateObserverForScene(s) {
+    if (!observerState.enabled) return;
+    observerState.sceneId = s.id;
+    const om = projectState.markers.find(m => m.sceneId === s.id);
+    if (om) {
+      observerState.markerId = om.id;
+      observerState.floorplanId = om.floorplanId;
+    } else {
+      observerState.markerId = null;
+      observerState.floorplanId = null;
+    }
+    observerState.updatedAt = Date.now();
+    renderObserverPanel();
+    renderFloormapCanvas();
+  }
+
+  function startObserverMode(role) {
+    observerState.enabled = true;
+    observerState.role = role || 'observer';
+    if (!observerState.sessionId) observerState.sessionId = _genObserverSessionId();
+    if (currentIdx >= 0 && scenes[currentIdx]) _updateObserverForScene(scenes[currentIdx]);
+    updateObserverBtn();
+    renderObserverPanel();
+    showToast('Observer Modeを開始しました');
+  }
+
+  function endObserverMode() {
+    observerState.enabled = false;
+    observerState.role = null;
+    observerState.connected = false;
+    updateObserverBtn();
+    renderObserverPanel();
+    renderFloormapCanvas();
+    showToast('Observer Modeを終了しました');
+  }
+
+  function _genObserverSessionId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const part = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    return `${part()}-${part()}`;
+  }
+
+  function updateObserverBtn() {
+    if (!observerBtn) return;
+    observerBtn.classList.toggle('active', observerState.enabled);
+  }
+
+  function renderObserverPanel() {
+    if (!observerPanel) return;
+    const stateLabel = inVrSession ? 'VR中（追跡中）'
+      : observerState.connected ? '接続中'
+      : observerState.enabled ? '待機中' : '停止中';
+    const scene = scenes.find(sc => sc.id === observerState.sceneId);
+    const fp = projectState.floorplans.find(f => f.id === observerState.floorplanId);
+    const marker = projectState.markers.find(m => m.id === observerState.markerId);
+
+    const $val = (id) => observerPanel.querySelector('#' + id);
+    if ($val('obs-state')) $val('obs-state').textContent = stateLabel;
+    if ($val('obs-scene')) $val('obs-scene').textContent = scene ? scene.name : '—';
+    if ($val('obs-floorplan')) $val('obs-floorplan').textContent = fp ? fp.name : '—';
+    if ($val('obs-marker')) $val('obs-marker').textContent = marker ? `#${marker.order || '?'} ${marker.name || ''}`.trim() : '未配置';
+    if ($val('obs-yaw')) $val('obs-yaw').textContent = `${Math.round(observerState.yaw)}°`;
+    if ($val('obs-fov')) $val('obs-fov').textContent = `${Math.round(observerState.fov)}°`;
+    if ($val('obs-session')) $val('obs-session').textContent = observerState.sessionId || '—';
+    if ($val('obs-warning')) {
+      $val('obs-warning').style.display = (observerState.enabled && observerState.sceneId && !marker) ? '' : 'none';
+    }
+    const startBtn = $val('obs-start-btn');
+    const endBtn = $val('obs-end-btn');
+    if (startBtn) startBtn.style.display = observerState.enabled ? 'none' : '';
+    if (endBtn) endBtn.style.display = observerState.enabled ? '' : 'none';
+  }
+
+  let _lastObsCanvasYaw = null;
+  function _observerFrameTick(yawDeg, fovDeg) {
+    observerState.yaw = yawDeg;
+    observerState.fov = fovDeg;
+    observerState.updatedAt = Date.now();
+    const yEl = observerPanel && observerPanel.querySelector('#obs-yaw');
+    if (yEl) yEl.textContent = `${Math.round(yawDeg)}°`;
+    // Only redraw the FloorMap canvas when the heading changed enough to matter visually
+    if (_lastObsCanvasYaw === null || Math.abs(((yawDeg - _lastObsCanvasYaw + 540) % 360) - 180) > 2) {
+      _lastObsCanvasYaw = yawDeg;
+      if (activeFloorplanId === observerState.floorplanId) renderFloormapCanvas();
+    }
   }
 
   function _getNavOrder() {
@@ -725,6 +836,7 @@ function init() {
 
   function clearAllAndShowUpload() {
     if (inVrSession) exitVr();
+    if (observerState.enabled) endObserverMode();
     if (compareState.mode !== 'single') exitCompareMode(true);
     stopRender();
     hideToast();
@@ -1427,6 +1539,7 @@ function init() {
         const ly = Math.cos(phi);
         const lz = Math.sin(phi) * Math.sin(theta);
         if (renderer && threeScene && camera) { camera.lookAt(lx,ly,lz); renderer.render(threeScene, camera); }
+        if (observerState.enabled && !inVrSession) _observerFrameTick(_thetaToFloorDeg(theta), fov);
       }
     }
     loop();
@@ -2496,8 +2609,20 @@ function init() {
     vrBtn.classList.toggle('active', inVrSession);
   }
 
+  let _vrObsFrameCount = 0;
   function vrLoop() {
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
+    if (observerState.enabled && observerState.connected) {
+      // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
+      _vrObsFrameCount = (_vrObsFrameCount + 1) % 6;
+      if (_vrObsFrameCount === 0) {
+        // camera.matrixWorld holds HMD pose while a WebXR session is active;
+        // forward (-Z) rotated into world space gives the look direction.
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        const yawRad = Math.atan2(fwd.x, -fwd.z); // 0 = looking toward -Z (theta=0 equivalent)
+        _observerFrameTick(((yawRad * 180 / Math.PI) + 360) % 360, fov);
+      }
+    }
   }
 
   function onVrSessionEnd() {
@@ -2512,6 +2637,8 @@ function init() {
       fitSingleCanvas();
       startRender();
     }
+    observerState.connected = false;
+    renderObserverPanel();
     updateVrBtn();
     showToast('VRモードを終了しました');
   }
@@ -2537,6 +2664,14 @@ function init() {
       await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
       renderer.setAnimationLoop(vrLoop);
+      // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
+      observerState.role = 'viewer';
+      observerState.connected = true;
+      observerState.enabled = true;
+      if (!observerState.sessionId) observerState.sessionId = _genObserverSessionId();
+      if (currentIdx >= 0 && scenes[currentIdx]) _updateObserverForScene(scenes[currentIdx]);
+      updateObserverBtn();
+      renderObserverPanel();
       updateVrBtn();
       showToast('VRモードを開始しました');
     } catch (err) {
@@ -2557,6 +2692,39 @@ function init() {
     vrBtn.addEventListener('click', () => { inVrSession ? exitVr() : enterVr(); });
   }
   checkXrSupport();
+
+  // ============================================================
+  // VR Observer Mode (v2.11)
+  // ============================================================
+  if (observerBtn) {
+    observerBtn.addEventListener('click', () => {
+      if (observerPanel) observerPanel.classList.toggle('open');
+      renderObserverPanel();
+    });
+  }
+  if (observerPanel) {
+    const closeBtn = observerPanel.querySelector('#obs-close-btn');
+    const startBtn = observerPanel.querySelector('#obs-start-btn');
+    const endBtn = observerPanel.querySelector('#obs-end-btn');
+    const viewerBtn = observerPanel.querySelector('#obs-viewer-btn');
+    const copyBtn = observerPanel.querySelector('#obs-copy-btn');
+    if (closeBtn) closeBtn.addEventListener('click', () => observerPanel.classList.remove('open'));
+    if (startBtn) startBtn.addEventListener('click', () => startObserverMode('observer'));
+    if (endBtn) endBtn.addEventListener('click', endObserverMode);
+    if (viewerBtn) viewerBtn.addEventListener('click', () => {
+      showToast('ローカル同期は今後対応予定です（v2.11ではローカルデモのみ）');
+    });
+    if (copyBtn) copyBtn.addEventListener('click', () => {
+      if (!observerState.sessionId) { showToast('セッションがありません'); return; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(observerState.sessionId)
+          .then(() => showToast('セッションIDをコピーしました'))
+          .catch(() => showToast('コピーに失敗しました'));
+      } else {
+        showToast('このブラウザではコピーに対応していません');
+      }
+    });
+  }
 
   window.addEventListener('resize', () => {
     if (!viewerActive) return;
@@ -2780,6 +2948,63 @@ function init() {
       const displayDeg = ((m.rotation || 0) + (fp.rotationOffset || 0) + 360) % 360;
       _drawMarker(ctx, px, py, displayDeg, true, m.id === selectedMarkerId, label, coneFov);
     });
+
+    // ---- Observer Mode (v2.11): VR viewer marker, drawn on its own layer on top ----
+    if (observerState.enabled && observerState.floorplanId === activeFloorplanId && observerState.markerId) {
+      const om = projectState.markers.find(m => m.id === observerState.markerId);
+      if (om) {
+        const px = dx + om.x * dw;
+        const py = dy + om.y * dh;
+        const displayDeg = (observerState.yaw + (fp.rotationOffset || 0) + 360) % 360;
+        _drawObserverMarker(ctx, px, py, displayDeg, observerState.fov);
+      }
+    }
+  }
+
+  function _drawObserverMarker(ctx, px, py, deg, fovDeg) {
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(deg * Math.PI / 180);
+
+    // FOV cone — red/magenta, semi-transparent, behind the pin
+    if (fovDeg != null) {
+      const coneLen = 60;
+      const halfFov = (fovDeg / 2) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, coneLen, -Math.PI / 2 - halfFov, -Math.PI / 2 + halfFov);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,64,96,0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,64,96,0.6)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Arrow pointing in look direction
+    ctx.beginPath();
+    ctx.moveTo(0, -18); ctx.lineTo(7, -9); ctx.lineTo(-7, -9); ctx.closePath();
+    ctx.fillStyle = '#ff3366';
+    ctx.fill();
+
+    // Circle body (slightly larger + offset to stay distinct from the blue current marker)
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,51,102,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Label, drawn without rotation so text stays upright
+    ctx.rotate(-(deg * Math.PI / 180));
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('VR', 0, -24);
+
+    ctx.restore();
   }
 
   function _drawMarker(ctx, px, py, deg, isCurrent, isSelected, label, fovDeg) {
@@ -3523,7 +3748,7 @@ function init() {
   // ============================================================
   function exportProjectJSON() {
     const data = {
-      appVersion:  '2.10',
+      appVersion:  '2.11',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

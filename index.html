@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260619b" />
+  <link rel="stylesheet" href="style.css?v=20260620a" />
 </head>
 <body>
   <header class="header">
@@ -12,7 +12,7 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.10</span>
+        <span id="app-version-badge" class="app-version-badge">v2.11</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
@@ -183,6 +183,9 @@
             <span class="btn-icon">🥽</span><span class="btn-label">VRモード</span>
           </button>
           <span class="vr-note-badge" title="VRモードはMeta Quest BrowserなどのWebXR対応ブラウザ向けです。PC画面拡張や通常モニター表示ではVR表示にならない場合があります。">ⓘ</span>
+          <button id="observer-btn" class="toolbar-btn" data-action="observer" title="VR体験者の現在位置・視線方向をFloorMap上で確認します（Observer Mode）">
+            <span class="btn-icon">👁</span><span class="btn-label">Observer</span>
+          </button>
 
           <div class="tb-sep"></div>
 
@@ -556,11 +559,40 @@
           <h3 class="qh-heading">🥽 VRモード</h3>
           <p class="qh-text">Quest Browserでの利用を推奨。PC画面拡張ではVR表示にならない場合があります。</p>
         </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">👁 Observer Mode</h3>
+          <p class="qh-text">VR体験者の現在位置と視線方向をPC側のFloorMap上で確認できます（v2.11ではローカル表示のみ。Quest-PC間の同期は今後対応予定）。</p>
+        </section>
         <p class="qh-more">さらに詳しい説明は <a href="/docs/index.html" target="_blank" rel="noopener">📖 ユーザーマニュアル</a> をご覧ください。</p>
       </div>
       <div class="modal-ft">
         <button id="quick-help-ok-btn" class="btn btn-primary">閉じる</button>
       </div>
+    </div>
+  </div>
+
+  <!-- VR Observer Mode panel (v2.11) -->
+  <div id="observer-panel" class="observer-panel">
+    <div class="observer-panel-hd">
+      <span class="observer-panel-title">👁 Observer Mode</span>
+      <button id="obs-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+    </div>
+    <div class="observer-panel-body">
+      <div class="obs-row"><span class="obs-label">状態</span><span id="obs-state" class="obs-val">停止中</span></div>
+      <div class="obs-row"><span class="obs-label">現在シーン</span><span id="obs-scene" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">FloorMap</span><span id="obs-floorplan" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">マーカー</span><span id="obs-marker" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">視線方向</span><span id="obs-yaw" class="obs-val">0°</span></div>
+      <div class="obs-row"><span class="obs-label">FOV</span><span id="obs-fov" class="obs-val">100°</span></div>
+      <div class="obs-row"><span class="obs-label">セッションID</span><span id="obs-session" class="obs-val">—</span></div>
+      <p id="obs-warning" class="obs-warning" style="display:none">⚠ このシーンはFloorMap未配置です</p>
+      <div class="obs-btn-row">
+        <button id="obs-start-btn" class="btn btn-primary">Observer開始</button>
+        <button id="obs-end-btn" class="btn btn-secondary" style="display:none">セッション終了</button>
+        <button id="obs-viewer-btn" class="btn btn-secondary">Viewerとして接続</button>
+        <button id="obs-copy-btn" class="btn btn-secondary">セッションIDコピー</button>
+      </div>
+      <p class="obs-note">v2.11ではローカルObserver表示に対応しています。Quest-PC間のリアルタイム同期は将来のWebSocket / WebRTC対応予定です。外部送信は行われません（すべてブラウザ内のみ）。</p>
     </div>
   </div>
 

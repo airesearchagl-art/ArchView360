@@ -10,6 +10,7 @@
     { id: 'shortcuts',        file: '/docs/shortcuts.html',         label: 'キーボードショートカット' },
     { id: 'security',         file: '/docs/security.html',          label: 'セキュリティポリシー' },
     { id: 'vr',               file: '/docs/vr.html',                 label: 'VRモード' },
+    { id: 'observer',         file: '/docs/observer.html',          label: 'Observer Mode' },
   ];
 
   function renderManualChrome(activeId) {

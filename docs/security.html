@@ -22,6 +22,7 @@
         <tr><td>平面図（FloorMap）画像</td><td>なし</td><td>ブラウザのメモリ内のみ</td></tr>
         <tr><td>プロジェクトJSON</td><td>なし</td><td>ユーザーが明示的に書き出した場合のみローカルファイルとして保存</td></tr>
         <tr><td>比較セット</td><td>なし</td><td>ブラウザのlocalStorage内のみ</td></tr>
+        <tr><td>Observer状態（v2.11：VR位置・視線方向・セッションID）</td><td>なし</td><td>ブラウザのメモリ内のみ（プロジェクトJSONには保存されません）</td></tr>
       </tbody>
     </table>
 
@@ -42,6 +43,9 @@
 
     <h2>VRモードとデータ送信</h2>
     <p>「<a href="/docs/vr.html">VRモード</a>」（WebXR単体VR表示）も、表示しているパノラマ画像をブラウザ内でそのまま描画するだけで、外部送信は一切行いません。VR表示中かどうかの状態もプロジェクトJSONには保存されません。</p>
+
+    <h2>Observer Modeとデータ送信（v2.11）</h2>
+    <p>「<a href="/docs/observer.html">Observer Mode</a>」は、現時点ではブラウザ内のローカル状態のみを扱う機能です。VR体験者の位置・視線方向・セッションIDはブラウザのメモリ内にのみ保持され、外部送信は行われません。プロジェクトJSONにも保存されません。将来Quest-PC間のネットワーク同期（WebSocket/WebRTC）を追加する場合は、その時点で本ページに明示します。</p>
 
     <div class="m-pager">
       <a href="/docs/shortcuts.html">← キーボードショートカット</a>

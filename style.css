@@ -1940,6 +1940,38 @@ body {
 }
 .vr-note-badge:hover { color: var(--accent-h); border-color: var(--accent); }
 
+/* ===== v2.11: VR Observer Mode panel ===== */
+#observer-btn.active { background: rgba(255,51,102,.18); border-color: #ff3366; color: #ff7a96; }
+
+.observer-panel {
+  display: none;
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  width: 280px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  background: var(--surface-2, #1a1d27);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45);
+  z-index: 60;
+}
+.observer-panel.open { display: block; }
+.observer-panel-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+}
+.observer-panel-title { font-size: .88rem; font-weight: 600; color: #ff7a96; }
+.observer-panel-body { padding: 12px; }
+.obs-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .78rem; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.obs-label { color: var(--text-muted); }
+.obs-val { color: #e8eaf0; font-weight: 600; }
+.obs-warning { font-size: .76rem; color: #ffb14f; margin: 8px 0 0; }
+.obs-btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.obs-btn-row .btn { flex: 1 1 calc(50% - 6px); font-size: .74rem; padding: 7px 6px; }
+.obs-note { font-size: .68rem; color: var(--text-muted); line-height: 1.5; margin: 12px 0 0; }
+
 /* Small variant */
 .toolbar-btn-sm {
   padding: 5px 9px;

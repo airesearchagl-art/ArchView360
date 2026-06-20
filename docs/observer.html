@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Observer Mode - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="/docs/manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>👁 Observer Mode（v2.11）</h1>
+    <p class="lead">Meta QuestなどでVR体験している人が、現在どのシーンを見ていて、FloorMap上のどの位置で、どの方向を向いているかを、周囲の人がPC画面上で確認できる機能です。建築レビューなどでVR装着者だけが没入し、周囲が状況を把握しにくいという課題に対応します。</p>
+
+    <div class="m-callout">
+      <strong>v2.11の対応範囲：</strong> 現時点では「ローカルObserver表示」のみに対応しています。Quest（Viewer）とPC（Observer）を実際にネットワーク越しでリアルタイム同期する機能は、将来のWebSocket / WebRTC対応として予定されています。
+    </div>
+
+    <h2>PC側 Observer と Quest側 Viewer の考え方</h2>
+    <table class="m-table">
+      <thead><tr><th>役割</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td>Observer（観察者）</td><td>PC側でFloorMapを見ながら、VR体験者の位置・視線方向を確認する側</td></tr>
+        <tr><td>Viewer（VR体験者）</td><td>Quest BrowserなどでVRモードを使ってパノラマを体験している側</td></tr>
+      </tbody>
+    </table>
+    <p>VRモードを開始すると、そのブラウザタブは自動的に Viewer（<code>role: 'viewer'</code>）として扱われます。Observerパネルから「Observer開始」を押すと、そのタブは Observer（<code>role: 'observer'</code>）として動作します。</p>
+
+    <h2>想定利用シーン</h2>
+    <ol>
+      <li><strong>PC側：</strong> ArchView360を開き、プロジェクトJSONと画像一式を読み込み、Observer Modeを開始する</li>
+      <li><strong>Quest側：</strong> Quest BrowserでArchView360を開き、同じプロジェクトJSONと画像一式を読み込み、VRモードを開始する（Viewerとして接続）</li>
+      <li><strong>結果：</strong> PC側のFloorMapに、Quest体験者の現在位置と視線方向がリアルタイムで表示される</li>
+    </ol>
+
+    <h2>Observerパネルの使い方</h2>
+    <p>上部ツールバーの「👁 Observer」ボタンをクリックするとObserverパネルが開きます。表示内容は以下の通りです。</p>
+    <table class="m-table">
+      <thead><tr><th>項目</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td>状態</td><td>停止中 / 待機中 / 接続中 / VR中（追跡中）</td></tr>
+        <tr><td>現在シーン</td><td>VR/通常表示中の現在シーン名</td></tr>
+        <tr><td>FloorMap</td><td>現在シーンが配置されているFloorMap名</td></tr>
+        <tr><td>マーカー</td><td>現在シーンに対応するFloorMap上のマーカー（未配置の場合は「未配置」）</td></tr>
+        <tr><td>視線方向</td><td>FloorMap上での視線方向（0〜360°）</td></tr>
+        <tr><td>FOV</td><td>現在の視野角</td></tr>
+        <tr><td>セッションID</td><td>Observer開始時に自動生成されるID（将来のQuest-PC同期用）</td></tr>
+      </tbody>
+    </table>
+    <p>ボタン：「Observer開始」「セッション終了」「Viewerとして接続」「セッションIDコピー」があります。</p>
+
+    <h2>FloorMap上のObserverマーカー</h2>
+    <p>Observer Modeが有効な間、通常のシーンマーカー（青）とは別に、VR体験者の位置を示す「Observerマーカー」が赤系の色で表示されます。</p>
+    <ul>
+      <li>色：赤／マゼンタ（通常のアクティブマーカーの青と区別できます）</li>
+      <li>形：現在位置の丸＋視線方向を示す矢印</li>
+      <li>視野角コーン：赤系半透明の扇形で、現在のFOVを示します</li>
+      <li>ラベル：「VR」表記</li>
+    </ul>
+    <div class="m-callout">
+      <strong>仕様：</strong> Observerマーカーは「通常マーカー → 通常FOVコーン」を描画した後、最後のレイヤーとして描画されるため、常に最前面に表示されます。
+    </div>
+
+    <h2>ローカルデモモード</h2>
+    <p>Quest実機がない場合でも、Observer表示のUIを確認できるよう、現在のブラウザ内でローカルにObserver表示を確認できる「ローカルデモモード」を用意しています。</p>
+    <ul>
+      <li>上部ツールバーの「👁 Observer」→「Observer開始」を押すと、現在表示中のシーンに対応するマーカーが赤いObserverマーカーとして表示されます</li>
+      <li>通常表示でマウス／タッチ操作によりドラッグすると、視線方向（yaw）が更新され、赤い矢印・FOVコーンが追従します</li>
+      <li>VR中はHMDの向き（カメラ姿勢）から視線方向が更新されます</li>
+      <li>シーンを切り替えると、Observerパネルとマーカー位置が自動的に更新されます</li>
+    </ul>
+
+    <h2>VR中の視線方向トラッキング</h2>
+    <p>VRモード中は、Three.jsのWebXRカメラ（HMDの姿勢を反映する <code>camera</code>）の回転（<code>camera.quaternion</code> / <code>camera.matrixWorld</code>）から正面方向ベクトルを取得し、FloorMap上の視線方向（度数）に変換してObserver状態へ反映します。負荷軽減のため、約10回/秒の間隔で更新されます。</p>
+    <div class="m-callout">
+      <strong>注意：</strong> この処理はObserver表示専用の一時的な値であり、マーカー自体の<code>rotation</code>プロパティを上書きすることはありません。Observerの状態（位置・視線方向・セッションIDなど）はプロジェクトJSONには一切保存されません。
+    </div>
+
+    <h2>シーン切替・未配置シーンの扱い</h2>
+    <p>Observer Mode中にシーンを切り替えると、対応するFloorMap上のマーカーが自動的に探索され、Observerパネルとマーカー表示が更新されます。シーンがどのFloorMapにも配置されていない場合は、Observerパネルに「このシーンはFloorMap未配置です」という警告が表示され、FloorMap上のObserverマーカーは表示されません。</p>
+
+    <h2>Quest-PC同期の現時点の制限</h2>
+    <ul>
+      <li>v2.11では、Observer表示は同一ブラウザタブ内のローカル状態のみを反映します（同一端末・同一ブラウザでのデモ用途）</li>
+      <li>Quest側とPC側を別端末でリアルタイムに同期する機能（ネットワーク越しの位置・視線方向共有）は、今回のバージョンでは実装していません</li>
+      <li>「Viewerとして接続」ボタンはUIとして用意していますが、実際のネットワーク同期は行われず、「ローカル同期は今後対応予定です」と表示されます</li>
+      <li>将来的にはWebSocketまたはWebRTCを使った同一ネットワーク内同期、さらにクラウド経由の共有（Share360連携等）への拡張を検討しています</li>
+    </ul>
+
+    <h2>セキュリティ方針</h2>
+    <p>Observer Modeにおいても、ArchView360のローカル完結方針は変わりません。</p>
+    <ul>
+      <li>v2.11では外部送信は一切行われません</li>
+      <li>Observer状態（位置・視線方向・セッションIDなど）はブラウザ内のメモリ上にのみ保持されます</li>
+      <li>プロジェクトJSONには保存されません</li>
+      <li>将来ネットワーク同期機能を追加する場合は、その時点で本マニュアルおよび<a href="/docs/security.html">セキュリティポリシー</a>に明示します</li>
+    </ul>
+
+    <div class="m-pager">
+      <a href="/docs/vr.html">← VRモード</a>
+      <a href="/docs/index.html">マニュアルトップへ →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="/docs/manual.js"></script>
+<script>ArchViewManual.renderManualChrome('observer');</script>
+</body>
+</html>
