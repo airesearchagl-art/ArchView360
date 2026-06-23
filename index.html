@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260620a" />
+  <link rel="stylesheet" href="style.css?v=20260621a" />
 </head>
 <body>
   <header class="header">
@@ -12,7 +12,7 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.11</span>
+        <span id="app-version-badge" class="app-version-badge">v2.12</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
@@ -48,6 +48,18 @@
             <p class="json-open-desc">JSON + 画像ファイル一式があれば別環境でもプロジェクトを完全復元できます。JSONと画像を一緒にドロップすると自動マッチングします</p>
           </div>
           <button id="open-json-btn" class="btn btn-secondary">設定JSONを開く</button>
+        </div>
+      </div>
+      <!-- プロジェクトZIPから開く (v2.12) -->
+      <div class="json-open-card">
+        <div class="json-open-or">または</div>
+        <div class="json-open-content">
+          <span class="json-open-icon">📦</span>
+          <div class="json-open-text">
+            <p class="json-open-title">プロジェクトZIPを開く</p>
+            <p class="json-open-desc">プロジェクトZIPを読み込むと、画像・平面図・設定をまとめて復元できます。画像をドロップ／設定JSONをドロップ／プロジェクトZIPをドロップのいずれにも対応しています。</p>
+          </div>
+          <button id="open-zip-btn" class="btn btn-secondary">プロジェクトZIPを開く</button>
         </div>
       </div>
       <div class="usage-card">
@@ -211,6 +223,12 @@
           </button>
           <button id="import-json-btn" class="toolbar-btn" title="JSON設定ファイルを読み込みます">
             <span class="btn-icon">⬆</span><span class="btn-label">設定を読み込み</span>
+          </button>
+          <button id="export-package-btn" class="toolbar-btn" title="画像・平面図・設定をまとめてZIPパッケージとして書き出します">
+            <span class="btn-icon">📦</span><span class="btn-label">パッケージ書き出し</span>
+          </button>
+          <button id="import-package-btn" class="toolbar-btn" title="ZIPパッケージから画像・平面図・設定をまとめて読み込みます">
+            <span class="btn-icon">📦</span><span class="btn-label">パッケージ読み込み</span>
           </button>
         </div>
 
@@ -433,15 +451,17 @@
   </main>
 
   <footer class="footer">
-    <p>ArchView360 v2.9.5 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
+    <p>ArchView360 v2.12 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
   </footer>
 
   <script src="vendor/three.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
   <input type="file" id="file-input"          accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
   <input type="file" id="floorplan-input"     accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
   <input type="file" id="json-import-input"   accept=".json,application/json"          class="visually-hidden" />
   <input type="file" id="import-images-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
   <input type="file" id="replace-scene-input" accept="image/jpeg,image/png,image/webp" class="visually-hidden" />
+  <input type="file" id="zip-import-input"    accept=".zip,application/zip,application/x-zip-compressed" class="visually-hidden" />
 
   <!-- Picker dropdown -->
   <div id="picker-dropdown" class="picker-dropdown" style="display:none" role="listbox">
@@ -596,6 +616,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260615i" defer></script>
+  <script src="script.js?v=20260621a" defer></script>
 </body>
 </html>

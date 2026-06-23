@@ -11,10 +11,55 @@
 <div class="m-layout">
   <nav class="m-nav" id="m-nav"></nav>
   <main class="m-content">
-    <h1>📂 プロジェクトJSON</h1>
-    <p class="lead">ArchView360はサーバーを使わないため、プロジェクトの状態（シーン構成・FloorMap・マーカー・グループ・比較セットなど）はJSONファイルとして書き出し・読み込みします。画像データそのものはJSONには含まれません。</p>
+    <h1>📂 プロジェクトJSON / プロジェクトZIP</h1>
+    <p class="lead">ArchView360はサーバーを使わないため、プロジェクトの状態（シーン構成・FloorMap・マーカー・グループ・比較セットなど）はJSONファイル、または画像も含めたZIPパッケージとして書き出し・読み込みします。</p>
 
-    <h2>書き出す</h2>
+    <h2>設定JSON</h2>
+    <p>シーン構成・FloorMap・マーカー・グループ・比較セット・プロジェクト情報などの<strong>設定情報のみ</strong>を含む軽量なJSONファイルです。画像データそのものはJSONには含まれません。</p>
+
+    <h2>プロジェクトZIP（v2.12）</h2>
+    <p>設定JSONに加えて、読み込み済みのパノラマ画像・平面図画像をすべて含めた<strong>ZIPパッケージ</strong>です。1ファイルだけで配布・受け渡しができ、社内展開や施主への共有に向いています。</p>
+
+    <h3>ZIP構成例</h3>
+    <pre><code>ArchView360_Project_20260623_1530.zip
+├─ project.json
+├─ panoramas/
+│   ├─ scene01.jpg
+│   └─ scene02.jpg
+├─ floorplans/
+│   ├─ 1F.jpg
+│   └─ 2F.jpg
+└─ README.txt</code></pre>
+
+    <h3>使い分け</h3>
+    <table class="m-table">
+      <thead><tr><th></th><th>設定JSON</th><th>プロジェクトZIP</th></tr></thead>
+      <tbody>
+        <tr><td>内容</td><td>設定情報のみ（軽量）</td><td>設定情報＋画像一式</td></tr>
+        <tr><td>ファイル数</td><td>JSON＋画像を別々に管理</td><td>ZIP1ファイルにまとまる</td></tr>
+        <tr><td>向いている用途</td><td>画像を別管理したい場合・差分更新</td><td>社内展開・施主への一括共有・引っ越し</td></tr>
+        <tr><td>書き出しボタン</td><td>「JSON書き出し」</td><td>「📦 パッケージ書き出し」</td></tr>
+        <tr><td>読み込みボタン</td><td>「JSON読み込み」</td><td>「📦 パッケージ読み込み」</td></tr>
+      </tbody>
+    </table>
+
+    <h3>ZIPの読み込み方</h3>
+    <ol>
+      <li>初期画面の「プロジェクトZIPを開く」ボタン、またはドロップゾーンへ <code>.zip</code> ファイルをドラッグ＆ドロップします。</li>
+      <li>ビューア画面が表示されている状態でも、画面上に <code>.zip</code> をドラッグ＆ドロップすれば読み込めます。</li>
+      <li>ZIP内の <code>project.json</code> が自動検出され、<code>panoramas/</code>・<code>floorplans/</code> 内の画像がファイル名で自動照合・復元されます。</li>
+      <li>シーン・FloorMap・マーカー・グループ・比較セット・プロジェクト情報がすべて復元されます。</li>
+      <li>ZIP内に対応する画像が見つからない場合は、その分だけ復元されず、不足ファイル名がトースト通知で表示されます（可能な範囲で復元）。</li>
+    </ol>
+
+    <h3>ZIPの書き出し方</h3>
+    <ol>
+      <li>上部ツールバーの「📦 パッケージ書き出し」ボタンをクリックします。</li>
+      <li>現在のプロジェクト設定（project.json）、読み込み済みのパノラマ画像（panoramas/）、平面図画像（floorplans/）、README.txt がまとめてZIP化されダウンロードされます。</li>
+      <li>ファイル名は <code>ArchView360_Project_YYYYMMDD_HHMM.zip</code> 形式です。</li>
+    </ol>
+
+    <h2>書き出す（設定JSON）</h2>
     <ol>
       <li>サイドバーまたはツールバーの「プロジェクト情報」「JSON書き出し」操作からJSONファイルをダウンロードします。</li>
       <li>ファイルには各シーン・FloorMap・マーカー・グループ・比較セットの設定情報が含まれます（画像本体は含まれません）。</li>

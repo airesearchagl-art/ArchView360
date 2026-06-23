@@ -112,12 +112,15 @@ function init() {
   const addFloorplanBtn    = $('add-floorplan-btn');
   const exportJsonBtn      = $('export-json-btn');
   const importJsonBtn      = $('import-json-btn');
+  const exportPackageBtn   = $('export-package-btn');
+  const importPackageBtn   = $('import-package-btn');
 
   // Floor plan file input & JSON inputs
   const floorplanInput     = $('floorplan-input');
   const jsonImportInput    = $('json-import-input');
   const importImagesInput  = $('import-images-input');
   const replaceSceneInput  = $('replace-scene-input');
+  const zipImportInput     = $('zip-import-input');
 
   // Import modal
   const importModal        = $('import-modal');
@@ -503,6 +506,7 @@ function init() {
         name:        f.name.replace(/\.[^.]+$/, ''),
         fileName:    f.name,
         blobUrl,
+        file:        f, // v2.12: retained for ZIP package export
         flipH:       false,
         thumbUrl:    null,
         floorplanId: activeFloorplanId || null, // auto-associate with current floor plan
@@ -2245,6 +2249,9 @@ function init() {
   });
 
   function _handleDropZoneFiles(files) {
+    const zipFiles   = files.filter(f => f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
+    if (zipFiles.length > 0) { _doImportZipPackage(zipFiles[0]); return; }
+
     const jsonFiles  = files.filter(f => f.name.endsWith('.json') || f.type === 'application/json');
     const imageFiles = files.filter(f => ['image/jpeg','image/png','image/webp'].includes(f.type));
 
@@ -2744,7 +2751,7 @@ function init() {
       const blobUrl = URL.createObjectURL(f);
       const imgEl   = new Image();
       imgEl.src = blobUrl;
-      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, imgEl, rotationOffset: 0 };
+      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, file: f, imgEl, rotationOffset: 0 };
       imgEl.onload = () => { if (!activeFloorplanId) setActiveFloorplan(fp.id); renderFloormap(); };
       projectState.floorplans.push(fp);
     });
@@ -3746,9 +3753,9 @@ function init() {
   // ============================================================
   // JSON Export
   // ============================================================
-  function exportProjectJSON() {
-    const data = {
-      appVersion:  '2.11',
+  function _buildProjectData() {
+    return {
+      appVersion:  '2.12',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
@@ -3770,7 +3777,10 @@ function init() {
       markers: projectState.markers.map((m, i) => ({ ...m, order: m.order || (i + 1) })),
       compareSets: _loadCompareSets(),
     };
+  }
 
+  function exportProjectJSON() {
+    const data = _buildProjectData();
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -3782,6 +3792,82 @@ function init() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast('プロジェクトをJSONとして書き出しました（画像データは含まれません）');
+  }
+
+  // ============================================================
+  // ZIP Project Package Export (v2.12)
+  // ============================================================
+  function _pad2(n) { return String(n).padStart(2, '0'); }
+
+  async function exportProjectPackage() {
+    if (typeof JSZip === 'undefined') { showGlobalError('JSZipの読み込みに失敗しました。'); return; }
+    if (!scenes.length) { showToast('書き出すシーンがありません'); return; }
+    showToast('パッケージを作成中…');
+    try {
+      const zip = new JSZip();
+      const data = _buildProjectData();
+      const missing = [];
+
+      const fetchBlob = async (blobUrl) => {
+        const res = await fetch(blobUrl);
+        return res.blob();
+      };
+      // Prefer the originally retained File object; fall back to re-fetching the blob: URL
+      // (covers scenes/floorplans restored before v2.12, where `.file` may be absent).
+      const resolveBlob = (entity) => entity.file ? Promise.resolve(entity.file) : fetchBlob(entity.blobUrl);
+
+      for (const s of scenes) {
+        try {
+          const blob = await resolveBlob(s);
+          zip.file(`panoramas/${s.fileName || (s.name + '.jpg')}`, blob);
+        } catch {
+          missing.push(s.fileName || s.name);
+        }
+      }
+      for (const f of projectState.floorplans) {
+        try {
+          const blob = await resolveBlob(f);
+          zip.file(`floorplans/${f.fileName}`, blob);
+        } catch {
+          missing.push(f.fileName);
+        }
+      }
+
+      zip.file('project.json', JSON.stringify(data, null, 2));
+      zip.file('README.txt',
+        'ArchView360 Project Package\n' +
+        '============================\n\n' +
+        'このZIPには以下が含まれます:\n' +
+        '  - project.json      : シーン構成・マーカー・比較セットなどの設定\n' +
+        '  - panoramas/         : パノラマ画像\n' +
+        '  - floorplans/        : 平面図画像\n\n' +
+        '開き方:\n' +
+        '  ArchView360 (index.html) を開き、この ZIP ファイルをそのまま\n' +
+        '  ドラッグ＆ドロップしてください。画像・平面図・設定がまとめて復元されます。\n\n' +
+        'すべての処理はブラウザ内で行われ、外部送信は行われません。\n' +
+        `書き出し日時: ${new Date().toISOString()}\n`
+      );
+
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      const now = new Date();
+      const stamp = `${now.getFullYear()}${_pad2(now.getMonth()+1)}${_pad2(now.getDate())}_${_pad2(now.getHours())}${_pad2(now.getMinutes())}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ArchView360_Project_${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (missing.length) {
+        showToast(`パッケージを書き出しました（一部画像が取得できませんでした: ${missing.join(', ')}）`);
+      } else {
+        showToast('パッケージ(ZIP)を書き出しました');
+      }
+    } catch (err) {
+      showGlobalError(`パッケージの書き出しに失敗しました: ${err.message}`);
+    }
   }
 
   // ============================================================
@@ -3860,7 +3946,7 @@ function init() {
       if (!file) return;
       const blobUrl = URL.createObjectURL(file);
       const scene = {
-        id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl,
+        id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl, file, // v2.12: retained for ZIP package export
         flipH: sd.flipped || false, thumbUrl: null,
         floorplanId: sd.floorplanId || null, // v2.5
         groupId:     sd.groupId     || null, // v2.5
@@ -3880,7 +3966,7 @@ function init() {
       const imgEl   = new Image();
       imgEl.onload  = () => renderFloormapCanvas();
       imgEl.src     = blobUrl;
-      newFPs.push({ id: fd.id, name: fd.name, fileName: fd.fileName, blobUrl, imgEl, rotationOffset: fd.rotationOffset || 0 });
+      newFPs.push({ id: fd.id, name: fd.name, fileName: fd.fileName, blobUrl, file, imgEl, rotationOffset: fd.rotationOffset || 0 });
       restoredFPs++;
     });
 
@@ -3954,6 +4040,79 @@ function init() {
     showToast(`復元完了: シーン ${restoredScenes} / 平面図 ${restoredFPs} / マーカー ${restoredMk} / 比較セット ${restoredCs}`);
   }
 
+  // ============================================================
+  // ZIP Project Package Import (v2.12)
+  // ============================================================
+  function openImportZip() { zipImportInput && zipImportInput.click(); }
+
+  async function _doImportZipPackage(zipFile) {
+    if (typeof JSZip === 'undefined') { showGlobalError('JSZipの読み込みに失敗しました。'); return; }
+    showToast('パッケージを読み込み中…');
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(zipFile);
+    } catch (err) {
+      showGlobalError(`ZIPファイルの読み込みに失敗しました: ${err.message}`);
+      return;
+    }
+
+    // Locate project.json anywhere in the archive (root or subfolder)
+    const entries = Object.keys(zip.files).filter(name => !zip.files[name].dir);
+    const jsonEntryName = entries.find(n => /(^|\/)project\.json$/i.test(n))
+      || entries.find(n => n.toLowerCase().endsWith('.json'));
+    if (!jsonEntryName) {
+      showGlobalError('ZIP内にproject.jsonが見つかりませんでした。');
+      return;
+    }
+
+    let importData;
+    try {
+      const jsonText = await zip.files[jsonEntryName].async('string');
+      importData = JSON.parse(jsonText);
+    } catch (err) {
+      showGlobalError(`project.jsonの解析に失敗しました: ${err.message}`);
+      return;
+    }
+
+    // Collect all image-like entries (panoramas/, floorplans/, or anywhere else) keyed by basename
+    const imageEntryNames = entries.filter(n =>
+      n !== jsonEntryName && !/readme\.txt$/i.test(n) && /\.(jpe?g|png|webp)$/i.test(n)
+    );
+    const fileList = [];
+    for (const name of imageEntryNames) {
+      const baseName = name.split('/').pop();
+      try {
+        const blob = await zip.files[name].async('blob');
+        const ext = (baseName.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        fileList.push(new File([blob], baseName, { type: mime }));
+      } catch { /* skip unreadable entry; reported as missing below */ }
+    }
+
+    // Detect files referenced by project.json but absent from the archive
+    const availableNames = new Set(fileList.map(f => f.name));
+    const expectedNames = [
+      ...((importData.scenes || []).map(s => s.fileName)),
+      ...((importData.floorplans || []).map(f => f.fileName)),
+    ].filter(Boolean);
+    const missing = expectedNames.filter(n => !availableNames.has(n));
+
+    _importData = importData;
+    _doImportWithFiles(fileList);
+
+    if (missing.length) {
+      showToast(`一部の画像がZIP内に見つかりませんでした: ${missing.join(', ')}`);
+    }
+  }
+
+  if (zipImportInput) {
+    zipImportInput.addEventListener('change', () => {
+      const f = zipImportInput.files[0];
+      zipImportInput.value = '';
+      if (f) _doImportZipPackage(f);
+    });
+  }
+
   // Import modal wiring
   importCloseBtn.addEventListener('click',  () => { hideEl(importModal); _importData = null; });
   importCancelBtn.addEventListener('click', () => { hideEl(importModal); _importData = null; });
@@ -3994,6 +4153,9 @@ function init() {
     if (!e.dataTransfer?.types?.includes?.('Files')) return;
     e.preventDefault(); e.stopPropagation();
     viewerDragCounter = 0; hideEl(viewerDropOverlay);
+    const dropped = Array.from(e.dataTransfer.files);
+    const zipFiles = dropped.filter(f => f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
+    if (zipFiles.length > 0) { _doImportZipPackage(zipFiles[0]); return; }
     handleFiles(e.dataTransfer.files); // always adds, never replaces
   });
 
@@ -4008,10 +4170,16 @@ function init() {
 
   exportJsonBtn.addEventListener('click', exportProjectJSON);
   importJsonBtn.addEventListener('click', openImportJSON);
+  if (exportPackageBtn) exportPackageBtn.addEventListener('click', exportProjectPackage);
+  if (importPackageBtn) importPackageBtn.addEventListener('click', openImportZip);
 
   // Upload-page "設定JSONから開く" button
   const openJsonBtn = document.getElementById('open-json-btn');
   if (openJsonBtn) openJsonBtn.addEventListener('click', openImportJSON);
+
+  // Upload-page "プロジェクトZIPから開く" button
+  const openZipBtn = document.getElementById('open-zip-btn');
+  if (openZipBtn) openZipBtn.addEventListener('click', openImportZip);
 
 } // end init()
 

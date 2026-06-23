@@ -63,6 +63,15 @@
       <strong>ヒント：</strong> 設定JSON（プロジェクトファイル）と画像をまとめてドロップすると、シーン構成・FloorMap・マーカー・グループなどをそのまま復元できます。詳しくは「<a href="/docs/project-json.html">プロジェクトJSON</a>」を参照してください。
     </div>
 
+    <h2>ZIPパッケージから開く（v2.12）</h2>
+    <p>画像・平面図・設定をまとめた1つの <code>.zip</code> ファイルから、プロジェクトをまとめて復元できます。</p>
+    <ol>
+      <li>起動画面の「プロジェクトZIPを開く」ボタンをクリック、または <code>.zip</code> ファイルをドロップゾーンにドラッグ＆ドロップします。</li>
+      <li>ZIP内の <code>project.json</code> が自動検出され、<code>panoramas/</code>・<code>floorplans/</code> フォルダ内の画像がファイル名で自動照合されます。</li>
+      <li>読み込みが完了すると、シーン・FloorMap・マーカー・グループ・比較セット・プロジェクト情報がすべて復元され、ビューワー画面に切り替わります。</li>
+    </ol>
+    <p>詳しくは「<a href="/docs/project-json.html">プロジェクトJSON / プロジェクトZIP</a>」を参照してください。</p>
+
     <div class="m-pager">
       <span></span>
       <a href="/docs/scene-management.html">次へ：シーン管理 →</a>
