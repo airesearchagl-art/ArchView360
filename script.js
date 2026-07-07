@@ -196,7 +196,7 @@ function init() {
   let inVrSession  = false;
   let autoRotateWasOnBeforeVr = false;
 
-  // ---- VR Scene Navigation & HUD (v2.13) ----
+  // ---- VR Scene Navigation & HUD (v2.13, hotfixed v2.13.1) ----
   // Transient, VR-session-local only — never persisted to project JSON.
   let vrHudVisible = true;
   let vrHudMesh = null, vrHudCanvas = null, vrHudCtx = null, vrHudTexture = null;
@@ -204,7 +204,12 @@ function init() {
   let vrLastInputAt = 0;
   const VR_INPUT_COOLDOWN_MS = 400;
   const VR_HUD_DIM_AFTER_MS  = 5000;
+  const VR_SQUEEZE_LONGPRESS_MS = 600; // long squeeze = prev, short squeeze = HUD toggle
   let vrControllers = [];
+  // v2.13.1 debug counters — shown on the in-VR HUD so real-hardware input
+  // issues are visible without a devtools console (Quest Browser has none
+  // accessible mid-session). Session-local only, never persisted.
+  const vrDebug = { selectCount: 0, squeezeCount: 0, lastAction: '-', lastAt: 0 };
 
   // ---- VR Observer Mode (v2.11) ----
   // Transient, browser-local only — never persisted to project JSON.
@@ -2627,7 +2632,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuestコントローラーで前後のシーンへ切り替えできます（右トリガー/A: 次へ、左トリガー/X: 前へ、B/Yまたはスクイーズ: HUD表示切替）。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuestコントローラーのトリガー（どちらか）で次のシーンへ、スクイーズ短押しでHUD表示切替、スクイーズ長押しで前のシーンへ切り替えられます。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -2705,10 +2710,13 @@ function init() {
     ctx.beginPath(); ctx.moveTo(80, 220); ctx.lineTo(W - 80, 220); ctx.stroke();
     ctx.font = '36px system-ui, sans-serif';
     ctx.fillStyle = '#9fb4d8';
-    ctx.fillText('右トリガー / A : 次のシーンへ', W / 2, 285);
-    ctx.fillText('左トリガー / X : 前のシーンへ', W / 2, 345);
-    ctx.fillText('B / Y・スクイーズ : メニュー表示切替', W / 2, 405);
+    ctx.fillText('トリガー（どちらか）: 次のシーンへ', W / 2, 285);
+    ctx.fillText('スクイーズ長押し : 前のシーンへ', W / 2, 345);
+    ctx.fillText('スクイーズ短押し : メニュー表示切替', W / 2, 405);
     ctx.fillText('VR終了 : Questのメニューボタン', W / 2, 465);
+    ctx.font = '26px monospace';
+    ctx.fillStyle = '#6a7a99';
+    ctx.fillText(`[debug] select:${vrDebug.selectCount} squeeze:${vrDebug.squeezeCount} last:${vrDebug.lastAction}`, W / 2, 500);
     if (vrHudTexture) vrHudTexture.needsUpdate = true;
   }
 
@@ -2744,6 +2752,7 @@ function init() {
   function _vrHandleAction(action) {
     if (!inVrSession) return;
     const now = Date.now();
+    vrDebug.lastAction = action; vrDebug.lastAt = now;
     if (now - vrLastInputAt < VR_INPUT_COOLDOWN_MS) return;
     vrLastInputAt = now;
     if (action === 'next' || action === 'prev') {
@@ -2759,61 +2768,61 @@ function init() {
     }
   }
 
+  // v2.13.1 hotfix: v2.13's handedness/gamepad-button routing did not fire
+  // reliably on Meta Quest 3 hardware (real-device inputs never reached the
+  // handlers, leaving VR mode indistinguishable from v2.12). Simplified to
+  // the two native WebXR select/squeeze events, registered identically on
+  // both controllers with no handedness or gamepad.buttons dependency:
+  //   - selectstart (either controller): next scene — the primary, most
+  //     reliably-dispatched WebXR input event across browsers/OS versions
+  //   - squeezestart (either controller): short press → toggle HUD,
+  //     long press (>=600ms, measured via squeezeend) → previous scene
+  // Prev is intentionally the secondary path per hotfix scope; next and HUD
+  // toggle must work unconditionally.
   function _setupVrControllers() {
     _teardownVrControllers();
     for (let i = 0; i < 2; i++) {
       const ctrl = renderer.xr.getController(i);
-      const entry = { ctrl, handedness: null, gamepad: null, prevPressed: [false, false] };
-      entry.onConnected = (e) => {
-        entry.handedness = (e.data && e.data.handedness) || null;
-        entry.gamepad = (e.data && e.data.gamepad) || null;
+      const entry = { ctrl, squeezeStartedAt: 0 };
+      entry.onSelectStart = () => {
+        vrDebug.selectCount++;
+        _vrHandleAction('next');
       };
-      entry.onDisconnected = () => { entry.handedness = null; entry.gamepad = null; };
-      // Trigger: left hand = prev, right hand (or unknown) = next
-      entry.onSelectStart = () => { _vrHandleAction(entry.handedness === 'left' ? 'prev' : 'next'); };
-      // Squeeze (grip): HUD visibility toggle — reliable fallback across Quest OS versions
-      entry.onSqueezeStart = () => { _vrHandleAction('hud'); };
-      ctrl.addEventListener('connected', entry.onConnected);
-      ctrl.addEventListener('disconnected', entry.onDisconnected);
+      entry.onSqueezeStart = () => {
+        vrDebug.squeezeCount++;
+        entry.squeezeStartedAt = Date.now();
+      };
+      entry.onSqueezeEnd = () => {
+        const held = entry.squeezeStartedAt ? Date.now() - entry.squeezeStartedAt : 0;
+        entry.squeezeStartedAt = 0;
+        _vrHandleAction(held >= VR_SQUEEZE_LONGPRESS_MS ? 'prev' : 'hud');
+      };
       ctrl.addEventListener('selectstart', entry.onSelectStart);
       ctrl.addEventListener('squeezestart', entry.onSqueezeStart);
+      ctrl.addEventListener('squeezeend', entry.onSqueezeEnd);
       vrControllers.push(entry);
     }
   }
 
   function _teardownVrControllers() {
     vrControllers.forEach((entry) => {
-      entry.ctrl.removeEventListener('connected', entry.onConnected);
-      entry.ctrl.removeEventListener('disconnected', entry.onDisconnected);
       entry.ctrl.removeEventListener('selectstart', entry.onSelectStart);
       entry.ctrl.removeEventListener('squeezestart', entry.onSqueezeStart);
+      entry.ctrl.removeEventListener('squeezeend', entry.onSqueezeEnd);
     });
     vrControllers = [];
   }
 
-  function _pollVrGamepads() {
-    // Supplementary face-button support where xr-standard gamepads expose them:
-    // buttons[4] = A (right) / X (left), buttons[5] = B (right) / Y (left).
-    vrControllers.forEach((entry) => {
-      const gp = entry.gamepad;
-      if (!gp || !gp.buttons) return;
-      for (let b = 4; b <= 5; b++) {
-        const btn = gp.buttons[b];
-        const pressed = !!(btn && btn.pressed);
-        const wasPressed = entry.prevPressed[b - 4];
-        entry.prevPressed[b - 4] = pressed;
-        if (pressed && !wasPressed) { // edge-trigger: no repeat while held
-          if (b === 4) _vrHandleAction(entry.handedness === 'left' ? 'prev' : 'next');
-          else _vrHandleAction('hud');
-        }
-      }
-    });
-  }
-
+  let _vrHudDebugFrameCount = 0;
   let _vrObsFrameCount = 0;
   function vrLoop() {
-    _pollVrGamepads();
     _updateVrHudPose();
+    // Keep the debug counters on the HUD reasonably live (~2/sec) without
+    // redrawing the canvas every frame.
+    if (vrHudVisible && vrHudCtx) {
+      _vrHudDebugFrameCount = (_vrHudDebugFrameCount + 1) % 30;
+      if (_vrHudDebugFrameCount === 0) _drawVrHud();
+    }
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
     if (observerState.enabled && observerState.connected) {
       // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
@@ -3965,7 +3974,7 @@ function init() {
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.13',
+      appVersion:  '2.13.1',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
