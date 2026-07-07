@@ -196,6 +196,16 @@ function init() {
   let inVrSession  = false;
   let autoRotateWasOnBeforeVr = false;
 
+  // ---- VR Scene Navigation & HUD (v2.13) ----
+  // Transient, VR-session-local only — never persisted to project JSON.
+  let vrHudVisible = true;
+  let vrHudMesh = null, vrHudCanvas = null, vrHudCtx = null, vrHudTexture = null;
+  let vrHudShownAt = 0;
+  let vrLastInputAt = 0;
+  const VR_INPUT_COOLDOWN_MS = 400;
+  const VR_HUD_DIM_AFTER_MS  = 5000;
+  let vrControllers = [];
+
   // ---- VR Observer Mode (v2.11) ----
   // Transient, browser-local only — never persisted to project JSON.
   const observerBtn = $('observer-btn');
@@ -596,7 +606,9 @@ function init() {
   function switchToScene(idx) {
     if (idx < 0 || idx >= scenes.length) return;
     // Fade transition when already viewing a scene (not first load)
-    if (currentIdx >= 0 && currentIdx !== idx && !_fadePending && compareState.mode === 'single') {
+    // v2.13: skip the DOM fade while in VR — the overlay is invisible in-headset
+    // and the 150ms delay would only postpone the texture swap.
+    if (currentIdx >= 0 && currentIdx !== idx && !_fadePending && compareState.mode === 'single' && !inVrSession) {
       _fadePending = true;
       sceneFadeOverlay.style.opacity = '1';
       setTimeout(() => {
@@ -1441,7 +1453,9 @@ function init() {
       (texture) => {
         buildSphere(texture, flipH);
         showLoadingOverlay(false);
-        startRender();
+        // v2.13: during a VR session the XR animation loop is already rendering —
+        // starting the rAF loop as well would double-render every frame.
+        if (!inVrSession) startRender();
         showToast('ドラッグで自由に見回せます');
       },
       (prog) => {
@@ -1467,7 +1481,9 @@ function init() {
     const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
     sphere = new THREE.Mesh(geo, mat);
     threeScene.add(sphere);
-    resetView();
+    // v2.13: in VR the HMD owns the camera pose — resetting phi/theta/fov here
+    // would fight WebXR and visibly snap the view on in-headset scene switches.
+    if (!inVrSession) resetView();
   }
 
   function loadCompareSphere(side, idx) {
@@ -2611,13 +2627,193 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuestコントローラーで前後のシーンへ切り替えできます（右トリガー/A: 次へ、左トリガー/X: 前へ、B/Yまたはスクイーズ: HUD表示切替）。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
 
+  // ============================================================
+  // VR Scene Navigation & HUD (v2.13)
+  // ============================================================
+  // In-headset HUD: PlaneGeometry + CanvasTexture panel that loosely follows
+  // the wearer's yaw, floating slightly below eye level so it never blocks
+  // the view center. State is VR-session-local and never saved to JSON.
+
+  function _vrNavPosition() {
+    const order = _getNavOrder();
+    const pos = order.indexOf(currentIdx);
+    if (pos >= 0) return { pos: pos + 1, total: order.length };
+    // Current scene outside the nav order (e.g. unplaced scene while a
+    // floorplan with markers is active) — fall back to plain scene index.
+    return { pos: currentIdx + 1, total: scenes.length };
+  }
+
+  function _createVrHud() {
+    if (vrHudMesh || !threeScene) return;
+    vrHudCanvas = document.createElement('canvas');
+    vrHudCanvas.width = 1024; vrHudCanvas.height = 512;
+    vrHudCtx = vrHudCanvas.getContext('2d');
+    vrHudTexture = new THREE.CanvasTexture(vrHudCanvas);
+    const mat = new THREE.MeshBasicMaterial({
+      map: vrHudTexture, transparent: true, opacity: 0,
+      depthTest: false, side: THREE.DoubleSide
+    });
+    vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.75), mat);
+    vrHudMesh.renderOrder = 999;
+    threeScene.add(vrHudMesh);
+    _drawVrHud();
+  }
+
+  function _disposeVrHud() {
+    if (!vrHudMesh) return;
+    if (threeScene) threeScene.remove(vrHudMesh);
+    vrHudMesh.geometry.dispose();
+    vrHudMesh.material.dispose();
+    if (vrHudTexture) vrHudTexture.dispose();
+    vrHudMesh = null; vrHudCanvas = null; vrHudCtx = null; vrHudTexture = null;
+  }
+
+  function _drawVrHud() {
+    if (!vrHudCtx) return;
+    const ctx = vrHudCtx, W = 1024, H = 512;
+    ctx.clearRect(0, 0, W, H);
+    // Panel background
+    ctx.fillStyle = 'rgba(13, 18, 28, 0.82)';
+    ctx.strokeStyle = 'rgba(120, 170, 255, 0.55)';
+    ctx.lineWidth = 4;
+    const r = 36;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(W - r, 0); ctx.arcTo(W, 0, W, r, r);
+    ctx.lineTo(W, H - r); ctx.arcTo(W, H, W - r, H, r);
+    ctx.lineTo(r, H); ctx.arcTo(0, H, 0, H - r, r);
+    ctx.lineTo(0, r); ctx.arcTo(0, 0, r, 0, r);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    const nav = _vrNavPosition();
+    const s = (currentIdx >= 0 && scenes[currentIdx]) ? scenes[currentIdx] : null;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 64px system-ui, sans-serif';
+    ctx.fillText(`Scene ${nav.pos} / ${nav.total}`, W / 2, 100);
+    ctx.font = '48px system-ui, sans-serif';
+    ctx.fillStyle = '#cfe0ff';
+    let name = s ? s.name : '—';
+    if (name.length > 24) name = name.slice(0, 23) + '…';
+    ctx.fillText(name, W / 2, 180);
+    ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(80, 220); ctx.lineTo(W - 80, 220); ctx.stroke();
+    ctx.font = '36px system-ui, sans-serif';
+    ctx.fillStyle = '#9fb4d8';
+    ctx.fillText('右トリガー / A : 次のシーンへ', W / 2, 285);
+    ctx.fillText('左トリガー / X : 前のシーンへ', W / 2, 345);
+    ctx.fillText('B / Y・スクイーズ : メニュー表示切替', W / 2, 405);
+    ctx.fillText('VR終了 : Questのメニューボタン', W / 2, 465);
+    if (vrHudTexture) vrHudTexture.needsUpdate = true;
+  }
+
+  let _vrHudCamPos = null, _vrHudFwd = null;
+  function _updateVrHudPose() {
+    if (!vrHudMesh || !camera) return;
+    if (!_vrHudCamPos) { _vrHudCamPos = new THREE.Vector3(); _vrHudFwd = new THREE.Vector3(); }
+    camera.getWorldPosition(_vrHudCamPos);
+    _vrHudFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    // Yaw-only follow: the panel stays ahead of the wearer horizontally but
+    // does not chase vertical head movement, so it reads as a loose HUD
+    // slightly below eye level rather than a sticker glued to view center.
+    _vrHudFwd.y = 0;
+    if (_vrHudFwd.lengthSq() < 1e-4) _vrHudFwd.set(0, 0, -1);
+    _vrHudFwd.normalize();
+    vrHudMesh.position.copy(_vrHudCamPos).addScaledVector(_vrHudFwd, 2.4);
+    vrHudMesh.position.y = _vrHudCamPos.y - 0.55;
+    vrHudMesh.lookAt(_vrHudCamPos);
+    // Fade: fully visible right after show/interaction, dims after a few
+    // seconds; hidden entirely when toggled off.
+    const dimmed = (Date.now() - vrHudShownAt) > VR_HUD_DIM_AFTER_MS;
+    const target = vrHudVisible ? (dimmed ? 0.28 : 1) : 0;
+    const mat = vrHudMesh.material;
+    mat.opacity += (target - mat.opacity) * 0.12;
+    vrHudMesh.visible = mat.opacity > 0.02;
+  }
+
+  function _vrShowHud() {
+    vrHudShownAt = Date.now();
+    _drawVrHud();
+  }
+
+  function _vrHandleAction(action) {
+    if (!inVrSession) return;
+    const now = Date.now();
+    if (now - vrLastInputAt < VR_INPUT_COOLDOWN_MS) return;
+    vrLastInputAt = now;
+    if (action === 'next' || action === 'prev') {
+      if (!scenes.length) return;
+      // Reuses the shared navigation order (marker.order on the active
+      // floorplan → scene filter → plain scene order); currentIdx,
+      // scene list, FloorMap and observerState all sync via switchToScene.
+      if (action === 'next') nextScene(); else prevScene();
+      _vrShowHud(); // redraw + temporarily re-show even when dimmed
+    } else if (action === 'hud') {
+      vrHudVisible = !vrHudVisible;
+      if (vrHudVisible) _vrShowHud();
+    }
+  }
+
+  function _setupVrControllers() {
+    _teardownVrControllers();
+    for (let i = 0; i < 2; i++) {
+      const ctrl = renderer.xr.getController(i);
+      const entry = { ctrl, handedness: null, gamepad: null, prevPressed: [false, false] };
+      entry.onConnected = (e) => {
+        entry.handedness = (e.data && e.data.handedness) || null;
+        entry.gamepad = (e.data && e.data.gamepad) || null;
+      };
+      entry.onDisconnected = () => { entry.handedness = null; entry.gamepad = null; };
+      // Trigger: left hand = prev, right hand (or unknown) = next
+      entry.onSelectStart = () => { _vrHandleAction(entry.handedness === 'left' ? 'prev' : 'next'); };
+      // Squeeze (grip): HUD visibility toggle — reliable fallback across Quest OS versions
+      entry.onSqueezeStart = () => { _vrHandleAction('hud'); };
+      ctrl.addEventListener('connected', entry.onConnected);
+      ctrl.addEventListener('disconnected', entry.onDisconnected);
+      ctrl.addEventListener('selectstart', entry.onSelectStart);
+      ctrl.addEventListener('squeezestart', entry.onSqueezeStart);
+      vrControllers.push(entry);
+    }
+  }
+
+  function _teardownVrControllers() {
+    vrControllers.forEach((entry) => {
+      entry.ctrl.removeEventListener('connected', entry.onConnected);
+      entry.ctrl.removeEventListener('disconnected', entry.onDisconnected);
+      entry.ctrl.removeEventListener('selectstart', entry.onSelectStart);
+      entry.ctrl.removeEventListener('squeezestart', entry.onSqueezeStart);
+    });
+    vrControllers = [];
+  }
+
+  function _pollVrGamepads() {
+    // Supplementary face-button support where xr-standard gamepads expose them:
+    // buttons[4] = A (right) / X (left), buttons[5] = B (right) / Y (left).
+    vrControllers.forEach((entry) => {
+      const gp = entry.gamepad;
+      if (!gp || !gp.buttons) return;
+      for (let b = 4; b <= 5; b++) {
+        const btn = gp.buttons[b];
+        const pressed = !!(btn && btn.pressed);
+        const wasPressed = entry.prevPressed[b - 4];
+        entry.prevPressed[b - 4] = pressed;
+        if (pressed && !wasPressed) { // edge-trigger: no repeat while held
+          if (b === 4) _vrHandleAction(entry.handedness === 'left' ? 'prev' : 'next');
+          else _vrHandleAction('hud');
+        }
+      }
+    });
+  }
+
   let _vrObsFrameCount = 0;
   function vrLoop() {
+    _pollVrGamepads();
+    _updateVrHudPose();
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
     if (observerState.enabled && observerState.connected) {
       // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
@@ -2635,6 +2831,10 @@ function init() {
   function onVrSessionEnd() {
     inVrSession = false;
     xrSession = null;
+    // v2.13: clean up VR-only input listeners and HUD, restore defaults
+    _teardownVrControllers();
+    _disposeVrHud();
+    vrHudVisible = true;
     if (renderer) {
       renderer.setAnimationLoop(null);
       renderer.xr.enabled = false;
@@ -2668,9 +2868,17 @@ function init() {
       autoRotate = false;
       stopRender();
       renderer.xr.enabled = true;
+      // v2.13: register controller listeners before setSession so the
+      // 'connected' events fired during session setup are not missed.
+      _setupVrControllers();
       await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
       renderer.setAnimationLoop(vrLoop);
+      // v2.13: in-headset HUD (scene name / position / controller guide)
+      vrHudVisible = true;
+      vrLastInputAt = 0;
+      _createVrHud();
+      _vrShowHud();
       // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
       observerState.role = 'viewer';
       observerState.connected = true;
@@ -2684,6 +2892,8 @@ function init() {
     } catch (err) {
       inVrSession = false;
       xrSession = null;
+      _teardownVrControllers();
+      _disposeVrHud();
       if (renderer) renderer.xr.enabled = false;
       updateVrBtn();
       showToast('VRセッションを開始できませんでした');
@@ -3755,7 +3965,7 @@ function init() {
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.12',
+      appVersion:  '2.13',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
