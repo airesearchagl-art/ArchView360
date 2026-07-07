@@ -219,8 +219,25 @@ function init() {
     lastInput: '-',
     nextCount: 0,
     prevCount: 0,
-    menuCount: 0
+    menuCount: 0,
+    // v2.14.1 additions — see VR Debug Probe below
+    frames: 0,
+    xrCamStatus: 'unknown',  // 'unknown' | 'ok' | 'error'
+    xrCamPos: '-',
+    sessionStatus: 'unknown' // 'unknown' | 'ok' | 'error'
   };
+  // v2.14.1: VR Debug Probe — a deliberately crude, always-on pair of
+  // large colored panels used to isolate *whether ArchView360 can put
+  // anything at all in front of the wearer on Quest hardware*, before
+  // trying to debug the real HUD or input handling any further. Session-
+  // local only; never persisted.
+  let vrProbeWorldMesh = null, vrProbeWorldCanvas = null, vrProbeWorldCtx = null, vrProbeWorldTexture = null;
+  let vrProbeCamMesh = null, vrProbeCamCanvas = null, vrProbeCamCtx = null, vrProbeCamTexture = null;
+  // On-screen (non-VR) debug log so the last VR session's probe results are
+  // visible after removing the headset, without needing devtools. Left
+  // populated after the session ends (spec: "VR終了後にも確認できるように").
+  const vrDebugLogEl = $('vr-debug-log');
+  let vrDebugLogTimer = null;
 
   // ---- VR Observer Mode (v2.11) ----
   // Transient, browser-local only — never persisted to project JSON.
@@ -2643,7 +2660,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はコントローラーのbutton[0]で次のシーンへ、button[1]でHUD表示切替、button[2]で前のシーンへ切り替えられます。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はコントローラーのbutton[0]で次のシーンへ、button[1]でHUD表示切替、button[2]で前のシーンへ切り替えられます。v2.14.1では赤/青のVR Debug Probeパネルも表示されます（暫定デバッグ表示）。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -2693,6 +2710,166 @@ function init() {
     vrHudMesh.material.dispose();
     if (vrHudTexture) vrHudTexture.dispose();
     vrHudMesh = null; vrHudCanvas = null; vrHudCtx = null; vrHudTexture = null;
+  }
+
+  // ------------------------------------------------------------
+  // VR Debug Probe (v2.14.1)
+  // ------------------------------------------------------------
+  // v2.14's real HUD did not appear on Quest 3 hardware even though the
+  // input-polling rewrite was in place, which means the failure may be
+  // upstream of anything input-related: the mesh itself might not be
+  // rendering into the XR space at all. This probe isolates that question
+  // with two large, crude, impossible-to-miss panels using two different
+  // attachment strategies, so which one (if either) is visible tells us
+  // where to look next — see docs/vr.html's troubleshooting table.
+  function _makeVrProbeCanvas() {
+    const c = document.createElement('canvas');
+    c.width = 900; c.height = 640;
+    return c;
+  }
+
+  function _drawVrProbePanel(ctx, label, tint) {
+    if (!ctx) return;
+    const W = 900, H = 640;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = tint.bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, W - 10, H - 10);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 60px system-ui, sans-serif';
+    ctx.fillText('VR DEBUG PROBE', W / 2, 90);
+    ctx.font = 'bold 48px system-ui, sans-serif';
+    ctx.fillText(label, W / 2, 155);
+    ctx.font = '34px system-ui, sans-serif';
+    ctx.fillText('v2.14.1', W / 2, 200);
+
+    const totalButtons = vrDebug.sources.reduce((sum, s) => sum + (s.hasGamepad ? s.buttonsLength : 0), 0);
+    ctx.font = '36px monospace';
+    ctx.textAlign = 'left';
+    let y = 270;
+    const line = (t) => { ctx.fillText(t, 60, y); y += 46; };
+    line(`frames: ${vrDebug.frames}`);
+    line(`xrCam: ${vrDebug.xrCamStatus}`);
+    line(`session: ${vrDebug.sessionStatus}`);
+    line(`inputSources: ${vrDebug.inputSourceCount}`);
+    line(`buttons: ${vrDebug.inputSourceCount ? totalButtons : '-'}`);
+    line(`last: ${vrDebug.lastInput}`);
+  }
+
+  function _createVrDebugProbe() {
+    if (!threeScene || !camera) return;
+    // A. World-anchored panel: added directly to the Three.js scene graph,
+    // repositioned every frame from the XR camera (same technique as the
+    // real HUD). Tinted red.
+    if (!vrProbeWorldMesh) {
+      vrProbeWorldCanvas = _makeVrProbeCanvas();
+      vrProbeWorldCtx = vrProbeWorldCanvas.getContext('2d');
+      vrProbeWorldTexture = new THREE.CanvasTexture(vrProbeWorldCanvas);
+      const mat = new THREE.MeshBasicMaterial({
+        map: vrProbeWorldTexture, transparent: true, opacity: 0.92,
+        depthTest: false, side: THREE.DoubleSide
+      });
+      vrProbeWorldMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.28), mat);
+      vrProbeWorldMesh.renderOrder = 998;
+      vrProbeWorldMesh.position.set(0, -0.3, -1.8);
+      threeScene.add(vrProbeWorldMesh);
+      console.log('[VR Probe] panel world created');
+    }
+    // B. Camera-attached panel: added as a child of the mono `camera` object
+    // that renderer.render(threeScene, camera) is called with. Three.js
+    // keeps this camera's world matrix in sync with the XR head pose during
+    // an active session, so a child of it should track the headset
+    // automatically without any per-frame repositioning. Tinted blue.
+    if (!vrProbeCamMesh) {
+      vrProbeCamCanvas = _makeVrProbeCanvas();
+      vrProbeCamCtx = vrProbeCamCanvas.getContext('2d');
+      vrProbeCamTexture = new THREE.CanvasTexture(vrProbeCamCanvas);
+      const mat = new THREE.MeshBasicMaterial({
+        map: vrProbeCamTexture, transparent: true, opacity: 0.92,
+        depthTest: false, side: THREE.DoubleSide
+      });
+      vrProbeCamMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.28), mat);
+      vrProbeCamMesh.renderOrder = 998;
+      vrProbeCamMesh.position.set(0, -0.45, -2.0);
+      camera.add(vrProbeCamMesh);
+      console.log('[VR Probe] panel camera created');
+    }
+    _drawVrProbePanel(vrProbeWorldCtx, 'WORLD PANEL', { bg: 'rgba(180, 30, 30, 0.9)' });
+    _drawVrProbePanel(vrProbeCamCtx, 'CAMERA PANEL', { bg: 'rgba(30, 60, 190, 0.9)' });
+    if (vrProbeWorldTexture) vrProbeWorldTexture.needsUpdate = true;
+    if (vrProbeCamTexture) vrProbeCamTexture.needsUpdate = true;
+  }
+
+  function _disposeVrDebugProbe() {
+    if (vrProbeWorldMesh) {
+      if (threeScene) threeScene.remove(vrProbeWorldMesh);
+      vrProbeWorldMesh.geometry.dispose();
+      vrProbeWorldMesh.material.dispose();
+      if (vrProbeWorldTexture) vrProbeWorldTexture.dispose();
+      vrProbeWorldMesh = null; vrProbeWorldCanvas = null; vrProbeWorldCtx = null; vrProbeWorldTexture = null;
+    }
+    if (vrProbeCamMesh) {
+      if (camera) camera.remove(vrProbeCamMesh);
+      vrProbeCamMesh.geometry.dispose();
+      vrProbeCamMesh.material.dispose();
+      if (vrProbeCamTexture) vrProbeCamTexture.dispose();
+      vrProbeCamMesh = null; vrProbeCamCanvas = null; vrProbeCamCtx = null; vrProbeCamTexture = null;
+    }
+  }
+
+  let _vrProbeFrameCount = 0;
+  function _updateVrDebugProbe(xrCam) {
+    // World panel: repositioned every frame from the XR camera, same as the
+    // real HUD — kept always visible with no auto-fade or hide control.
+    if (vrProbeWorldMesh && xrCam) {
+      xrCam.getWorldPosition(_vrHudPos);
+      xrCam.getWorldDirection(_vrHudDir);
+      vrProbeWorldMesh.position.copy(_vrHudPos).addScaledVector(_vrHudDir, 1.8);
+      vrProbeWorldMesh.position.y -= 0.3;
+      vrProbeWorldMesh.lookAt(_vrHudPos);
+    }
+    // Camera panel needs no repositioning — it is a child of `camera` and
+    // follows its parent's transform automatically.
+    _vrProbeFrameCount = (_vrProbeFrameCount + 1) % 15; // redraw ~4x/sec at 60fps
+    if (_vrProbeFrameCount === 0) {
+      _drawVrProbePanel(vrProbeWorldCtx, 'WORLD PANEL', { bg: 'rgba(180, 30, 30, 0.9)' });
+      _drawVrProbePanel(vrProbeCamCtx, 'CAMERA PANEL', { bg: 'rgba(30, 60, 190, 0.9)' });
+      if (vrProbeWorldTexture) vrProbeWorldTexture.needsUpdate = true;
+      if (vrProbeCamTexture) vrProbeCamTexture.needsUpdate = true;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // On-screen (normal, non-VR) VR Debug Log (v2.14.1)
+  // ------------------------------------------------------------
+  // Quest Browser gives no practical access to devtools mid-session, so the
+  // probe/input state is mirrored into a small panel on the regular 2D
+  // screen. It stays populated after the VR session ends so results can be
+  // read once the headset is off. Local-only; never sent anywhere, never
+  // saved to JSON/ZIP.
+  function _renderVrDebugLog(statusLine) {
+    if (!vrDebugLogEl) return;
+    vrDebugLogEl.style.display = '';
+    const totalButtons = vrDebug.sources.reduce((sum, s) => sum + (s.hasGamepad ? s.buttonsLength : 0), 0);
+    const sourceLines = vrDebug.sources.length
+      ? vrDebug.sources.map((s, i) => `source${i}: ${s.handedness} gamepad=${s.hasGamepad ? 'yes' : 'no'} buttons=${s.hasGamepad ? s.buttonsLength : '-'} pressed=${s.pressedCount}`).join('\n')
+      : '(no input sources)';
+    vrDebugLogEl.textContent =
+`VR Debug:
+${statusLine}
+frames: ${vrDebug.frames}
+xrCam: ${vrDebug.xrCamStatus}
+inputSources: ${vrDebug.inputSourceCount}
+buttons: ${vrDebug.inputSourceCount ? totalButtons : '-'}
+${sourceLines}
+last: ${vrDebug.lastInput}
+next:${vrDebug.nextCount} prev:${vrDebug.prevCount} menu:${vrDebug.menuCount}
+hudWorld: ${vrProbeWorldMesh ? 'visible' : '-'}
+hudCamera: ${vrProbeCamMesh ? 'visible' : '-'}`;
   }
 
   function _drawVrHud() {
@@ -2760,16 +2937,37 @@ function init() {
 
   const _vrHudPos = new THREE.Vector3();
   const _vrHudDir = new THREE.Vector3();
-  function _updateVrHudPose() {
-    if (!vrHudMesh || !renderer) return;
+  // v2.14.1: resolve the XR camera once per frame (from vrLoop) and share the
+  // result with the HUD, the debug probe, and the on-screen debug log —
+  // whether this call succeeds at all is one of the six things v2.14.1 is
+  // specifically trying to isolate.
+  function _resolveXrCamera() {
+    try {
+      const xrCam = renderer && renderer.xr && renderer.xr.getCamera ? renderer.xr.getCamera(camera) : null;
+      if (xrCam) {
+        vrDebug.xrCamStatus = 'ok';
+        xrCam.getWorldPosition(_vrHudPos);
+        vrDebug.xrCamPos = `${_vrHudPos.x.toFixed(2)},${_vrHudPos.y.toFixed(2)},${_vrHudPos.z.toFixed(2)}`;
+        console.log('[VR Probe] xrCam ok', vrDebug.xrCamPos);
+        return xrCam;
+      }
+      vrDebug.xrCamStatus = 'error';
+      return null;
+    } catch (err) {
+      vrDebug.xrCamStatus = 'error';
+      console.log('[VR Probe] xrCam error', err && err.message);
+      return null;
+    }
+  }
+
+  function _updateVrHudPose(xrCam) {
+    if (!vrHudMesh || !xrCam) return;
     // v2.14: reposition from the XR camera (not the plain `camera` object),
     // which reflects the actual per-eye head pose during an active WebXR
     // session — using it directly (rather than the mono `camera` used in
     // v2.13) is what makes the panel reliably appear in front of the wearer
     // on Quest hardware instead of drifting to wherever the mono camera
     // last pointed before the session took over.
-    const xrCam = renderer.xr.getCamera ? renderer.xr.getCamera(camera) : camera;
-    if (!xrCam) return;
     xrCam.getWorldPosition(_vrHudPos);
     xrCam.getWorldDirection(_vrHudDir);
     vrHudMesh.position.copy(_vrHudPos)
@@ -2871,20 +3069,35 @@ function init() {
     vrDebug.nextCount = 0;
     vrDebug.prevCount = 0;
     vrDebug.menuCount = 0;
+    vrDebug.frames = 0;
+    vrDebug.xrCamStatus = 'unknown';
+    vrDebug.xrCamPos = '-';
     vrLastInputAt = 0;
   }
 
   let _vrHudDebugFrameCount = 0;
   let _vrObsFrameCount = 0;
+  let _vrDebugLogFrameCount = 0;
   function vrLoop() {
+    // v2.14.1: frame counter — if this stops incrementing, on-screen (and
+    // in-VR-Debug-Log) `frames` will visibly stall, proving
+    // renderer.setAnimationLoop(vrLoop) is no longer being driven.
+    vrDebug.frames++;
+    const xrCam = _resolveXrCamera();
     _pollVrInputSources();
-    _updateVrHudPose();
+    _updateVrHudPose(xrCam);
+    _updateVrDebugProbe(xrCam);
     // Redraw the HUD canvas a few times a second so the live debug
     // counters/inputSources info stay current even without a button edge.
     if (vrHudCtx) {
       _vrHudDebugFrameCount = (_vrHudDebugFrameCount + 1) % 20;
       if (_vrHudDebugFrameCount === 0) _drawVrHud();
     }
+    // Mirror the probe/input state onto the normal-screen debug log a few
+    // times a second so it stays current for anyone watching a mirrored
+    // display, and is left in place once the session ends.
+    _vrDebugLogFrameCount = (_vrDebugLogFrameCount + 1) % 30;
+    if (_vrDebugLogFrameCount === 0) _renderVrDebugLog('VR session running');
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
     if (observerState.enabled && observerState.connected) {
       // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
@@ -2902,8 +3115,13 @@ function init() {
   function onVrSessionEnd() {
     inVrSession = false;
     xrSession = null;
-    console.log('[VR] session ended. last debug state:', JSON.parse(JSON.stringify(vrDebug)));
+    vrDebug.sessionStatus = 'ended';
+    console.log('[VR Probe] session ended', JSON.parse(JSON.stringify(vrDebug)));
+    // Leave the on-screen log populated with the final state — this is the
+    // only way to review the probe/input results once the headset is off.
+    _renderVrDebugLog('session ended');
     _disposeVrHud();
+    _disposeVrDebugProbe();
     vrHudVisible = true;
     _vrResetInputState();
     if (renderer) {
@@ -2933,7 +3151,9 @@ function init() {
       renderer.xr.enabled = true;
       vrHudVisible = true;
       _vrResetInputState();
+      vrDebug.sessionStatus = 'starting';
       _createVrHud();
+      _createVrDebugProbe();
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor']
       });
@@ -2945,8 +3165,10 @@ function init() {
       await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
       renderer.setAnimationLoop(vrLoop);
-      console.log('[VR] session started');
+      vrDebug.sessionStatus = 'ok';
+      console.log('[VR Probe] session started');
       _vrShowHud();
+      _renderVrDebugLog('session started');
       // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
       observerState.role = 'viewer';
       observerState.connected = true;
@@ -2960,7 +3182,11 @@ function init() {
     } catch (err) {
       inVrSession = false;
       xrSession = null;
+      vrDebug.sessionStatus = 'error';
+      console.log('[VR Probe] session error', err && err.message);
+      _renderVrDebugLog('session failed to start');
       _disposeVrHud();
+      _disposeVrDebugProbe();
       _vrResetInputState();
       if (renderer) renderer.xr.enabled = false;
       updateVrBtn();
@@ -4033,7 +4259,7 @@ function init() {
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.14',
+      appVersion:  '2.14.1',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

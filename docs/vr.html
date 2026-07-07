@@ -125,14 +125,52 @@
       <li>HUDの表示状態・デバッグ情報はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了後は初期状態（表示）に戻ります。</li>
     </ul>
 
-    <h2>コントローラー操作が効かない場合</h2>
-    <p>VR HUD内のデバッグ表示を見ることで、どこで問題が起きているか切り分けられます。</p>
+    <h2>VR Debug Probe（v2.14.1、暫定デバッグ版）</h2>
+    <div class="m-callout">
+      <strong>これは機能改善ではありません。</strong> v2.14でVR中の入力方式を<code>XRSession.inputSources</code>ポーリングへ刷新したにもかかわらず、Meta Quest 3 / Meta Quest Browser実機ではVR HUD・コントローラー入力のどちらも確認できず、挙動はv2.12以前と同じでした。v2.14.1は、まず「VR空間に何かを確実に表示できているか」を切り分けるための暫定デバッグ版です。
+    </div>
+    <p>VR開始直後から、通常HUDとは別に、目の前1.5〜2.0mへ大きなデバッグパネルが2枚（赤と青）表示されます。</p>
     <ul>
+      <li><strong>赤いWORLD PANEL：</strong> <code>threeScene</code>に直接追加し、毎フレームXRカメラの前方へ再配置する方式（実HUDと同じ手法）</li>
+      <li><strong>青いCAMERA PANEL：</strong> 通常の<code>camera</code>オブジェクトの子要素として追加し、位置指定のみで追従させる方式</li>
+    </ul>
+    <p>両パネルとも文字は白、半透明の大きなPlaneで、Questで確実に読めるサイズです。自動フェード・非表示操作は無く、VRセッション中は常時表示されます。表示内容：</p>
+    <ul>
+      <li><code>frames</code>：VRループのフレームカウンター（増え続けていれば<code>vrLoop()</code>が回っている証拠）</li>
+      <li><code>xrCam</code>：<code>renderer.xr.getCamera(camera)</code>取得の成否（<code>ok</code> / <code>error</code>）</li>
+      <li><code>session</code>：VRセッションの状態</li>
+      <li><code>inputSources</code>：検出されたコントローラー数</li>
+      <li><code>buttons</code>：検出された全ボタン数の合計</li>
+      <li><code>last</code>：最後に検出したボタン入力</li>
+    </ul>
+
+    <h3>見え方による原因の切り分け</h3>
+    <table class="m-table">
+      <thead><tr><th>見え方 / 数値</th><th>示唆される原因</th></tr></thead>
+      <tbody>
+        <tr><td>赤も青も見えない</td><td>VRループまたはThree.jsのmesh描画がXR空間に乗っていない可能性</td></tr>
+        <tr><td>赤（WORLD PANEL）だけ見える</td><td>world scene追加はOK。camera attach方式に問題</td></tr>
+        <tr><td>青（CAMERA PANEL）だけ見える</td><td>camera attachはOK。world再配置方式に問題</td></tr>
+        <tr><td>framesが増えない</td><td><code>renderer.setAnimationLoop</code>が動いていない</td></tr>
+        <tr><td>inputSourcesが0</td><td>Quest BrowserがコントローラーをinputSourceとして渡していない</td></tr>
+        <tr><td>inputSourcesはあるがbuttonsが0</td><td>gamepad取得に問題</td></tr>
+        <tr><td>buttonsはあるがlastが変わらない</td><td>button index調整が必要</td></tr>
+        <tr><td>lastは変わるがsceneが変わらない</td><td>シーン切替処理側の問題</td></tr>
+      </tbody>
+    </table>
+
+    <h3>通常画面のVR Debug Log</h3>
+    <p>画面左下に、VRセッション実行中・終了後を通じて最後の状態が残る「VR Debug Log」を表示します。ヘッドセットを外した後でも、<code>frames</code>・<code>xrCam</code>・<code>inputSources</code>・各コントローラーの<code>gamepad</code>有無とボタン数・<code>last</code>・next/prev/menuカウント・HUDパネルの表示状態を確認できます。ローカル表示のみで、外部送信・JSON保存・ZIP保存は一切行いません。</p>
+
+    <h2>コントローラー操作が効かない場合</h2>
+    <p>VR HUD・VR Debug Probe・通常画面のVR Debug Log内のデバッグ表示を見ることで、どこで問題が起きているか切り分けられます。</p>
+    <ul>
+      <li><strong>赤も青のデバッグパネルも見えない場合：</strong> まずはVR空間へのmesh描画自体を疑ってください。VR Debug Probeの判断表（上記）を参照してください。</li>
       <li><strong>HUDの<code>inputSources</code>が0の場合：</strong> Quest Browser側でコントローラー自体が認識されていません。コントローラーの電源・ペアリング状態を確認し、一度トリガーを引いて再アクティブ化してからお試しください。</li>
       <li><strong><code>inputSources</code>はあるが<code>last</code>が変わらない場合：</strong> ボタンの割当（インデックス）がお使いの環境と合っていない可能性があります。HUDに表示される各<code>src</code>の<code>buttons</code>数を確認し、押しているボタンのインデックスを確認してください。</li>
       <li><strong><code>last</code>は変わるがシーンが変わらない場合：</strong> 入力自体はアプリに届いているため、切替処理側の問題です。ページを再読み込みしてから再度お試しください。</li>
       <li>Meta Quest Browserを最新版に更新してからお試しください（Quest 3 / Meta Quest Browserを優先対応としています）。</li>
-      <li>それでも切り替わらない場合は、VRセッションを終了し、ページを再読み込みしてから再度VRに入ってください。VR終了時にはブラウザのコンソールに<code>[VR]</code>プレフィックス付きのログ（セッション開始・入力エッジ・シーン変更・最終デバッグ状態）も出力されます。</li>
+      <li>それでも切り替わらない場合は、VRセッションを終了し、ページを再読み込みしてから再度VRに入ってください。VR終了時にはブラウザのコンソールに<code>[VR Probe]</code>プレフィックス付きのログ（セッション開始・パネル作成・xrCam状態・入力エッジ・シーン変更・最終デバッグ状態）も出力されます。</li>
     </ul>
 
     <h2>通常表示に戻る方法</h2>

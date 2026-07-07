@@ -2703,3 +2703,28 @@ body {
 .mk-ctx-item:hover:not(:disabled) { background: rgba(79,124,255,.2); color: var(--accent-h, #7a9bff); }
 .mk-ctx-item:disabled { opacity: .35; cursor: default; }
 .mk-ctx-danger:hover:not(:disabled) { background: rgba(255,95,95,.15); color: var(--error, #ff5f5f); }
+
+/* VR Debug Probe: on-screen log (v2.14.1) — bottom-left, local-only,
+   persists after a VR session ends so the last probe/input state can be
+   read without a Quest Browser devtools console. */
+.vr-debug-log {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 9000;
+  max-width: 380px;
+  max-height: 40vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(10, 14, 22, 0.88);
+  border: 1px solid rgba(120, 170, 255, 0.4);
+  border-radius: 8px;
+  color: #cfe0ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+}
