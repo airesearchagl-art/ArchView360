@@ -86,44 +86,53 @@
       <li>上部ツールバーの「🥽 VRモード」を押す</li>
       <li>VR表示に入る</li>
       <li>HMDの向きで見回す</li>
-      <li>コントローラーのトリガーで次のシーンへ、スクイーズで前のシーンへ切り替える（v2.13.1）</li>
+      <li>コントローラーの<code>button[0]</code>で次のシーンへ、<code>button[2]</code>で前のシーンへ切り替える（v2.14）</li>
       <li>終了すると通常表示へ戻る</li>
     </ol>
 
-    <h2>VR中のシーン切替（v2.13）</h2>
+    <h2>VR中のシーン切替（v2.13、入力方式をv2.14で刷新）</h2>
     <p>VRセッション中に、Questコントローラーで前後のシーンへ切り替えられます。VRを終了せずに複数シーンを連続確認できます。</p>
+    <div class="m-callout">
+      <strong>v2.14での変更：</strong> v2.13 / v2.13.1では<code>selectstart</code>／<code>squeezestart</code>のcontroller eventに依存していましたが、Meta Quest 3実機ではこれらのイベントが安定して発火しないケースが確認されたため、v2.14では<code>XRSession.inputSources</code>をVR描画ループ内で毎フレーム直接確認するポーリング方式に変更しました。controller eventには依存しません。
+    </div>
     <table class="m-table">
-      <thead><tr><th>操作</th><th>コントローラー</th></tr></thead>
+      <thead><tr><th>操作</th><th>ボタン割当</th></tr></thead>
       <tbody>
-        <tr><td>次のシーンへ</td><td>トリガー（左右どちらのコントローラーでも可）</td></tr>
-        <tr><td>HUD表示/非表示</td><td>スクイーズ（グリップ）を短く押す</td></tr>
-        <tr><td>前のシーンへ</td><td>スクイーズ（グリップ）を約0.6秒以上長押し</td></tr>
+        <tr><td>次のシーンへ</td><td><code>button[0]</code>（handednessが取得できない場合、または右コントローラー）</td></tr>
+        <tr><td>HUD表示/非表示</td><td><code>button[1]</code>（左右どちらのコントローラーでも可）</td></tr>
+        <tr><td>前のシーンへ</td><td><code>button[2]</code>、または左コントローラーの<code>button[0]</code></td></tr>
         <tr><td>VR終了</td><td>Quest本体のメニューボタン等（ブラウザ側のVR終了操作）</td></tr>
       </tbody>
     </table>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
-      <li>v2.13.1（ホットフィックス）: Meta Quest 3実機でハンド判定・A/B/X/Yボタン判定に依存する入力が確実に拾えなかったため、左右どちらのコントローラーでも同じに動作する<code>selectstart</code>（トリガー）／<code>squeezestart</code>・<code>squeezeend</code>（スクイーズ）のみに入力方式を簡略化しました。</li>
+      <li>各コントローラーの<code>gamepad.buttons</code>のpressed状態を毎フレーム確認し、false→trueになった瞬間（エッジ）だけ動作します。約400msのクールダウンで連続切替を抑制します。押しっぱなしで連打にはなりません。</li>
+      <li>handedness（左右）が取得できる場合は、右コントローラーの<code>button[0]</code>＝次へ、左コントローラーの<code>button[0]</code>＝前へ、として扱われます。取得できない場合は<code>button[0]</code>＝次へ、<code>button[2]</code>＝前へ、として動作するため、handedness非対応環境でも操作できます。</li>
       <li>シーン切替時はテクスチャ読み込みのため一瞬暗転する場合がありますが、VRセッションは継続します。</li>
       <li>切替後は通常画面側のシーン一覧・FloorMap・Observer Modeの赤マーカーも自動的に追従します。</li>
-      <li>連続入力は約400msのクールダウンで抑制されます。ボタン押しっぱなしでの連続切替はしません。</li>
     </ul>
 
-    <h2>VR HUD（v2.13）</h2>
-    <p>VR内には、現在シーン名・「Scene N / 総数」・コントローラー操作ガイドを表示する小さなHUDパネルが表示されます。</p>
+    <h2>VR HUD（v2.14で再設計）</h2>
+    <p>VR開始直後から、HUDパネルが必ずXRカメラの前方に表示されます。表示内容は次の通りです。</p>
     <ul>
-      <li>HUDは視線のやや下方に緩やかに追従し、視界の中央は塞ぎません。</li>
-      <li>数秒間操作がないと自動的に薄く（半透明に）なります。シーンを切り替えると一時的に再表示されます。</li>
-      <li>スクイーズを短く押すと完全に非表示にできます。<strong>非表示中もシーン切替操作は有効</strong>です。</li>
-      <li>HUDの表示状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了後は初期状態（表示）に戻ります。</li>
+      <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
+      <li>操作ガイド（<code>button[0]</code>: next / <code>button[1]</code>: menu / <code>button[2]</code>: prev）</li>
+      <li><strong>入力デバッグ情報：</strong> <code>inputSources</code>数、各コントローラーのhandedness・gamepad有無・ボタン数、最後に検出した入力（<code>last:</code>）、next / prev / menuカウント、現在の<code>currentIdx</code></li>
+    </ul>
+    <ul>
+      <li>HUDはXRカメラ（<code>renderer.xr.getCamera()</code>）の前方約2m・視線よりやや下の位置に、毎フレーム再配置されます。</li>
+      <li>初期状態では自動で薄くなったり消えたりしません。<strong>常時表示</strong>で、<code>button[1]</code>操作でのみ非表示にできます（非表示中もシーン切替操作は有効）。</li>
+      <li>HUDの表示状態・デバッグ情報はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了後は初期状態（表示）に戻ります。</li>
     </ul>
 
     <h2>コントローラー操作が効かない場合</h2>
+    <p>VR HUD内のデバッグ表示を見ることで、どこで問題が起きているか切り分けられます。</p>
     <ul>
-      <li>v2.13.1では入力をトリガー（<code>selectstart</code>）とスクイーズ（<code>squeezestart</code>/<code>squeezeend</code>）のみに簡略化しています。A/B/X/Yボタンには依存しません。それでも反応しない場合は、HUD下部の <code>[debug] select:N squeeze:N</code> 表示でボタン入力自体がアプリに届いているか確認してください。</li>
+      <li><strong>HUDの<code>inputSources</code>が0の場合：</strong> Quest Browser側でコントローラー自体が認識されていません。コントローラーの電源・ペアリング状態を確認し、一度トリガーを引いて再アクティブ化してからお試しください。</li>
+      <li><strong><code>inputSources</code>はあるが<code>last</code>が変わらない場合：</strong> ボタンの割当（インデックス）がお使いの環境と合っていない可能性があります。HUDに表示される各<code>src</code>の<code>buttons</code>数を確認し、押しているボタンのインデックスを確認してください。</li>
+      <li><strong><code>last</code>は変わるがシーンが変わらない場合：</strong> 入力自体はアプリに届いているため、切替処理側の問題です。ページを再読み込みしてから再度お試しください。</li>
       <li>Meta Quest Browserを最新版に更新してからお試しください（Quest 3 / Meta Quest Browserを優先対応としています）。</li>
-      <li>コントローラーがスリープしている場合は、一度トリガーを引いて再アクティブ化してください。</li>
-      <li>それでも切り替わらない場合は、VRセッションを終了し、ページを再読み込みしてから再度VRに入ってください。</li>
+      <li>それでも切り替わらない場合は、VRセッションを終了し、ページを再読み込みしてから再度VRに入ってください。VR終了時にはブラウザのコンソールに<code>[VR]</code>プレフィックス付きのログ（セッション開始・入力エッジ・シーン変更・最終デバッグ状態）も出力されます。</li>
     </ul>
 
     <h2>通常表示に戻る方法</h2>

@@ -196,20 +196,31 @@ function init() {
   let inVrSession  = false;
   let autoRotateWasOnBeforeVr = false;
 
-  // ---- VR Scene Navigation & HUD (v2.13, hotfixed v2.13.1) ----
+  // ---- VR Scene Navigation & HUD (v2.13, hotfixed v2.13.1, rewritten v2.14) ----
   // Transient, VR-session-local only — never persisted to project JSON.
   let vrHudVisible = true;
   let vrHudMesh = null, vrHudCanvas = null, vrHudCtx = null, vrHudTexture = null;
-  let vrHudShownAt = 0;
   let vrLastInputAt = 0;
   const VR_INPUT_COOLDOWN_MS = 400;
-  const VR_HUD_DIM_AFTER_MS  = 5000;
-  const VR_SQUEEZE_LONGPRESS_MS = 600; // long squeeze = prev, short squeeze = HUD toggle
-  let vrControllers = [];
-  // v2.13.1 debug counters — shown on the in-VR HUD so real-hardware input
-  // issues are visible without a devtools console (Quest Browser has none
-  // accessible mid-session). Session-local only, never persisted.
-  const vrDebug = { selectCount: 0, squeezeCount: 0, lastAction: '-', lastAt: 0 };
+  // v2.14: controller 'connected'/'selectstart'/'squeezestart' events did not
+  // fire reliably on Meta Quest 3 / Quest Browser in real-device testing
+  // (v2.13 / v2.13.1). Replaced with a per-frame XRSession.inputSources poll
+  // (see _pollVrInputSources in vrLoop) — no event listeners are registered
+  // on renderer.xr.getController() anymore.
+  // Per-gamepad previous-button-state, keyed by the gamepad object itself
+  // (stable while a controller stays connected; WeakMap avoids manual cleanup).
+  const vrPrevButtonState = new WeakMap();
+  // Live debug snapshot rendered into the HUD every frame — Quest Browser has
+  // no accessible DevTools mid-session, so this is the only way to see
+  // whether input is reaching the app at all. Session-local, never persisted.
+  const vrDebug = {
+    inputSourceCount: 0,
+    sources: [],       // [{ handedness, hasGamepad, buttonsLength, pressed:[bool,...] }]
+    lastInput: '-',
+    nextCount: 0,
+    prevCount: 0,
+    menuCount: 0
+  };
 
   // ---- VR Observer Mode (v2.11) ----
   // Transient, browser-local only — never persisted to project JSON.
@@ -2632,17 +2643,17 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuestコントローラーのトリガー（どちらか）で次のシーンへ、スクイーズ短押しでHUD表示切替、スクイーズ長押しで前のシーンへ切り替えられます。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はコントローラーのbutton[0]で次のシーンへ、button[1]でHUD表示切替、button[2]で前のシーンへ切り替えられます。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
 
   // ============================================================
-  // VR Scene Navigation & HUD (v2.13)
+  // VR Scene Navigation & HUD (v2.13, input path rewritten in v2.14)
   // ============================================================
-  // In-headset HUD: PlaneGeometry + CanvasTexture panel that loosely follows
-  // the wearer's yaw, floating slightly below eye level so it never blocks
-  // the view center. State is VR-session-local and never saved to JSON.
+  // In-headset HUD: PlaneGeometry + CanvasTexture panel, repositioned every
+  // frame in front of the XR camera. State is VR-session-local and never
+  // saved to JSON/ZIP.
 
   function _vrNavPosition() {
     const order = _getNavOrder();
@@ -2656,17 +2667,23 @@ function init() {
   function _createVrHud() {
     if (vrHudMesh || !threeScene) return;
     vrHudCanvas = document.createElement('canvas');
-    vrHudCanvas.width = 1024; vrHudCanvas.height = 512;
+    vrHudCanvas.width = 1024; vrHudCanvas.height = 700;
     vrHudCtx = vrHudCanvas.getContext('2d');
     vrHudTexture = new THREE.CanvasTexture(vrHudCanvas);
     const mat = new THREE.MeshBasicMaterial({
-      map: vrHudTexture, transparent: true, opacity: 0,
+      map: vrHudTexture, transparent: true, opacity: 1,
       depthTest: false, side: THREE.DoubleSide
     });
-    vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.75), mat);
+    vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.1), mat);
     vrHudMesh.renderOrder = 999;
+    vrHudMesh.visible = vrHudVisible;
+    // Placed once synchronously so the panel is not sitting at the world
+    // origin for the first frame or two before vrLoop's per-frame
+    // _updateVrHudPose() call takes over.
+    vrHudMesh.position.set(0, -0.45, -2.0);
     threeScene.add(vrHudMesh);
     _drawVrHud();
+    console.log('[VR] hud created');
   }
 
   function _disposeVrHud() {
@@ -2680,11 +2697,10 @@ function init() {
 
   function _drawVrHud() {
     if (!vrHudCtx) return;
-    const ctx = vrHudCtx, W = 1024, H = 512;
+    const ctx = vrHudCtx, W = 1024, H = 700;
     ctx.clearRect(0, 0, W, H);
-    // Panel background
-    ctx.fillStyle = 'rgba(13, 18, 28, 0.82)';
-    ctx.strokeStyle = 'rgba(120, 170, 255, 0.55)';
+    ctx.fillStyle = 'rgba(13, 18, 28, 0.88)';
+    ctx.strokeStyle = 'rgba(120, 170, 255, 0.6)';
     ctx.lineWidth = 4;
     const r = 36;
     ctx.beginPath();
@@ -2698,129 +2714,175 @@ function init() {
     const s = (currentIdx >= 0 && scenes[currentIdx]) ? scenes[currentIdx] : null;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 64px system-ui, sans-serif';
-    ctx.fillText(`Scene ${nav.pos} / ${nav.total}`, W / 2, 100);
-    ctx.font = '48px system-ui, sans-serif';
+    ctx.font = 'bold 46px system-ui, sans-serif';
+    ctx.fillText('ArchView360 VR', W / 2, 70);
+    ctx.font = 'bold 56px system-ui, sans-serif';
+    ctx.fillText(`Scene ${nav.pos} / ${nav.total}`, W / 2, 140);
+    ctx.font = '42px system-ui, sans-serif';
     ctx.fillStyle = '#cfe0ff';
     let name = s ? s.name : '—';
     if (name.length > 24) name = name.slice(0, 23) + '…';
-    ctx.fillText(name, W / 2, 180);
+    ctx.fillText(name, W / 2, 200);
+
     ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(80, 220); ctx.lineTo(W - 80, 220); ctx.stroke();
-    ctx.font = '36px system-ui, sans-serif';
+    ctx.beginPath(); ctx.moveTo(80, 230); ctx.lineTo(W - 80, 230); ctx.stroke();
+
+    ctx.font = '32px system-ui, sans-serif';
     ctx.fillStyle = '#9fb4d8';
-    ctx.fillText('トリガー（どちらか）: 次のシーンへ', W / 2, 285);
-    ctx.fillText('スクイーズ長押し : 前のシーンへ', W / 2, 345);
-    ctx.fillText('スクイーズ短押し : メニュー表示切替', W / 2, 405);
-    ctx.fillText('VR終了 : Questのメニューボタン', W / 2, 465);
-    ctx.font = '26px monospace';
-    ctx.fillStyle = '#6a7a99';
-    ctx.fillText(`[debug] select:${vrDebug.selectCount} squeeze:${vrDebug.squeezeCount} last:${vrDebug.lastAction}`, W / 2, 500);
+    ctx.fillText('button[0] : next', W / 2, 280);
+    ctx.fillText('button[1] : menu (HUD表示切替)', W / 2, 320);
+    ctx.fillText('button[2] : prev', W / 2, 360);
+
+    ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
+    ctx.beginPath(); ctx.moveTo(80, 385); ctx.lineTo(W - 80, 385); ctx.stroke();
+
+    // Live debug snapshot (v2.14) — the only visibility Quest Browser gives
+    // us into whether WebXR input is reaching the app at all.
+    ctx.font = '24px monospace';
+    ctx.fillStyle = '#7a8bab';
+    let y = 420;
+    ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 32;
+    if (!vrDebug.sources.length) {
+      ctx.fillText('(no input sources detected)', W / 2, y); y += 32;
+    }
+    vrDebug.sources.forEach((src, i) => {
+      const btns = src.hasGamepad ? `${src.pressedCount} / ${src.buttonsLength}` : 'no gamepad';
+      ctx.fillText(`src${i}: ${src.handedness} gp:${src.hasGamepad ? 'yes' : 'no'} buttons:${btns}`, W / 2, y);
+      y += 32;
+    });
+    ctx.fillText(`last: ${vrDebug.lastInput}`, W / 2, y); y += 32;
+    ctx.fillText(`next:${vrDebug.nextCount}  prev:${vrDebug.prevCount}  menu:${vrDebug.menuCount}`, W / 2, y); y += 32;
+    ctx.fillText(`currentIdx: ${currentIdx}`, W / 2, y);
+
     if (vrHudTexture) vrHudTexture.needsUpdate = true;
   }
 
-  let _vrHudCamPos = null, _vrHudFwd = null;
+  const _vrHudPos = new THREE.Vector3();
+  const _vrHudDir = new THREE.Vector3();
   function _updateVrHudPose() {
-    if (!vrHudMesh || !camera) return;
-    if (!_vrHudCamPos) { _vrHudCamPos = new THREE.Vector3(); _vrHudFwd = new THREE.Vector3(); }
-    camera.getWorldPosition(_vrHudCamPos);
-    _vrHudFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-    // Yaw-only follow: the panel stays ahead of the wearer horizontally but
-    // does not chase vertical head movement, so it reads as a loose HUD
-    // slightly below eye level rather than a sticker glued to view center.
-    _vrHudFwd.y = 0;
-    if (_vrHudFwd.lengthSq() < 1e-4) _vrHudFwd.set(0, 0, -1);
-    _vrHudFwd.normalize();
-    vrHudMesh.position.copy(_vrHudCamPos).addScaledVector(_vrHudFwd, 2.4);
-    vrHudMesh.position.y = _vrHudCamPos.y - 0.55;
-    vrHudMesh.lookAt(_vrHudCamPos);
-    // Fade: fully visible right after show/interaction, dims after a few
-    // seconds; hidden entirely when toggled off.
-    const dimmed = (Date.now() - vrHudShownAt) > VR_HUD_DIM_AFTER_MS;
-    const target = vrHudVisible ? (dimmed ? 0.28 : 1) : 0;
-    const mat = vrHudMesh.material;
-    mat.opacity += (target - mat.opacity) * 0.12;
-    vrHudMesh.visible = mat.opacity > 0.02;
+    if (!vrHudMesh || !renderer) return;
+    // v2.14: reposition from the XR camera (not the plain `camera` object),
+    // which reflects the actual per-eye head pose during an active WebXR
+    // session — using it directly (rather than the mono `camera` used in
+    // v2.13) is what makes the panel reliably appear in front of the wearer
+    // on Quest hardware instead of drifting to wherever the mono camera
+    // last pointed before the session took over.
+    const xrCam = renderer.xr.getCamera ? renderer.xr.getCamera(camera) : camera;
+    if (!xrCam) return;
+    xrCam.getWorldPosition(_vrHudPos);
+    xrCam.getWorldDirection(_vrHudDir);
+    vrHudMesh.position.copy(_vrHudPos)
+      .addScaledVector(_vrHudDir, 2.0)
+      .add(new THREE.Vector3(0, -0.45, 0));
+    vrHudMesh.lookAt(_vrHudPos);
+    vrHudMesh.visible = vrHudVisible;
   }
 
   function _vrShowHud() {
-    vrHudShownAt = Date.now();
     _drawVrHud();
   }
 
-  function _vrHandleAction(action) {
-    if (!inVrSession) return;
+  function vrGoNextScene() {
+    if (!inVrSession || !scenes.length) return;
+    // Reuses the shared navigation order (marker.order on the active
+    // floorplan → scene filter → plain scene order); currentIdx, scene
+    // list, FloorMap and observerState all sync via switchToScene. The
+    // VR-safe guards added in v2.13 (skip DOM fade / no resetView / keep
+    // the XR animation loop instead of restarting rAF) still apply here.
+    nextScene();
+    vrDebug.nextCount++;
+    console.log('[VR] scene changed: next ->', currentIdx);
+    _vrShowHud();
+  }
+
+  function vrGoPrevScene() {
+    if (!inVrSession || !scenes.length) return;
+    prevScene();
+    vrDebug.prevCount++;
+    console.log('[VR] scene changed: prev ->', currentIdx);
+    _vrShowHud();
+  }
+
+  function vrToggleHud() {
+    vrHudVisible = !vrHudVisible;
+    vrDebug.menuCount++;
+    console.log('[VR] hud visible ->', vrHudVisible);
+    if (vrHudMesh) vrHudMesh.visible = vrHudVisible;
+    if (vrHudVisible) _vrShowHud();
+  }
+
+  function _vrActionForButton(handedness, buttonIndex) {
+    if (buttonIndex === 1) return 'menu';
+    if (buttonIndex === 2 || buttonIndex === 3) return 'prev';
+    if (buttonIndex === 0) return handedness === 'left' ? 'prev' : 'next';
+    return null;
+  }
+
+  function _vrRunAction(action, handedness, buttonIndex) {
+    vrDebug.lastInput = `${handedness || 'unknown'} button[${buttonIndex}] ${action}`;
+    console.log('[VR] button edge', vrDebug.lastInput);
     const now = Date.now();
-    vrDebug.lastAction = action; vrDebug.lastAt = now;
     if (now - vrLastInputAt < VR_INPUT_COOLDOWN_MS) return;
     vrLastInputAt = now;
-    if (action === 'next' || action === 'prev') {
-      if (!scenes.length) return;
-      // Reuses the shared navigation order (marker.order on the active
-      // floorplan → scene filter → plain scene order); currentIdx,
-      // scene list, FloorMap and observerState all sync via switchToScene.
-      if (action === 'next') nextScene(); else prevScene();
-      _vrShowHud(); // redraw + temporarily re-show even when dimmed
-    } else if (action === 'hud') {
-      vrHudVisible = !vrHudVisible;
-      if (vrHudVisible) _vrShowHud();
-    }
+    if (action === 'next') vrGoNextScene();
+    else if (action === 'prev') vrGoPrevScene();
+    else if (action === 'menu') vrToggleHud();
   }
 
-  // v2.13.1 hotfix: v2.13's handedness/gamepad-button routing did not fire
-  // reliably on Meta Quest 3 hardware (real-device inputs never reached the
-  // handlers, leaving VR mode indistinguishable from v2.12). Simplified to
-  // the two native WebXR select/squeeze events, registered identically on
-  // both controllers with no handedness or gamepad.buttons dependency:
-  //   - selectstart (either controller): next scene — the primary, most
-  //     reliably-dispatched WebXR input event across browsers/OS versions
-  //   - squeezestart (either controller): short press → toggle HUD,
-  //     long press (>=600ms, measured via squeezeend) → previous scene
-  // Prev is intentionally the secondary path per hotfix scope; next and HUD
-  // toggle must work unconditionally.
-  function _setupVrControllers() {
-    _teardownVrControllers();
-    for (let i = 0; i < 2; i++) {
-      const ctrl = renderer.xr.getController(i);
-      const entry = { ctrl, squeezeStartedAt: 0 };
-      entry.onSelectStart = () => {
-        vrDebug.selectCount++;
-        _vrHandleAction('next');
-      };
-      entry.onSqueezeStart = () => {
-        vrDebug.squeezeCount++;
-        entry.squeezeStartedAt = Date.now();
-      };
-      entry.onSqueezeEnd = () => {
-        const held = entry.squeezeStartedAt ? Date.now() - entry.squeezeStartedAt : 0;
-        entry.squeezeStartedAt = 0;
-        _vrHandleAction(held >= VR_SQUEEZE_LONGPRESS_MS ? 'prev' : 'hud');
-      };
-      ctrl.addEventListener('selectstart', entry.onSelectStart);
-      ctrl.addEventListener('squeezestart', entry.onSqueezeStart);
-      ctrl.addEventListener('squeezeend', entry.onSqueezeEnd);
-      vrControllers.push(entry);
-    }
-  }
-
-  function _teardownVrControllers() {
-    vrControllers.forEach((entry) => {
-      entry.ctrl.removeEventListener('selectstart', entry.onSelectStart);
-      entry.ctrl.removeEventListener('squeezestart', entry.onSqueezeStart);
-      entry.ctrl.removeEventListener('squeezeend', entry.onSqueezeEnd);
+  // v2.14: primary input path. Polled once per frame from vrLoop instead of
+  // relying on controller 'selectstart'/'squeezestart' events, which did not
+  // fire reliably on Meta Quest 3 hardware in v2.13/v2.13.1 real-device
+  // testing. Reads XRSession.inputSources directly — this is the same data
+  // WebXR exposes controller events from, but polling it ourselves removes
+  // any dependency on Three.js's controller event dispatch working on a
+  // given browser/OS combination.
+  function _pollVrInputSources() {
+    const session = renderer && renderer.xr && renderer.xr.getSession ? renderer.xr.getSession() : xrSession;
+    const sources = session && session.inputSources ? Array.from(session.inputSources) : [];
+    vrDebug.inputSourceCount = sources.length;
+    vrDebug.sources = sources.map((source) => {
+      const gamepad = source.gamepad;
+      const handedness = source.handedness || 'unknown';
+      if (!gamepad || !gamepad.buttons) {
+        return { handedness, hasGamepad: false, buttonsLength: 0, pressedCount: 0 };
+      }
+      let prev = vrPrevButtonState.get(gamepad);
+      if (!prev) { prev = []; vrPrevButtonState.set(gamepad, prev); }
+      let pressedCount = 0;
+      gamepad.buttons.forEach((button, idx) => {
+        const nowPressed = !!(button && button.pressed);
+        if (nowPressed) pressedCount++;
+        const wasPressed = !!prev[idx];
+        if (!wasPressed && nowPressed) {
+          const action = _vrActionForButton(handedness, idx);
+          if (action) _vrRunAction(action, handedness, idx);
+        }
+        prev[idx] = nowPressed;
+      });
+      return { handedness, hasGamepad: true, buttonsLength: gamepad.buttons.length, pressedCount };
     });
-    vrControllers = [];
+  }
+
+  function _vrResetInputState() {
+    vrDebug.inputSourceCount = 0;
+    vrDebug.sources = [];
+    vrDebug.lastInput = '-';
+    vrDebug.nextCount = 0;
+    vrDebug.prevCount = 0;
+    vrDebug.menuCount = 0;
+    vrLastInputAt = 0;
   }
 
   let _vrHudDebugFrameCount = 0;
   let _vrObsFrameCount = 0;
   function vrLoop() {
+    _pollVrInputSources();
     _updateVrHudPose();
-    // Keep the debug counters on the HUD reasonably live (~2/sec) without
-    // redrawing the canvas every frame.
-    if (vrHudVisible && vrHudCtx) {
-      _vrHudDebugFrameCount = (_vrHudDebugFrameCount + 1) % 30;
+    // Redraw the HUD canvas a few times a second so the live debug
+    // counters/inputSources info stay current even without a button edge.
+    if (vrHudCtx) {
+      _vrHudDebugFrameCount = (_vrHudDebugFrameCount + 1) % 20;
       if (_vrHudDebugFrameCount === 0) _drawVrHud();
     }
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
@@ -2840,10 +2902,10 @@ function init() {
   function onVrSessionEnd() {
     inVrSession = false;
     xrSession = null;
-    // v2.13: clean up VR-only input listeners and HUD, restore defaults
-    _teardownVrControllers();
+    console.log('[VR] session ended. last debug state:', JSON.parse(JSON.stringify(vrDebug)));
     _disposeVrHud();
     vrHudVisible = true;
+    _vrResetInputState();
     if (renderer) {
       renderer.setAnimationLoop(null);
       renderer.xr.enabled = false;
@@ -2868,6 +2930,10 @@ function init() {
       return;
     }
     try {
+      renderer.xr.enabled = true;
+      vrHudVisible = true;
+      _vrResetInputState();
+      _createVrHud();
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor']
       });
@@ -2876,17 +2942,10 @@ function init() {
       autoRotateWasOnBeforeVr = autoRotate;
       autoRotate = false;
       stopRender();
-      renderer.xr.enabled = true;
-      // v2.13: register controller listeners before setSession so the
-      // 'connected' events fired during session setup are not missed.
-      _setupVrControllers();
       await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
       renderer.setAnimationLoop(vrLoop);
-      // v2.13: in-headset HUD (scene name / position / controller guide)
-      vrHudVisible = true;
-      vrLastInputAt = 0;
-      _createVrHud();
+      console.log('[VR] session started');
       _vrShowHud();
       // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
       observerState.role = 'viewer';
@@ -2901,8 +2960,8 @@ function init() {
     } catch (err) {
       inVrSession = false;
       xrSession = null;
-      _teardownVrControllers();
       _disposeVrHud();
+      _vrResetInputState();
       if (renderer) renderer.xr.enabled = false;
       updateVrBtn();
       showToast('VRセッションを開始できませんでした');
@@ -3974,7 +4033,7 @@ function init() {
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.13.1',
+      appVersion:  '2.14',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

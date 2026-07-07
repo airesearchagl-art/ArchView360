@@ -51,18 +51,18 @@
       </tbody>
     </table>
 
-    <h2>VR中のQuestコントローラー操作（v2.13）</h2>
+    <h2>VR中のQuestコントローラー操作（v2.13、v2.14で入力方式を刷新）</h2>
     <p>VRセッション中はキーボードショートカットの代わりに、Questコントローラーで操作します。詳細は <a href="/docs/vr.html">VRモード</a> を参照してください。</p>
     <table class="m-table">
       <thead><tr><th>操作</th><th>動作</th></tr></thead>
       <tbody>
-        <tr><td>トリガー（左右どちらのコントローラーでも可）</td><td>次のシーンへ（← →キーと同じナビゲーション順）</td></tr>
-        <tr><td>スクイーズ（グリップ）短押し</td><td>VR HUDの表示/非表示を切り替え</td></tr>
-        <tr><td>スクイーズ（グリップ）長押し（約0.6秒以上）</td><td>前のシーンへ</td></tr>
+        <tr><td><code>button[0]</code></td><td>次のシーンへ（← →キーと同じナビゲーション順）。handednessが取得できる場合は右コントローラーの<code>button[0]</code></td></tr>
+        <tr><td><code>button[1]</code></td><td>VR HUDの表示/非表示を切り替え</td></tr>
+        <tr><td><code>button[2]</code></td><td>前のシーンへ。handednessが取得できる場合は左コントローラーの<code>button[0]</code>でも同じ動作</td></tr>
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>注意（v2.13.1）：</strong> A/B/X/Yボタンやハンド判定には依存せず、トリガー・スクイーズのみで動作します。入力が反応しない場合は、VR HUD下部の <code>[debug] select:N squeeze:N</code> 表示でボタン入力自体が届いているか確認してください。
+      <strong>注意（v2.14）：</strong> v2.13/v2.13.1のcontroller event（<code>selectstart</code>/<code>squeezestart</code>）方式から、<code>XRSession.inputSources</code>を毎フレーム直接ポーリングする方式に変更しました。A/B/X/Yボタンの名称やハンド判定の可否に依存せず、ボタンインデックス（<code>button[0]</code>〜<code>[2]</code>）のみで動作します。入力が反応しない場合は、VR HUD内の <code>inputSources</code> 数・<code>last</code>（最後に検出した入力）表示でボタン入力自体が届いているか確認してください。
     </div>
 
     <div class="m-callout">
