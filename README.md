@@ -74,7 +74,7 @@ v2.13〜v2.14.1では、controller event方式（`selectstart`/`squeezestart`）
 通常画面（VR外）の左下にも「VR Debug Log」が表示され、VRセッション終了後もヘッドセットを外した状態で入力状態を確認できます。ローカル表示のみで、外部送信・JSON保存・ZIP保存は一切行いません。
 
 - **対応範囲：** 単体VRモードのみ。比較VR・FloorMap VR・mp4動画VR・Insta360ネイティブ形式は対象外
-- **注意：** Quest 3 / Meta Quest Browserでの動作を優先確認しています。入力が反応しない場合は、まずHUDまたは通常画面VR Debug Logの`inputSources`数を確認してください（0ならQuest Browser側でコントローラーが認識されていません。詳しくは[VRモードマニュアル](docs/vr.html)のトラブルシュート欄を参照）。
+- **注意：** Quest 3 / Meta Quest Browserを優先対応の環境としています（本PRのArchView360本体としての実機確認はマージ後のVercel Production反映後に実施予定です）。入力が反応しない場合は、まずHUDまたは通常画面VR Debug Logの`inputSources`数を確認してください（0ならQuest Browser側でコントローラーが認識されていません。詳しくは[VRモードマニュアル](docs/vr.html)のトラブルシュート欄を参照）。
 
 ### Meta Questでの利用手順
 
