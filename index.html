@@ -12,7 +12,7 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.14.1</span>
+        <span id="app-version-badge" class="app-version-badge">v2.15</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
@@ -451,7 +451,7 @@
   </main>
 
   <footer class="footer">
-    <p>ArchView360 v2.14.1 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
+    <p>ArchView360 v2.15 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
   </footer>
 
   <script src="vendor/three.min.js"></script>
@@ -577,7 +577,7 @@
         </section>
         <section class="qh-section">
           <h3 class="qh-heading">🥽 VRモード</h3>
-          <p class="qh-text">Quest Browserでの利用を推奨。PC画面拡張ではVR表示にならない場合があります。VR中はコントローラーのbutton[0]で次のシーンへ、button[1]でHUD表示/非表示、button[2]で前のシーンへ切り替えできます。HUDには入力デバッグ情報も表示されます。v2.14.1では赤（WORLD）/青（CAMERA）のVR Debug Probeパネルが常時表示される暫定デバッグ版です。</p>
+          <p class="qh-text">Quest Browserでの利用を推奨。PC画面拡張ではVR表示にならない場合があります。VR中はQuest Touch Plusコントローラーの右Aボタンで次のシーンへ、左Xボタンで前のシーンへ、右Bボタンでhud表示/非表示、左Yボタンでdebug詳細/簡易切替ができます。</p>
         </section>
         <section class="qh-section">
           <h3 class="qh-heading">👁 Observer Mode</h3>
@@ -616,7 +616,7 @@
     </div>
   </div>
 
-  <!-- VR Debug Probe: on-screen log (v2.14.1). Local-only, never persisted. -->
+  <!-- VR Debug Log: on-screen input state (v2.15). Local-only, never persisted. -->
   <pre id="vr-debug-log" class="vr-debug-log" style="display:none" aria-label="VR Debug Log"></pre>
 
   <script src="script.js?v=20260621a" defer></script>
