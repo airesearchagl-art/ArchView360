@@ -90,6 +90,18 @@
       <li>終了すると通常表示へ戻る</li>
     </ol>
 
+    <h2>VR Cube Probe（v2.15.1 — 表示確認専用の検証ブロック）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> このブロックは、下記のHUD / Debug Panelとは<strong>完全に独立</strong>しています。既存のHUD/Debug Panel実装を修正するのではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」だけを最小構成で確認するために追加しました。シーン切替やコントローラー入力の確認はこのブロックの対象外です（表示確認後、v2.15.2でController入力とシーン切替を戻す予定です）。
+    </div>
+    <ul>
+      <li>VR開始直後、赤いキューブ（一辺30cm）がカメラ前方1.5mに表示されます。</li>
+      <li><code>renderer.render(threeScene, camera)</code>で使っているのと同一の<code>threeScene</code>へ<code>scene.add()</code>するだけの最小実装です。<code>camera.add()</code>や<code>scene.add(camera)</code>は使いません。</li>
+      <li><code>MeshBasicMaterial</code>（<code>depthTest:false</code> / <code>depthWrite:false</code> / <code>renderOrder:9999</code>）を使用し、毎フレームカメラ前方へ再配置します。</li>
+      <li>360°パノラマ画像と同時に表示されます。</li>
+      <li>VRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
+    </ul>
+
     <h2>VR中のシーン切替 / HUD / Debug Panel（v2.15 — WebXR Sandbox Feedback）</h2>
     <div class="m-callout">
       <strong>v2.15での方針転換：</strong> v2.13〜v2.14.1では、controller event方式 → <code>XRSession.inputSources</code>ポーリング方式への刷新 → 原因切り分け用の赤/青デバッグパネル追加、と段階的にArchView360本体で試行錯誤しましたが、Meta Quest 3実機ではいずれも十分に動作しませんでした。v2.15では、別プロジェクト（WebXR-Sandbox）でQuest 3 / Quest Browser実機確認済みの方式だけを最小移植しています。
