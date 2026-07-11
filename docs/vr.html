@@ -95,15 +95,15 @@
       <strong>目的：</strong> このブロックは、下記のHUD / Debug Panelとは<strong>完全に独立</strong>しています。既存のHUD/Debug Panel実装を修正するのではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」だけを最小構成で確認するために追加しました。シーン切替やコントローラー入力の確認はこのブロックの対象外です。
     </div>
     <div class="m-callout">
-      <strong>v2.15.2での変更：</strong> v2.15.1の「カメラ前方1.5mへ毎フレーム追従する赤Cube」を実機確認しても表示が確認できなかったため、camera-forward計算そのものを疑いから除外する目的で、<strong>固定座標</strong>の4色Cubeへ変更しました。詳しい描画経路の監査結果は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
+      <strong>v2.15.2での変更：</strong> v2.15.1の「カメラ前方1.5mへ毎フレーム追従する赤Cube」を実機確認しても表示が確認できなかったため、camera-forward計算そのものを疑いから除外する目的で、<strong>固定座標</strong>の4色Cubeへ変更しました。y座標は<code>1.6</code>（WebXRの<code>local-floor</code>基準では床がy=0のため、装着者の目線に近い高さ）に設定しています。詳しい描画経路の監査結果は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
     </div>
     <table class="m-table">
       <thead><tr><th>色</th><th>座標</th></tr></thead>
       <tbody>
-        <tr><td>Red</td><td><code>(0, 0, -2)</code></td></tr>
-        <tr><td>Blue</td><td><code>(0, 0, 2)</code></td></tr>
-        <tr><td>Green</td><td><code>(2, 0, 0)</code></td></tr>
-        <tr><td>Yellow</td><td><code>(-2, 0, 0)</code></td></tr>
+        <tr><td>Red</td><td><code>(0, 1.6, -2)</code></td></tr>
+        <tr><td>Blue</td><td><code>(0, 1.6, 2)</code></td></tr>
+        <tr><td>Green</td><td><code>(2, 1.6, 0)</code></td></tr>
+        <tr><td>Yellow</td><td><code>(-2, 1.6, 0)</code></td></tr>
       </tbody>
     </table>
     <ul>

@@ -2742,11 +2742,16 @@ function init() {
   // repositioned every frame in front of the camera; v2.15.2 rules out
   // that per-frame reposition math entirely by using four cubes at fixed
   // world coordinates, added once and never moved.
+  // y=1.6: WebXR 'local-floor' reference space puts the floor at y=0, so a
+  // y=0 cube sits near the wearer's feet and is easy to mistake for "not
+  // rendering" when it's actually just below the natural sightline. 1.6m
+  // approximates a standing eye height, keeping all four cubes near where
+  // the wearer is actually looking.
   const VR_PROBE_CUBE_POSITIONS = [
-    { name: 'red',    color: 0xff0000, pos: [0, 0, -2] },
-    { name: 'blue',   color: 0x0000ff, pos: [0, 0, 2] },
-    { name: 'green',  color: 0x00ff00, pos: [2, 0, 0] },
-    { name: 'yellow', color: 0xffff00, pos: [-2, 0, 0] }
+    { name: 'red',    color: 0xff0000, pos: [0, 1.6, -2] },
+    { name: 'blue',   color: 0x0000ff, pos: [0, 1.6, 2] },
+    { name: 'green',  color: 0x00ff00, pos: [2, 1.6, 0] },
+    { name: 'yellow', color: 0xffff00, pos: [-2, 1.6, 0] }
   ];
 
   function _createVrProbeCubes() {

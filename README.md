@@ -94,7 +94,7 @@ v2.13〜v2.14.1では、controller event方式（`selectstart`/`squeezestart`）
 VR開始直後、通常のHUD/Debug Panelとは**完全に独立した**4色のキューブ（一辺40cm）が表示されます。
 
 - 目的はHUD/Debug Panelのデバッグではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」を最小構成で確認することです
-- v2.15.1では「カメラ前方1.5mへ毎フレーム追従する赤Cube」でしたが、camera-forward計算そのものを疑いから除外するため、v2.15.2では**固定座標**（Red `(0,0,-2)` / Blue `(0,0,2)` / Green `(2,0,0)` / Yellow `(-2,0,0)`）へ変更し、毎フレームの位置更新をやめました
+- v2.15.1では「カメラ前方1.5mへ毎フレーム追従する赤Cube」でしたが、camera-forward計算そのものを疑いから除外するため、v2.15.2では**固定座標**（Red `(0,1.6,-2)` / Blue `(0,1.6,2)` / Green `(2,1.6,0)` / Yellow `(-2,1.6,0)`）へ変更し、毎フレームの位置更新をやめました。y座標は`local-floor`基準での床（y=0）ではなく装着者の目線に近い`1.6`に設定しています
 - `renderer.render(threeScene, camera)`で使っているのと同一の`threeScene`へ`scene.add()`するだけで、`camera.add()`や`renderer.xr.getCamera().add()`は使いません
 - `MeshBasicMaterial`（`depthTest:false` / `depthWrite:false` / `renderOrder:9999`）を使用します
 - 360°パノラマ画像と同時に表示されます
