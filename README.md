@@ -1,6 +1,6 @@
 # ArchView360
 
-> **v2.15.1 — VR Cube Probe** — v2.15のVR HUD/Debug Panel実装には手を加えず、「ArchView360が追加したMeshがVR空間内に表示されるか」だけを切り分けて確認するための、独立した検証用の赤いキューブ（VR Cube Probe）を追加しました。シーン切替やコントローラー入力は今回のスコープ外です（表示確認後、v2.15.2で対応予定）。v2.15の内容 — 別プロジェクト（WebXR-Sandbox）でMeta Quest 3 / Quest Browser実機確認済みのVR実装方式をArchView360へ最小移植 — はそのまま維持しています。VR HUDは実証済みの`camera-forward`方式（mono cameraの前方に毎フレーム再配置）に統一し、コントローラー入力は`session.inputSources`を毎フレームポーリングする方式を採用。Quest Touch Plusコントローラーの右A/左X/右B/左Yボタンで、VR中の次/前シーン切替・HUD表示切替・Debug Panelの詳細/簡易切替ができます。D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できる、軽量な静的Webビューワーです。サーバーを持たないローカル完結型ツールで、画像・平面図・JSON・ZIPパッケージはすべてブラウザ内で処理され、外部送信されません。プロジェクト全体（設定＋画像）を1つのZIPファイルとして書き出し・読み込みできるようになり、社内展開・施主への共有が簡単になりました。Meta QuestなどのWebXR対応ブラウザでは、現在表示中のシーンを単体VRモードで没入表示できます。シーン一覧は横並びカード（名称＋メタ情報 ／ 固定サイズサムネイル）になり、大量のシーンでも視認性とスクロール性を維持します。未配置判定はmarker基準に統一され、マーカー番号（order）を後から編集できます。← → キーはそのFloorMap上のマーカー番号順で移動し、プロジェクトダッシュボードでシーン数・配置率をリアルタイム確認できます。
+> **v2.15.2 — VR Render Path Audit** — v2.15.1までのHUD/Cube Probeを実機確認してもなお何も表示されなかったため、機能追加ではなく**ArchView360のVR描画経路そのものの監査**を行いました。Scene/Camera/Rendererの生成・再代入箇所、`renderer.render()`・`requestAnimationFrame()`・`renderer.setAnimationLoop()`の全呼び出し箇所を棚卸しし、結果を[`docs/vr-render-path-audit.md`](docs/vr-render-path-audit.md)にまとめています。v2.15.1のcamera前方追従Cubeは、camera-forward計算そのものを疑いから除外するため、固定座標に4色Cubeを配置する方式（Red/Blue/Green/Yellow）に置き換えました。HUD方式・Controller入力（v2.15の内容）には手を加えていません。D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できる、軽量な静的Webビューワーです。サーバーを持たないローカル完結型ツールで、画像・平面図・JSON・ZIPパッケージはすべてブラウザ内で処理され、外部送信されません。プロジェクト全体（設定＋画像）を1つのZIPファイルとして書き出し・読み込みできるようになり、社内展開・施主への共有が簡単になりました。Meta QuestなどのWebXR対応ブラウザでは、現在表示中のシーンを単体VRモードで没入表示できます。シーン一覧は横並びカード（名称＋メタ情報 ／ 固定サイズサムネイル）になり、大量のシーンでも視認性とスクロール性を維持します。未配置判定はmarker基準に統一され、マーカー番号（order）を後から編集できます。← → キーはそのFloorMap上のマーカー番号順で移動し、プロジェクトダッシュボードでシーン数・配置率をリアルタイム確認できます。
 
 [![Static Site](https://img.shields.io/badge/deploy-Vercel-blue)](https://github.com/airesearchagl-art/ArchView360)
 [![Three.js](https://img.shields.io/badge/Three.js-r128-green)](https://threejs.org/)
@@ -89,16 +89,20 @@ v2.13〜v2.14.1では、controller event方式（`selectstart`/`squeezestart`）
 
 詳しくは [VRモードマニュアル](docs/vr.html) を参照してください。
 
-### VR Cube Probe（v2.15.1 — 表示確認専用の検証ブロック）
+### VR Cube Probe（v2.15.1で追加、v2.15.2で固定座標4Cubeへ変更）
 
-VR開始直後、通常のHUD/Debug Panelとは**完全に独立した**赤いキューブ（一辺30cm）が、常にカメラの前方1.5mに表示されます。
+VR開始直後、通常のHUD/Debug Panelとは**完全に独立した**4色のキューブ（一辺40cm）が表示されます。
 
 - 目的はHUD/Debug Panelのデバッグではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」を最小構成で確認することです
-- WebXR-Sandbox（Quest 3実機で表示確認済み）と同じ最小実装：`renderer.render(threeScene, camera)`で使っているのと同一の`threeScene`へ`scene.add()`するだけで、`camera.add()`や`scene.add(camera)`は使いません
-- `MeshBasicMaterial`（`depthTest:false` / `depthWrite:false` / `renderOrder:9999`）を使用し、毎フレームカメラ前方へ再配置します
+- v2.15.1では「カメラ前方1.5mへ毎フレーム追従する赤Cube」でしたが、camera-forward計算そのものを疑いから除外するため、v2.15.2では**固定座標**（Red `(0,0,-2)` / Blue `(0,0,2)` / Green `(2,0,0)` / Yellow `(-2,0,0)`）へ変更し、毎フレームの位置更新をやめました
+- `renderer.render(threeScene, camera)`で使っているのと同一の`threeScene`へ`scene.add()`するだけで、`camera.add()`や`renderer.xr.getCamera().add()`は使いません
+- `MeshBasicMaterial`（`depthTest:false` / `depthWrite:false` / `renderOrder:9999`）を使用します
 - 360°パノラマ画像と同時に表示されます
+- どの方向を向いても4方向のいずれかにCubeが存在するはずです
 - シーン切替・コントローラー入力はこのキューブでは扱いません（v2.15のHUD/Debug Panelはそのまま並行して動作します）
 - VRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません
+
+詳しい描画経路の監査結果は [VR Render Path Audit](docs/vr-render-path-audit.md) を参照してください。
 
 ---
 
