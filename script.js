@@ -239,17 +239,23 @@ function init() {
   // populated after the session ends.
   const vrDebugLogEl = $('vr-debug-log');
 
-  // ---- VR Cube Probe (v2.15.1) ----
+  // ---- VR Cube Probe (v2.15.1, changed to world-fixed cubes in v2.15.2) ----
   // Independent, minimal verification block — deliberately NOT wired into
-  // the camera-forward HUD/Debug Panel above. Purpose: confirm that a Mesh
-  // added by ArchView360 to the same `threeScene` rendered via
-  // renderer.render(threeScene, camera) is actually visible in the Quest 3
-  // headset at all, using the exact minimal approach that was shown working
-  // in the WebXR-Sandbox project (plain scene.add + reposition-in-front-of-
-  // camera every frame; no camera.add(), no scene.add(camera)). Scene
-  // switching / controller input are explicitly out of scope here and are
-  // planned for v2.15.2. Session-local only; never persisted.
-  let vrProbeMesh = null;
+  // the camera-forward HUD/Debug Panel above and not touched by this
+  // audit's render-path changes. v2.15.1 used a single cube repositioned
+  // every frame in front of the camera; that reposition math is one more
+  // variable this audit wants to rule out, so v2.15.2 replaces it with four
+  // cubes at fixed world coordinates (added once, never moved) — whichever
+  // direction the wearer looks, one should be in view if the scene is
+  // reaching the XR compositor at all. Session-local only; never persisted.
+  let vrProbeCubes = []; // Mesh[] — red/blue/green/yellow, see _createVrProbeCubes()
+
+  // ---- VR Render Path (v2.15.2 audit) ----
+  // Explicit render-mode flag so the two rendering paths (normal
+  // requestAnimationFrame loop vs. renderer.setAnimationLoop(vrLoop) during
+  // an XR session) are never ambiguous. See docs/vr-render-path-audit.md
+  // for the full audit of scene/camera/render-loop call sites.
+  let renderMode = 'normal'; // 'normal' | 'vr'
 
   // ---- VR Observer Mode (v2.11) ----
   // Transient, browser-local only — never persisted to project JSON.
@@ -2726,51 +2732,54 @@ function init() {
   }
 
   // ------------------------------------------------------------
-  // VR Cube Probe (v2.15.1) — minimal WebXR-Sandbox verification block
+  // VR Cube Probe (v2.15.1 camera-forward cube, replaced by world-fixed
+  // cubes in v2.15.2) — minimal WebXR-Sandbox verification block
   // ------------------------------------------------------------
   // Deliberately independent of _createVrHud/_updateVrHudPose above: this
   // does not reuse or depend on any HUD/Debug Panel state, so it isolates
   // one question only — does a Mesh added to `threeScene` show up in the
-  // headset alongside the 360° photo. Minimal on purpose: a single red
-  // cube, no canvas texture, no text.
-  function _createVrProbeMesh() {
-    if (vrProbeMesh || !threeScene) return;
-    const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xff0000,
-      depthTest: false,
-      depthWrite: false
+  // headset alongside the 360° photo. v2.15.1 used a single cube
+  // repositioned every frame in front of the camera; v2.15.2 rules out
+  // that per-frame reposition math entirely by using four cubes at fixed
+  // world coordinates, added once and never moved.
+  // y=1.6: WebXR 'local-floor' reference space puts the floor at y=0, so a
+  // y=0 cube sits near the wearer's feet and is easy to mistake for "not
+  // rendering" when it's actually just below the natural sightline. 1.6m
+  // approximates a standing eye height, keeping all four cubes near where
+  // the wearer is actually looking.
+  const VR_PROBE_CUBE_POSITIONS = [
+    { name: 'red',    color: 0xff0000, pos: [0, 1.6, -2] },
+    { name: 'blue',   color: 0x0000ff, pos: [0, 1.6, 2] },
+    { name: 'green',  color: 0x00ff00, pos: [2, 1.6, 0] },
+    { name: 'yellow', color: 0xffff00, pos: [-2, 1.6, 0] }
+  ];
+
+  function _createVrProbeCubes() {
+    if (vrProbeCubes.length || !threeScene) return;
+    VR_PROBE_CUBE_POSITIONS.forEach((spec) => {
+      const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+      const mat = new THREE.MeshBasicMaterial({
+        color: spec.color,
+        depthTest: false,
+        depthWrite: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 9999;
+      mesh.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
+      threeScene.add(mesh);
+      vrProbeCubes.push(mesh);
     });
-    vrProbeMesh = new THREE.Mesh(geo, mat);
-    vrProbeMesh.renderOrder = 9999;
-    // Placed once synchronously so the cube isn't sitting at the world
-    // origin for the first frame or two before vrLoop's per-frame
-    // _updateVrProbeMesh() call takes over.
-    vrProbeMesh.position.set(0, 0, -1.5);
-    threeScene.add(vrProbeMesh);
-    console.log('[VR Cube Probe] mesh created and added to threeScene');
+    console.log('[VR Cube Probe]', 'cubes created', vrProbeCubes.length, 'threeScene.uuid', threeScene.uuid);
   }
 
-  function _disposeVrProbeMesh() {
-    if (!vrProbeMesh) return;
-    if (threeScene) threeScene.remove(vrProbeMesh);
-    vrProbeMesh.geometry.dispose();
-    vrProbeMesh.material.dispose();
-    vrProbeMesh = null;
-  }
-
-  const _vrProbePos = new THREE.Vector3();
-  const _vrProbeDir = new THREE.Vector3();
-  function _updateVrProbeMesh() {
-    if (!vrProbeMesh || !camera) return;
-    // Reposition every frame in front of the mono `camera` object — the
-    // same camera renderer.render(threeScene, camera) uses. No
-    // camera.add() and no scene.add(camera): the cube is a plain scene
-    // child whose world position is recomputed from the camera's current
-    // pose each frame.
-    camera.getWorldPosition(_vrProbePos);
-    camera.getWorldDirection(_vrProbeDir);
-    vrProbeMesh.position.copy(_vrProbePos).addScaledVector(_vrProbeDir, 1.5);
+  function _disposeVrProbeCubes() {
+    if (!vrProbeCubes.length) return;
+    vrProbeCubes.forEach((mesh) => {
+      if (threeScene) threeScene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    });
+    vrProbeCubes = [];
   }
 
   function _vrButtonSummary(side) {
@@ -2992,12 +3001,36 @@ function init() {
   // It stays populated after the VR session ends so results can be read
   // once the headset is off. Local-only; never sent anywhere, never saved
   // to JSON/ZIP.
+  // v2.15.2 audit fields, kept separate from vrDebug (input state) so this
+  // one block can be read as "is the render path itself alive" independent
+  // of whether any controller input has occurred. See
+  // docs/vr-render-path-audit.md and requirement 7 in the audit brief.
+  const vrRenderDebug = {
+    threeSceneUuid: '-',
+    cameraUuid: '-',
+    xrEnabled: false,
+    animationLoopActive: false,
+    normalRafActive: false,
+    cubeCount: 0,
+    lastLoopAt: 0,
+    frameCount: 0
+  };
+
   function _renderVrDebugLog(statusLine) {
     if (!vrDebugLogEl) return;
     vrDebugLogEl.style.display = '';
     vrDebugLogEl.textContent =
 `VR Debug:
 ${statusLine}
+renderMode: ${renderMode}
+threeScene uuid: ${vrRenderDebug.threeSceneUuid}
+camera uuid: ${vrRenderDebug.cameraUuid}
+renderer.xr.enabled: ${vrRenderDebug.xrEnabled}
+animationLoop active: ${vrRenderDebug.animationLoopActive}
+normalRAF active: ${vrRenderDebug.normalRafActive}
+cube count: ${vrRenderDebug.cubeCount}
+last vrLoop timestamp: ${vrRenderDebug.lastLoopAt}
+vrLoop frame count: ${vrRenderDebug.frameCount}
 inputSources: ${vrDebug.inputSourceCount}
 left buttons: ${_vrButtonSummary('left')}
 right buttons: ${_vrButtonSummary('right')}
@@ -3009,10 +3042,15 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   let _vrHudDebugFrameCount = 0;
   let _vrObsFrameCount = 0;
   let _vrDebugLogFrameCount = 0;
+  // v2.15.2: the only render call during an XR session — vrLoop is the sole
+  // body passed to renderer.setAnimationLoop(). No other function calls
+  // renderer.render() while renderMode === 'vr'; see docs/vr-render-path-audit.md
+  // for the full call-site audit that confirmed this was already the case.
   function vrLoop() {
+    vrRenderDebug.frameCount++;
+    vrRenderDebug.lastLoopAt = Date.now();
     _pollVrInputSources();
     _updateVrHudPose();
-    _updateVrProbeMesh();
     // Redraw the HUD canvas a few times a second so the live debug
     // counters/inputSources info stay current even without a button edge.
     if (vrHudCtx) {
@@ -3040,16 +3078,23 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
 
   function onVrSessionEnd() {
     inVrSession = false;
+    renderMode = 'normal';
     xrSession = null;
     console.log('[VR]', 'session ended', JSON.parse(JSON.stringify(vrDebug)));
+    vrRenderDebug.animationLoopActive = false;
+    vrRenderDebug.xrEnabled = false;
     // Leave the on-screen log populated with the final state — this is the
     // only way to review input results once the headset is off.
     _renderVrDebugLog('session ended');
     _disposeVrHud();
-    _disposeVrProbeMesh();
+    _disposeVrProbeCubes();
+    vrRenderDebug.cubeCount = 0;
     vrHudVisible = true;
     _vrResetInputState();
     if (renderer) {
+      // v2.15.2: setAnimationLoop(null) is the only place the XR loop is
+      // torn down, and startRender() below is the only place the normal
+      // rAF loop is restarted — each fires exactly once per session end.
       renderer.setAnimationLoop(null);
       renderer.xr.enabled = false;
     }
@@ -3057,6 +3102,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     if (compareState.mode === 'single' && scenes.length) {
       fitSingleCanvas();
       startRender();
+      vrRenderDebug.normalRafActive = true;
     }
     observerState.connected = false;
     renderObserverPanel();
@@ -3077,19 +3123,31 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrHudVisible = true;
       _vrResetInputState();
       _createVrHud();
-      _createVrProbeMesh();
+      _createVrProbeCubes();
+      vrRenderDebug.threeSceneUuid = threeScene.uuid;
+      vrRenderDebug.cameraUuid = camera.uuid;
+      vrRenderDebug.cubeCount = vrProbeCubes.length;
+      vrRenderDebug.frameCount = 0;
+      vrRenderDebug.xrEnabled = renderer.xr.enabled;
       const session = await navigator.xr.requestSession('immersive-vr', {
         optionalFeatures: ['local-floor', 'bounded-floor']
       });
       xrSession = session;
       inVrSession = true;
+      renderMode = 'vr';
       autoRotateWasOnBeforeVr = autoRotate;
       autoRotate = false;
+      // v2.15.2: stopRender() is the only place the normal rAF loop is
+      // cancelled, and it runs before setSession/setAnimationLoop below —
+      // the two render paths are never active at the same time.
       stopRender();
+      vrRenderDebug.normalRafActive = false;
       await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
       renderer.setAnimationLoop(vrLoop);
+      vrRenderDebug.animationLoopActive = true;
       console.log('[VR]', 'session started');
+      console.log('[VR Render]', 'threeScene', threeScene.uuid, 'camera', camera.uuid, 'cubes', vrProbeCubes.length);
       _vrShowHud();
       _renderVrDebugLog('session started');
       // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
@@ -3104,16 +3162,19 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       showToast('VRモードを開始しました');
     } catch (err) {
       inVrSession = false;
+      renderMode = 'normal';
       xrSession = null;
       console.log('[VR]', 'session error', err && err.message);
       _renderVrDebugLog('session failed to start');
       _disposeVrHud();
-      _disposeVrProbeMesh();
+      _disposeVrProbeCubes();
+      vrRenderDebug.cubeCount = 0;
+      vrRenderDebug.animationLoopActive = false;
       _vrResetInputState();
       if (renderer) renderer.xr.enabled = false;
       updateVrBtn();
       showToast('VRセッションを開始できませんでした');
-      if (scenes.length) startRender();
+      if (scenes.length) { startRender(); vrRenderDebug.normalRafActive = true; }
     }
   }
 
@@ -4181,7 +4242,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.15.1',
+      appVersion:  '2.15.2',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
