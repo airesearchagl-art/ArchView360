@@ -165,7 +165,9 @@
       <li><strong>Billboard：</strong> <code>THREE.Sprite</code>として実装しているため常にカメラ方向を向き、three.jsの標準機能（sizeAttenuation）により距離に応じて自動的に縮小表示されます。</li>
       <li><strong>Laser Pointer：</strong> 左右Quest Controllerそれぞれから細いLineを前方に表示します。<code>renderer.xr.getController()</code>によるthree.js標準のController姿勢トラッキングを使用し、既存のgamepad.buttons読み取り（Right A/Left X/Right B/Left Y用）とは独立しています。handedness（左右）は<code>connected</code>イベントのXRInputSourceから解決します。</li>
       <li><strong>Hover / 選択（左右独立）：</strong> hover対象は左右の手で独立に管理されます（<code>hovered.left</code> / <code>hovered.right</code>）。左手のTrigger（<code>button[0]</code>）は<strong>左レーザーのhover対象のみ</strong>、右手のTriggerは<strong>右レーザーのhover対象のみ</strong>を選択し、反対の手のトリガーでは発火しません。handednessが取得できないinputSourceからは選択を発火しません。ホバー中の項目はハイライト表示（拡大・色変化）されます。</li>
-      <li><strong>Scene切替演出：</strong> Trigger選択によるシーン切替時のみ、Fade Out（VR空間内の黒フェード、DOM側のフェードはヘッドセット内で見えないため使用しません）→ Texture Load → Fade In を行います。<strong>Fade中はリングとレーザーを非表示にし、hover・選択も無効化</strong>するため、演出中の重複選択は発生しません。Right A / Left Xによる従来の切替（<code>nextScene()</code> / <code>prevScene()</code>）の挙動は変更していません。</li>
+      <li><strong>Trigger arm方式：</strong> VR開始直後は選択が無効で、各Triggerを<strong>一度離したことを確認してから</strong>選択可能（armed）になります。VRモード開始ボタンをTriggerで押したまま入っても即時選択されることはありません。選択後（Fade後）も、Triggerを一度離すまで次の選択はできません。</li>
+      <li><strong>Scene切替演出：</strong> Trigger選択によるシーン切替時のみ、Fade Out（VR空間内の黒フェード、DOM側のフェードはヘッドセット内で見えないため使用しません）→ Texture Load → Fade In を行います。<strong>Fade中はリングとレーザーを非表示にし、hover・選択も無効化</strong>するため、演出中の重複選択は発生しません。テクスチャ読込の失敗・停止時も最大約5秒で必ずFade Inへ復帰し（その場合は元のシーンを維持）、黒画面が残留することはありません。Right A / Left Xによる従来の切替（<code>nextScene()</code> / <code>prevScene()</code>）の挙動は変更していません。</li>
+      <li><strong>フェイルセーフ：</strong> リングの生成・毎フレーム処理で例外が発生した場合は、リングだけを破棄してVRセッション・HUD・A/X/B/Y操作を継続します。エラー内容は通常画面のVR Debug Log（<code>last ring error</code>行）とconsoleに表示されます。ZIP/JSON復元シーンでシーン名が空/未定義でも、<code>Scene N</code>へ正規化して生成します。</li>
       <li>リングの表示状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
     </ul>
 
