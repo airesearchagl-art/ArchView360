@@ -253,6 +253,53 @@ function init() {
   // populated after the session ends.
   const vrDebugLogEl = $('vr-debug-log');
 
+  // ---- VR Scene Ring Navigation (v2.17) ----
+  // Additive VR-only layer: the existing navigation targets (_getNavOrder(),
+  // the same marker.order chain FloorMap numbering and nextScene()/prevScene()
+  // use) are laid out as a ring of selectable items at equal intervals
+  // around the wearer. A controller's laser pointer hovers an item and the
+  // Trigger (button[0], previously reserved/unused — see _pollVrInputSources
+  // comments) of the SAME hand confirms it, jumping straight to that scene.
+  // This is NOT a spatial-hotspot system: project data has no per-scene 3D
+  // coordinates, so ring positions are synthetic (evenly spaced) and are
+  // unrelated to FloorMap pin positions. Deliberately independent of the
+  // button-mapped polling above: it reads its own Trigger edge state so the
+  // existing Right A/Left X/Right B/Left Y polling in _pollVrInputSources is
+  // untouched. No new scene data or JSON fields. Session-local only; never
+  // persisted to project JSON/ZIP.
+  let vrRingGroup = null;      // THREE.Group holding the ring item sprites (VR-only, never created outside a session)
+  let vrRingItems = [];        // { mesh, sceneIdx, name, normalTexture, hoverTexture, baseScale }[]
+  // Hover is tracked per hand so each laser can only be confirmed by the
+  // trigger of the same hand (left trigger never fires the right laser's
+  // target and vice versa).
+  const vrRingHovered = { left: null, right: null }; // ring item record | null
+  let vrController1 = null, vrController2 = null; // renderer.xr.getController(0/1)
+  let vrControllerLaser1 = null, vrControllerLaser2 = null;
+  const vrRaycaster = new THREE.Raycaster();
+  // Per-hand Trigger (button[0]) arm/edge state — keyed by handedness, not
+  // by gamepad object identity. Starts un-armed: each hand must first be
+  // observed with the trigger RELEASED once before its presses may select,
+  // so the trigger squeeze that clicked the "enter VR" button (often still
+  // held on the first VR frames) can never fire an immediate selection.
+  // armed also drops on every selection, so re-selecting always requires a
+  // release-then-press. Separate from vrPrevButtonState above, which only
+  // tracks the mapped buttons (#4/#5).
+  const vrRingTrigger = {
+    left:  { pressed: false, armed: false },
+    right: { pressed: false, armed: false }
+  };
+  let vrRingFadeMesh = null;       // black plane, child of camera, for a VR-native fade (DOM fade is invisible in-headset)
+  let vrRingFadeState = 'idle';    // 'idle' | 'out' | 'loading' | 'in'
+  let vrRingFadeAlpha = 0;
+  let vrRingPendingSceneIdx = -1;
+  let vrRingFadeSphereRef = null;  // `sphere` snapshot to detect when the new texture has finished loading
+  let vrRingFadeLoadFrames = 0;    // safety counter while waiting for the new texture
+  const VR_RING_RADIUS = 3;        // meters, fixed world coordinates (same convention the former Cube Probe used)
+  const VR_RING_HEIGHT = 1.5;      // meters, near eye height
+  const VR_RING_FADE_STEP = 0.06;  // per-frame opacity step (~0.3s at 60fps each way)
+  const VR_RING_FADE_TIMEOUT_FRAMES = 300; // ~5s at 60fps: force fade-in if the texture never finishes loading
+  const vrRingDebug = { hoveredLeft: '-', hoveredRight: '-', selectedName: '-', lastError: '-' };
+
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2702,7 +2749,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。周囲に表示されるシーンリングをレーザーポインターで狙い、同じ手のトリガー（button[0]）でそのシーンへ移動できます（VR Scene Ring Navigation）。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -2823,7 +2870,10 @@ function init() {
       ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 32;
       ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 32;
       ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 32;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y);
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 32;
+      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 32;
+      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 32;
+      ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y);
     } else {
       // Simple panel: just the button legend already drawn above, plus
       // a one-line input-sources sanity check.
@@ -2835,6 +2885,426 @@ function init() {
 
   function _vrShowHud() {
     _drawVrHud();
+  }
+
+  // ============================================================
+  // VR Scene Ring Navigation (v2.17)
+  // ============================================================
+  // Self-contained VR-only subsystem, following the same pattern the (now
+  // removed) VR Cube Probe used: it hooks in with one call each from
+  // enterVr() / onVrSessionEnd() / the enterVr() catch branch, and one call
+  // from vrFrame() (see below) — the HUD, controller button polling and
+  // render loop code above/elsewhere are otherwise untouched.
+  //
+  // What this is NOT: it does not place hotspots at FloorMap pin positions
+  // in 3D space. Project data carries no per-scene spatial coordinates, so
+  // the ring simply presents the existing navigation targets at synthetic,
+  // evenly spaced positions around the wearer.
+
+  function _buildRingItemTexture(name, hovered) {
+    const W = 256, H = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.arc(W / 2, 104, hovered ? 78 : 70, 0, Math.PI * 2);
+    ctx.fillStyle = hovered ? 'rgba(120, 190, 255, 0.95)' : 'rgba(79, 124, 255, 0.82)';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = hovered ? 8 : 5;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${hovered ? 30 : 26}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    // ZIP/JSON-restored scenes may carry an empty or missing name — coerce
+    // here as well so a bad value can never throw mid-creation.
+    const text = String(name == null ? '' : name);
+    const label = text.length > 14 ? text.slice(0, 13) + '…' : text;
+    ctx.fillText(label, W / 2, 216);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  function _buildLaserLine() {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -8)
+    ]);
+    const material = new THREE.LineBasicMaterial({
+      color: 0x4f7cff, transparent: true, opacity: 0.85,
+      depthTest: false, depthWrite: false
+    });
+    const line = new THREE.Line(geometry, material);
+    line.renderOrder = 997;
+    return line;
+  }
+
+  // Places one ring item per nav-order scene other than the current one, on
+  // a fixed-radius circle around the wearer (no per-scene 3D position exists
+  // in project data, so this reuses the same order — marker.order on the
+  // active floorplan, falling back to plain scene order — as
+  // nextScene()/prevScene()/FloorMap via _getNavOrder(), rather than adding
+  // new positional data; item positions are synthetic and unrelated to
+  // FloorMap pin coordinates).
+  function _populateVrRingItems() {
+    const order = _getNavOrder();
+    const others = order.filter((idx) => idx !== currentIdx);
+    others.forEach((sceneIdx, i) => {
+      const scn = scenes[sceneIdx];
+      if (!scn) return;
+      // ZIP/JSON-restored scenes may have an empty/missing name — normalize
+      // to a displayable string before any .length/.slice access.
+      const safeName = String(scn.name || scn.title || `Scene ${sceneIdx + 1}`);
+      const angle = (i / others.length) * Math.PI * 2;
+      const x = Math.sin(angle) * VR_RING_RADIUS;
+      const z = -Math.cos(angle) * VR_RING_RADIUS;
+      const normalTexture = _buildRingItemTexture(safeName, false);
+      const hoverTexture = _buildRingItemTexture(safeName, true);
+      // THREE.Sprite always faces the camera (billboard) and scales with
+      // perspective distance automatically (sizeAttenuation defaults to
+      // true) — no per-frame lookAt/scale math needed.
+      // depthTest/depthWrite off: the sprite's transparent texels must never
+      // write depth or occlude the panorama sphere.
+      const material = new THREE.SpriteMaterial({
+        map: normalTexture, transparent: true, depthTest: false, depthWrite: false
+      });
+      const sprite = new THREE.Sprite(material);
+      const baseScale = 0.9;
+      sprite.scale.set(baseScale, baseScale, 1);
+      sprite.position.set(x, VR_RING_HEIGHT, z);
+      sprite.renderOrder = 998;
+      vrRingGroup.add(sprite);
+      vrRingItems.push({ mesh: sprite, sceneIdx, name: safeName, normalTexture, hoverTexture, baseScale });
+    });
+  }
+
+  function _disposeVrRingSprites() {
+    vrRingItems.forEach((h) => {
+      if (vrRingGroup) vrRingGroup.remove(h.mesh);
+      h.normalTexture.dispose();
+      h.hoverTexture.dispose();
+      h.mesh.material.dispose();
+    });
+    vrRingItems = [];
+    vrRingHovered.left = null;
+    vrRingHovered.right = null;
+    vrRingDebug.hoveredLeft = '-';
+    vrRingDebug.hoveredRight = '-';
+  }
+
+  // Called once the post-switch fade-in completes, so the ring reflects
+  // the new current scene ("現在Scene以外を表示").
+  function _rebuildVrRing() {
+    if (!vrRingGroup) return;
+    _disposeVrRingSprites();
+    _populateVrRingItems();
+  }
+
+  // renderer.xr.getController() indices are connection slots, not hands —
+  // the actual handedness arrives with the 'connected' event's
+  // XRInputSource. It is cached on the controller so each laser's hover can
+  // only be confirmed by the trigger of the same hand; a controller whose
+  // handedness is unknown never hovers and never selects.
+  function _onRingControllerConnected(event) {
+    const h = event.data && event.data.handedness;
+    event.target.userData.ringHandedness = (h === 'left' || h === 'right') ? h : null;
+  }
+
+  function _onRingControllerDisconnected(event) {
+    event.target.userData.ringHandedness = null;
+  }
+
+  function _resetVrRingTriggerState() {
+    vrRingTrigger.left.pressed = false;
+    vrRingTrigger.left.armed = false;
+    vrRingTrigger.right.pressed = false;
+    vrRingTrigger.right.armed = false;
+  }
+
+  function _createVrSceneRing() {
+    if (vrRingGroup || !threeScene || !camera || !renderer) return;
+    // With a single scene there is nothing to navigate to — skip the whole
+    // layer (ring, lasers, controllers, fade plane) instead of showing an
+    // empty ring and dangling laser pointers.
+    if (scenes.length <= 1) {
+      console.log('[VR Ring]', 'skipped (single scene)');
+      return;
+    }
+    _resetVrRingTriggerState();
+    try {
+      vrRingGroup = new THREE.Group();
+      threeScene.add(vrRingGroup);
+      _populateVrRingItems();
+
+      // Controller pose comes from three.js's own WebXR controller-space
+      // tracking, a mechanism entirely separate from the gamepad.buttons
+      // polling in _pollVrInputSources.
+      vrController1 = renderer.xr.getController(0);
+      vrController2 = renderer.xr.getController(1);
+      [vrController1, vrController2].forEach((controller) => {
+        controller.userData.ringHandedness = null;
+        controller.addEventListener('connected', _onRingControllerConnected);
+        controller.addEventListener('disconnected', _onRingControllerDisconnected);
+      });
+      vrControllerLaser1 = _buildLaserLine();
+      vrControllerLaser2 = _buildLaserLine();
+      vrController1.add(vrControllerLaser1);
+      vrController2.add(vrControllerLaser2);
+      threeScene.add(vrController1, vrController2);
+
+      const fadeMat = new THREE.MeshBasicMaterial({
+        color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false
+      });
+      vrRingFadeMesh = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), fadeMat);
+      vrRingFadeMesh.position.set(0, 0, -0.3);
+      vrRingFadeMesh.renderOrder = 1000;
+      vrRingFadeMesh.visible = false;
+      camera.add(vrRingFadeMesh);
+
+      vrRingFadeState = 'idle';
+      vrRingFadeAlpha = 0;
+      vrRingPendingSceneIdx = -1;
+      vrRingDebug.hoveredLeft = '-';
+      vrRingDebug.hoveredRight = '-';
+      vrRingDebug.selectedName = '-';
+      console.log('[VR Ring]', 'ring created', vrRingItems.length, 'items');
+    } catch (err) {
+      // A ring failure must never take the VR session, HUD or A/X/B/Y
+      // controls down — drop just the (possibly partially built) ring layer
+      // and carry on with the base VR runtime.
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('[VR Ring]', 'creation failed — continuing without ring:', err);
+      vrRingDebug.lastError = 'create: ' + msg;
+      try { _disposeVrSceneRing(); } catch (e2) { /* partially built — ignore */ }
+      _renderVrDebugLog('ring creation failed: ' + msg);
+    }
+  }
+
+  function _disposeVrSceneRing() {
+    _disposeVrRingSprites();
+    if (vrRingGroup) { threeScene.remove(vrRingGroup); vrRingGroup = null; }
+    [vrControllerLaser1, vrControllerLaser2].forEach((laser) => {
+      if (!laser) return;
+      laser.geometry.dispose();
+      laser.material.dispose();
+    });
+    vrControllerLaser1 = null; vrControllerLaser2 = null;
+    [vrController1, vrController2].forEach((controller) => {
+      if (!controller) return;
+      controller.removeEventListener('connected', _onRingControllerConnected);
+      controller.removeEventListener('disconnected', _onRingControllerDisconnected);
+      controller.userData.ringHandedness = null;
+      threeScene.remove(controller);
+    });
+    vrController1 = null; vrController2 = null;
+    if (vrRingFadeMesh) {
+      if (vrRingFadeMesh.parent) vrRingFadeMesh.parent.remove(vrRingFadeMesh);
+      vrRingFadeMesh.geometry.dispose();
+      vrRingFadeMesh.material.dispose();
+      vrRingFadeMesh = null;
+    }
+    vrRingFadeState = 'idle';
+    vrRingFadeAlpha = 0;
+    vrRingPendingSceneIdx = -1;
+    vrRingFadeSphereRef = null;
+    vrRingFadeLoadFrames = 0;
+    _resetVrRingTriggerState();
+    vrRingDebug.hoveredLeft = '-';
+    vrRingDebug.hoveredRight = '-';
+    vrRingDebug.selectedName = '-';
+    // vrRingDebug.lastError is intentionally kept so a failure stays
+    // readable on the on-screen VR Debug Log after the session ends.
+  }
+
+  function _setRingItemHighlight(record, active) {
+    record.mesh.material.map = active ? record.hoverTexture : record.normalTexture;
+    record.mesh.material.needsUpdate = true;
+    const scale = active ? record.baseScale * 1.12 : record.baseScale;
+    record.mesh.scale.set(scale, scale, 1);
+  }
+
+  // Per-hand hover bookkeeping. An item stays highlighted while EITHER hand
+  // hovers it; un-highlighting only happens once neither hand points at it.
+  function _updateRingHandHover(hand, record) {
+    if (vrRingHovered[hand] === record) return;
+    const prev = vrRingHovered[hand];
+    const otherHand = hand === 'left' ? 'right' : 'left';
+    vrRingHovered[hand] = record;
+    if (prev && vrRingHovered[otherHand] !== prev) _setRingItemHighlight(prev, false);
+    if (record) _setRingItemHighlight(record, true);
+    vrRingDebug[hand === 'left' ? 'hoveredLeft' : 'hoveredRight'] = record ? record.name : '-';
+  }
+
+  function _selectVrRingItem(record) {
+    if (vrRingFadeState !== 'idle') return;
+    vrRingPendingSceneIdx = record.sceneIdx;
+    vrRingDebug.selectedName = record.name;
+    console.log('[VR Ring]', 'selected', record.name, 'sceneIdx', record.sceneIdx);
+    vrRingFadeState = 'out';
+  }
+
+  // Fade Out -> Texture Load -> Fade In, driven once per frame from
+  // _updateVrSceneRing(). The existing VR Runtime (renderLoop/vrFrame,
+  // enterVr/onVrSessionEnd, camera-forward HUD) is not modified to support
+  // this — the fade plane is a child of `camera` created/disposed only by
+  // this feature, and "Texture Load" completion is detected by watching
+  // the existing `sphere` variable for the reassignment buildSphere()
+  // already performs, with no changes to loadPanorama/buildSphere/switchToScene.
+  function _updateVrRingFade() {
+    if (vrRingFadeState === 'idle') return;
+    // Defensive: a fade state machine running without its plane (partial
+    // dispose) must self-reset instead of blocking selection forever.
+    if (!vrRingFadeMesh) { vrRingFadeState = 'idle'; return; }
+
+    if (vrRingFadeState === 'out') {
+      vrRingFadeMesh.visible = true;
+      vrRingFadeAlpha = Math.min(1, vrRingFadeAlpha + VR_RING_FADE_STEP);
+      vrRingFadeMesh.material.opacity = vrRingFadeAlpha;
+      if (vrRingFadeAlpha >= 1) {
+        const idx = vrRingPendingSceneIdx;
+        vrRingPendingSceneIdx = -1;
+        vrRingFadeSphereRef = sphere;
+        vrRingFadeLoadFrames = 0;
+        // Every failure below (invalid index, switchToScene throwing) falls
+        // through to 'in' instead of 'loading', so the black plane can never
+        // be left covering the view; on failure the current scene is kept.
+        let switched = false;
+        if (idx >= 0 && idx < scenes.length) {
+          try {
+            switchToScene(idx);
+            switched = true;
+          } catch (err) {
+            const msg = (err && err.message) ? err.message : String(err);
+            console.error('[VR Ring]', 'switchToScene failed', err);
+            vrRingDebug.lastError = 'switch: ' + msg;
+          }
+        } else {
+          vrRingDebug.lastError = 'switch: invalid sceneIdx ' + idx;
+        }
+        vrRingFadeState = switched ? 'loading' : 'in';
+      }
+      return;
+    }
+
+    if (vrRingFadeState === 'loading') {
+      // Screen stays fully black (opacity already 1) until buildSphere()
+      // has swapped `sphere` for the newly loaded texture. The frame-count
+      // safety valve (~5s) forces the fade-in even if the texture load
+      // errors out or stalls — the previous panorama is still on `sphere`,
+      // so a failed switch fades back into the original scene rather than
+      // leaving the wearer staring at black.
+      vrRingFadeLoadFrames++;
+      if (sphere !== vrRingFadeSphereRef || vrRingFadeLoadFrames > VR_RING_FADE_TIMEOUT_FRAMES) {
+        _vrShowHud();
+        vrRingFadeState = 'in';
+      }
+      return;
+    }
+
+    // vrRingFadeState === 'in'
+    vrRingFadeAlpha = Math.max(0, vrRingFadeAlpha - VR_RING_FADE_STEP);
+    vrRingFadeMesh.material.opacity = vrRingFadeAlpha;
+    if (vrRingFadeAlpha <= 0) {
+      vrRingFadeMesh.visible = false;
+      vrRingFadeState = 'idle';
+      _rebuildVrRing();
+    }
+  }
+
+  // Per-frame ring raycast + per-hand hover + armed-Trigger-select, called
+  // once from vrFrame() after renderer.render() (so controller matrixWorld
+  // reflects this frame's freshly-updated pose). The whole body is guarded:
+  // any failure inside the ring layer logs, disposes just the ring, and
+  // leaves the XR animation loop / HUD / A/X/B/Y running.
+  function _updateVrSceneRing() {
+    if (!vrRingGroup) return;
+    try {
+      _updateVrRingFade();
+
+      // Fade中はリングとレーザーを非表示にし、hover/選択を完全に止める。
+      const fading = vrRingFadeState !== 'idle';
+      vrRingGroup.visible = !fading;
+      if (vrControllerLaser1) vrControllerLaser1.visible = !fading;
+      if (vrControllerLaser2) vrControllerLaser2.visible = !fading;
+
+      if (fading) {
+        _updateRingHandHover('left', null);
+        _updateRingHandHover('right', null);
+      } else {
+        // Sprite.raycast() reads raycaster.camera internally — leaving it
+        // unset (or stale) throws every frame, which kills the XR animation
+        // loop entirely (seen on Quest 3 as a freeze plus last-frame
+        // reprojection covering only part of the view). The principled
+        // source is the active XR camera (renderer.xr.getCamera(camera)),
+        // which is only meaningful while a frame is actually being
+        // rendered inside an XR session; resolving it is wrapped so a
+        // throw or a falsy return can never propagate. When it can't be
+        // obtained, this frame's raycast is skipped outright (hover cleared,
+        // no exception) rather than guessing with a substitute camera.
+        let xrCam = null;
+        try {
+          xrCam = (renderer && renderer.xr && renderer.xr.getCamera) ? renderer.xr.getCamera(camera) : null;
+        } catch (err) {
+          xrCam = null;
+        }
+
+        const hits = { left: null, right: null };
+        if (xrCam) {
+          vrRaycaster.camera = xrCam;
+          // Per-hand raycast: each laser only feeds the hover slot of its
+          // own handedness (resolved via the 'connected' event, see
+          // _onRingControllerConnected). A controller with unknown
+          // handedness contributes no hover and therefore can never select.
+          [vrController1, vrController2].forEach((controller) => {
+            if (!controller) return;
+            const hand = controller.userData.ringHandedness;
+            if (hand !== 'left' && hand !== 'right') return;
+            vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
+            const intersects = vrRaycaster.intersectObjects(vrRingGroup.children, false);
+            hits[hand] = intersects.length
+              ? (vrRingItems.find((h) => h.mesh === intersects[0].object) || null)
+              : null;
+          });
+        }
+        _updateRingHandHover('left', hits.left);
+        _updateRingHandHover('right', hits.right);
+      }
+
+      // Trigger (button[0]) arm/press handling, keyed by handedness and
+      // independent of the button-mapped polling in _pollVrInputSources —
+      // Trigger is explicitly reserved/unused there. A hand starts un-armed
+      // and only arms once seen with the trigger RELEASED, so the squeeze
+      // that started the VR session can never select on the first frames;
+      // every selection drops armed again, so re-selecting (including after
+      // a fade) always requires release-then-press. State keeps updating
+      // during the fade so nothing stale fires when it ends.
+      const session = renderer && renderer.xr && renderer.xr.getSession ? renderer.xr.getSession() : null;
+      const sources = session && session.inputSources ? Array.from(session.inputSources) : [];
+      sources.forEach((source) => {
+        const handedness = source.handedness;
+        if (handedness !== 'left' && handedness !== 'right') return;
+        const gamepad = source.gamepad;
+        if (!gamepad || !gamepad.buttons || !gamepad.buttons[0]) return;
+        const st = vrRingTrigger[handedness];
+        const pressed = !!gamepad.buttons[0].pressed;
+        if (!pressed) {
+          // Observed released — from here on a fresh press may select.
+          st.armed = true;
+        } else if (st.armed && !st.pressed && !fading && vrRingHovered[handedness]) {
+          _selectVrRingItem(vrRingHovered[handedness]);
+          st.armed = false;
+        }
+        st.pressed = pressed;
+      });
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('[VR Ring]', 'update failed — disposing ring:', err);
+      vrRingDebug.lastError = 'update: ' + msg;
+      try { _disposeVrSceneRing(); } catch (e2) { /* already broken — ignore */ }
+      _renderVrDebugLog('ring update failed: ' + msg);
+    }
   }
 
   function vrGoNextScene() {
@@ -2995,7 +3465,8 @@ left buttons: ${_vrButtonSummary('left')}
 right buttons: ${_vrButtonSummary('right')}
 last action: ${vrDebug.lastAction}
 next:${vrDebug.nextCount} prev:${vrDebug.prevCount} hud:${vrDebug.hudCount} debug:${vrDebug.debugCount}
-hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
+hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}
+ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: ${vrRingDebug.lastError}`;
   }
 
   let _vrHudDebugFrameCount = 0;
@@ -3021,6 +3492,9 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     _vrDebugLogFrameCount = (_vrDebugLogFrameCount + 1) % 30;
     if (_vrDebugLogFrameCount === 0) _renderVrDebugLog('VR session running');
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
+    // v2.17: single additive call — controller matrixWorld reflects this
+    // frame's pose only after render() has run its scene-graph update.
+    _updateVrSceneRing();
     if (observerState.enabled && observerState.connected) {
       // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
       _vrObsFrameCount = (_vrObsFrameCount + 1) % 6;
@@ -3049,6 +3523,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     // only way to review input results once the headset is off.
     _renderVrDebugLog('session ended');
     _disposeVrHud();
+    _disposeVrSceneRing();
     vrHudVisible = true;
     _vrResetInputState();
     autoRotate = autoRotateWasOnBeforeVr;
@@ -3076,6 +3551,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrHudVisible = true;
       _vrResetInputState();
       _createVrHud();
+      _createVrSceneRing();
       vrRenderDebug.threeSceneUuid = threeScene.uuid;
       vrRenderDebug.cameraUuid = camera.uuid;
       vrRenderDebug.frameCount = 0;
@@ -3117,6 +3593,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       console.log('[VR]', 'session error', err && err.message);
       _renderVrDebugLog('session failed to start');
       _disposeVrHud();
+      _disposeVrSceneRing();
       _vrResetInputState();
       // v2.16: the loop was never swapped, so there is nothing to restart;
       // renderer.xr.enabled also stays true for the renderer's lifetime.
@@ -4191,7 +4668,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.16.1',
+      appVersion:  '2.17.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
