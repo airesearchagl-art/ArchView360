@@ -112,6 +112,7 @@
       <li><code>MeshBasicMaterial</code>（<code>depthTest:false</code> / <code>depthWrite:false</code> / <code>renderOrder:9999</code>）を使用します。</li>
       <li>360°パノラマ画像と同時に表示されます。どの方向を向いても4方向のいずれかにCubeが存在するはずです。</li>
       <li>VRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
+      <li><strong>v2.16時点の位置づけ：</strong> HUD/Controllerと同様に実機確認済みのため、検証用ツールとして現在も維持しています。削除する場合は本ページの更新とは別のPRで扱います。</li>
     </ul>
 
     <h2>VR中のシーン切替 / HUD / Debug Panel（v2.15 — WebXR Sandbox Feedback）</h2>
@@ -122,7 +123,7 @@
 
     <h3>採用した方式</h3>
     <ul>
-      <li><strong>HUD：<code>camera-forward</code>方式を採用。</strong> 通常の<code>camera</code>オブジェクトの前方へ毎フレーム再配置します。<code>renderer.xr.getCamera(camera)</code>から取得したXRサブカメラへ追従・子要素化する方式（<code>xr-camera-add</code>）は、Sandboxでの検証の結果、期待したXRサブカメラではなく主カメラへのfallbackになっていたため不採用としました。</li>
+      <li><strong>HUD：<code>camera-forward</code>方式を採用。</strong> HUDメッシュを<code>camera</code>の子として固定ローカルオフセットで追加します（v2.16でカメラをシーングラフに登録し<code>camera.add()</code>する形に統一。v2.15時点の「毎フレームworld座標を再計算する」実装は誤移植だったため置き換え済みです。詳細は<a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-runtime-migration.md">VR Runtime移植</a>を参照）。<code>renderer.xr.getCamera(camera)</code>から取得したXRサブカメラへ追従・子要素化する方式（<code>xr-camera-add</code>）は、Sandboxでの検証の結果、期待したXRサブカメラではなく主カメラへのfallbackになっていたため不採用としました。</li>
       <li><strong>入力：<code>session.inputSources</code>ポーリングを採用。</strong> <code>vrLoop()</code>内で毎フレーム<code>session.inputSources</code>を確認し、各<code>source.gamepad.buttons</code>のpressed状態をfalse→trueのエッジでのみ検出します。controller event（<code>selectstart</code>/<code>squeezestart</code>）や<code>renderer.xr.getController()</code>のイベントリスナーには依存しません。</li>
     </ul>
 
@@ -155,9 +156,21 @@
       <li><strong>詳細表示（Left Yで切替）：</strong> 左右コントローラーそれぞれのボタン数、最後に検出した入力、next / prev / hud / debugカウント、現在の<code>currentIdx</code>、nav order長</li>
     </ul>
     <ul>
-      <li>HUDは<code>camera</code>の前方約2m・視線よりやや下の位置に、毎フレーム再配置されます。</li>
+      <li>HUDは<code>camera</code>の子として、前方約2m・視線よりやや下の固定ローカルオフセットに配置されます。</li>
       <li>初期状態では自動で薄くなったり消えたりしません。<strong>常時表示</strong>で、Right Bボタン操作でのみ非表示にできます（非表示中もシーン切替操作は有効）。</li>
       <li>HUD・Debug Panelの表示状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了後は初期状態（表示・簡易モード）に戻ります。</li>
+    </ul>
+
+    <h3>v2.16 Quest 3 実機確認結果</h3>
+    <div class="m-callout">
+      <strong>実機確認済み：</strong> <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-runtime-migration.md">VR Runtime移植</a>（Three.js 0.169.0への更新・単一AnimationLoop化・camera子付けHUD）後、<strong>ArchView360本体としてMeta Quest 3 / Meta Quest Browserで実機確認済み</strong>です（Quest Touch Plusコントローラー使用）。
+    </div>
+    <ul>
+      <li>✅ HUD表示成功（camera子付けのcamera-forward方式、視線に追従）</li>
+      <li>✅ Debug/ステータス表示成功（HUD内表示・通常画面VR Debug Logの双方）</li>
+      <li>✅ Right A / Left Xによる前後シーン切替成功</li>
+      <li>✅ Right B（HUD表示切替）/ Left Y（Debug Panel詳細切替）操作成功</li>
+      <li>✅ VRセッションを維持したままの2シーン切替成功（セッション再接続なし）</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
