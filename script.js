@@ -2837,7 +2837,7 @@ function init() {
   // and is unaffected by the Left Y detail toggle. Pure Canvas 2D drawing:
   // no new DOM element, no input handling, no change to button mapping —
   // it only *reads* vrRingEnabled to grey out the Trigger affordance and to
-  // show the Ring ON/OFF state next to Menu. Internal button indices
+  // show the リンク先 ON/OFF state next to Menu. Internal button indices
   // (#0/#4/#5/#12) are intentionally not printed here; they remain in
   // docs/vr.html for reference.
   function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color) {
@@ -2865,7 +2865,10 @@ function init() {
     ctx.font = '20px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
-    ctx.fillText(label, labelX, labelY);
+    // label may be a single string or an array of strings (multi-line,
+    // e.g. the Meta button's short-press/long-press note).
+    const labelLines = Array.isArray(label) ? label : [label];
+    labelLines.forEach((line, i) => ctx.fillText(line, labelX, labelY + i * 22));
   }
 
   // Trigger gets its own mark instead of a plain button dot: a curved
@@ -2886,8 +2889,10 @@ function init() {
     ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
     ctx.fill();
 
+    // Leader line starts from the pivot dot itself (not an offset point)
+    // so it reads unambiguously as "this dot is where the finger presses".
     ctx.beginPath();
-    ctx.moveTo(x, y + 10);
+    ctx.moveTo(x, y);
     ctx.lineTo(labelX, labelY);
     ctx.strokeStyle = active ? 'rgba(210, 225, 255, 0.55)' : 'rgba(150, 150, 150, 0.35)';
     ctx.lineWidth = 2;
@@ -2944,20 +2949,22 @@ function init() {
       const faceLabelX = cx - inner * 136;
 
       if (hand === 'left') {
-        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, `Ring ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
-        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'Y', faceLabelX, ringCy - 22, 'Debug', true, color);
+        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, `リンク先 ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
+        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'Y', faceLabelX, ringCy - 22, 'デバッグ ON/OFF', true, color);
         _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'X', faceLabelX, ringCy + 22, '前', true, color);
       } else {
-        // Meta/Oculus button: exits the current VR app to the system menu
-        // at the OS level — Quest never exposes it as a WebXR
-        // gamepad.buttons entry, so this label is purely informational and
-        // is never gated on vrRingEnabled or any app state.
-        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, 'Meta : VR終了', true, '#a9c3e0');
-        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'B', faceLabelX, ringCy - 22, 'HUD', true, color);
+        // Meta/Oculus button: system-level button, never exposed as a
+        // WebXR gamepad.buttons entry, so this label is purely
+        // informational and is never gated on vrRingEnabled or any app
+        // state. Actual behavior is short press = show the system menu,
+        // long press = recenter/reset the view — it does not always exit
+        // VR, so the label must not claim otherwise.
+        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, ['メニュー表示', '長押しで視界リセット'], true, '#a9c3e0');
+        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'B', faceLabelX, ringCy - 22, '操作方法 ON/OFF', true, color);
         _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'A', faceLabelX, ringCy + 22, '次', true, color);
       }
 
-      _drawVrHudTriggerMark(ctx, cx, ringCy + ringR + 48, cx, ringCy + ringR + 100, 'Scene選択', ringEnabled, color);
+      _drawVrHudTriggerMark(ctx, cx, ringCy + ringR + 48, cx, ringCy + ringR + 100, 'シーン選択', ringEnabled, color);
     }
 
     controller(260, 'left', '#5fd0c0', 'L');
