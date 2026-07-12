@@ -1,5 +1,7 @@
 # ArchView360
 
+> **v2.16.1 — VR Cube Probe撤去** — v2.16.0でArchView360本体としてのQuest 3実機確認（HUD表示・Controller操作・シーン切替）が完了したため、検証専用だった4色Cube Probe（v2.15.1〜v2.15.2で導入）を撤去しました。VR Runtimeの初期化・終了処理、camera子付けHUD、`session.inputSources`ポーリング、Right A / Left X / Right B / Left Yの操作、Scene切替処理には変更ありません。あわせてVR Debug詳細表示をinputSources数・左右コントローラーの状態（buttons数・押下数）・最後の入力・現在シーン・nav order長のみに整理しました。
+>
 > **v2.16.0 — VR Runtime移植（WebXR-Sandbox実証基盤）** — v2.13〜v2.15.2の段階的修正では「VR開始とパノラマ表示は成功するが、HUD・Controller・Cube Probeなど追加Meshが一切表示されない」問題が解決しなかったため、修正の積み重ねをやめ、WebXR-Sandbox（Quest 3実機検証済み）のVR描画基盤をひとつのRuntimeとして移植しました。Three.js本体をr128（2021）からSandbox検証と同一の**0.169.0**（2024）へ更新し、`renderer.xr.enabled`常時ON・単一`setAnimationLoop`（rAF⇄XRループ入替の廃止）・カメラのシーングラフ登録＋**カメラ子付けHUD**（Sandboxで実証されたcamera-forward方式）・`optionalFeatures: ['local-floor','bounded-floor','layers']`という、Sandboxで動作確認された構成に置き換えています。**ArchView360本体としてもMeta Quest 3実機でHUD表示・Controller操作・シーン切替を確認済みです**（詳細は後述の「VR Scene Navigation & Debug Panel」内「v2.16 Quest 3 実機確認結果」を参照）。比較と移植方針は[`docs/vr-runtime-migration.md`](docs/vr-runtime-migration.md)を参照してください。
 >
 > **v2.15.2 — VR Render Path Audit** — v2.15.1までのHUD/Cube Probeを実機確認してもなお何も表示されなかったため、機能追加ではなく**ArchView360のVR描画経路そのものの監査**を行いました。Scene/Camera/Rendererの生成・再代入箇所、`renderer.render()`・`requestAnimationFrame()`・`renderer.setAnimationLoop()`の全呼び出し箇所を棚卸しし、結果を[`docs/vr-render-path-audit.md`](docs/vr-render-path-audit.md)にまとめています。v2.15.1のcamera前方追従Cubeは、camera-forward計算そのものを疑いから除外するため、固定座標に4色Cubeを配置する方式（Red/Blue/Green/Yellow）に置き換えました。HUD方式・Controller入力（v2.15の内容）には手を加えていません。D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できる、軽量な静的Webビューワーです。サーバーを持たないローカル完結型ツールで、画像・平面図・JSON・ZIPパッケージはすべてブラウザ内で処理され、外部送信されません。プロジェクト全体（設定＋画像）を1つのZIPファイルとして書き出し・読み込みできるようになり、社内展開・施主への共有が簡単になりました。Meta QuestなどのWebXR対応ブラウザでは、現在表示中のシーンを単体VRモードで没入表示できます。シーン一覧は横並びカード（名称＋メタ情報 ／ 固定サイズサムネイル）になり、大量のシーンでも視認性とスクロール性を維持します。未配置判定はmarker基準に統一され、マーカー番号（order）を後から編集できます。← → キーはそのFloorMap上のマーカー番号順で移動し、プロジェクトダッシュボードでシーン数・配置率をリアルタイム確認できます。
@@ -71,7 +73,7 @@ v2.13〜v2.14.1では、controller event方式（`selectstart`/`squeezestart`）
 - 移動順はFloorMap上の**マーカー番号（`marker.order`）順**が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じナビゲーション順）。
 - シーン切替時はテクスチャ読み込みのため一瞬暗転する場合がありますが、VRセッションは継続します。
 
-**VR HUD / Debug Panel：** 「ArchView360 VR」「Scene N / 総数」「現在シーン名」「操作ガイド（Right A / Left X / Right B / Left Y）」を常時表示し、Left Yで簡易表示（`inputSources`数のみ）と詳細表示（左右コントローラーのボタン数・最後の入力・next/prev/hudカウント・`currentIdx`・nav order長）を切り替えられます。HUDは`camera`の子として固定ローカルオフセット（前方約2m・視線よりやや下）に配置され、VR開始直後から必ず表示されます。Right Bでのみ非表示にできます（非表示中もシーン切替操作は有効）。HUD・Debug Panelの表示状態はVRセッション内だけの一時状態で、プロジェクトJSON/ZIPには保存されません。
+**VR HUD / Debug Panel：** 「ArchView360 VR」「Scene N / 総数」「現在シーン名」「操作ガイド（Right A / Left X / Right B / Left Y）」を常時表示し、Left Yで簡易表示（`inputSources`数のみ）と詳細表示（`inputSources`数・左右コントローラーの状態（buttons数・押下数）・最後の入力・現在シーン・nav order長）を切り替えられます。HUDは`camera`の子として固定ローカルオフセット（前方約2m・視線よりやや下）に配置され、VR開始直後から必ず表示されます。Right Bでのみ非表示にできます（非表示中もシーン切替操作は有効）。HUD・Debug Panelの表示状態はVRセッション内だけの一時状態で、プロジェクトJSON/ZIPには保存されません。
 
 通常画面（VR外）の左下にも「VR Debug Log」が表示され、VRセッション終了後もヘッドセットを外した状態で入力状態を確認できます。ローカル表示のみで、外部送信・JSON保存・ZIP保存は一切行いません。
 
@@ -102,19 +104,11 @@ WebXR-Sandbox実証基盤への移植（[VR Runtime移植](docs/vr-runtime-migra
 
 詳しくは [VRモードマニュアル](docs/vr.html) を参照してください。
 
-### VR Cube Probe（v2.15.1で追加、v2.15.2で固定座標4Cubeへ変更）
+### VR Cube Probe（v2.15.1〜v2.15.2で使用、v2.16.1で撤去）
 
-VR開始直後、通常のHUD/Debug Panelとは**完全に独立した**4色のキューブ（一辺40cm）が表示されます。
+VR開始直後に固定座標4色キューブ（Red/Blue/Green/Yellow、一辺40cm）を表示する検証専用ブロックを、v2.15.1〜v2.15.2の間、HUD/Debug Panelとは完全に独立した形で使用していました。目的は「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」を最小構成で確認することで、シーン切替・コントローラー入力は扱っていませんでした。
 
-- 目的はHUD/Debug Panelのデバッグではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」を最小構成で確認することです
-- v2.15.1では「カメラ前方1.5mへ毎フレーム追従する赤Cube」でしたが、camera-forward計算そのものを疑いから除外するため、v2.15.2では**固定座標**（Red `(0,1.6,-2)` / Blue `(0,1.6,2)` / Green `(2,1.6,0)` / Yellow `(-2,1.6,0)`）へ変更し、毎フレームの位置更新をやめました。y座標は`local-floor`基準での床（y=0）ではなく装着者の目線に近い`1.6`に設定しています
-- `renderer.render(threeScene, camera)`で使っているのと同一の`threeScene`へ`scene.add()`するだけで、`camera.add()`や`renderer.xr.getCamera().add()`は使いません
-- `MeshBasicMaterial`（`depthTest:false` / `depthWrite:false` / `renderOrder:9999`）を使用します
-- 360°パノラマ画像と同時に表示されます
-- どの方向を向いても4方向のいずれかにCubeが存在するはずです
-- シーン切替・コントローラー入力はこのキューブでは扱いません（HUD/Debug Panelはそのまま並行して動作します）
-- VRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません
-- **v2.16時点の位置づけ：** HUD/Controllerと同様に実機確認済みのため、検証用ツールとして現在も維持しています。削除する場合は本PRとは別のPRで扱います。
+v2.16.0でVR Runtimeの移植とArchView360本体としてのQuest 3実機確認（HUD表示・Controller操作・シーン切替）が完了し、Probeの役目は終えたため、v2.16.1で撤去しました。
 
 詳しい描画経路の監査結果は [VR Render Path Audit](docs/vr-render-path-audit.md) を参照してください。
 

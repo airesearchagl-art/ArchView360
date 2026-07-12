@@ -90,30 +90,10 @@
       <li>終了すると通常表示へ戻る</li>
     </ol>
 
-    <h2>VR Cube Probe（v2.15.1で追加、v2.15.2で固定座標4Cubeへ変更）</h2>
+    <h2>VR Cube Probe（v2.15.1〜v2.15.2で使用、v2.16.1で撤去）</h2>
     <div class="m-callout">
-      <strong>目的：</strong> このブロックは、下記のHUD / Debug Panelとは<strong>完全に独立</strong>しています。既存のHUD/Debug Panel実装を修正するのではなく、「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」だけを最小構成で確認するために追加しました。シーン切替やコントローラー入力の確認はこのブロックの対象外です。
+      <strong>撤去済み：</strong> VR開始直後に固定座標4色キューブ（Red/Blue/Green/Yellow、一辺40cm）を表示する検証専用ブロックを、v2.15.1〜v2.15.2の間、下記のHUD / Debug Panelとは完全に独立した形で使用していました。目的は「ArchView360がThree.jsシーンへ追加したMeshが、そのままVR空間内に表示されるか」を最小構成で確認することで、シーン切替・コントローラー入力はこのブロックの対象外でした。v2.16.0でVR Runtimeの移植とArchView360本体としてのQuest 3実機確認（HUD表示・Controller操作・シーン切替）が完了し、Probeの役目は終えたため、v2.16.1で撤去しました。詳しい描画経路の監査結果は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
     </div>
-    <div class="m-callout">
-      <strong>v2.15.2での変更：</strong> v2.15.1の「カメラ前方1.5mへ毎フレーム追従する赤Cube」を実機確認しても表示が確認できなかったため、camera-forward計算そのものを疑いから除外する目的で、<strong>固定座標</strong>の4色Cubeへ変更しました。y座標は<code>1.6</code>（WebXRの<code>local-floor</code>基準では床がy=0のため、装着者の目線に近い高さ）に設定しています。詳しい描画経路の監査結果は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
-    </div>
-    <table class="m-table">
-      <thead><tr><th>色</th><th>座標</th></tr></thead>
-      <tbody>
-        <tr><td>Red</td><td><code>(0, 1.6, -2)</code></td></tr>
-        <tr><td>Blue</td><td><code>(0, 1.6, 2)</code></td></tr>
-        <tr><td>Green</td><td><code>(2, 1.6, 0)</code></td></tr>
-        <tr><td>Yellow</td><td><code>(-2, 1.6, 0)</code></td></tr>
-      </tbody>
-    </table>
-    <ul>
-      <li>VR開始時に4つのキューブ（一辺40cm）を<code>threeScene</code>へ追加し、以降<strong>位置は更新しません</strong>（毎フレームの再配置なし）。</li>
-      <li><code>renderer.render(threeScene, camera)</code>で使っているのと同一の<code>threeScene</code>へ<code>scene.add()</code>するだけの最小実装です。<code>camera.add()</code>や<code>renderer.xr.getCamera().add()</code>は使いません。</li>
-      <li><code>MeshBasicMaterial</code>（<code>depthTest:false</code> / <code>depthWrite:false</code> / <code>renderOrder:9999</code>）を使用します。</li>
-      <li>360°パノラマ画像と同時に表示されます。どの方向を向いても4方向のいずれかにCubeが存在するはずです。</li>
-      <li>VRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
-      <li><strong>v2.16時点の位置づけ：</strong> HUD/Controllerと同様に実機確認済みのため、検証用ツールとして現在も維持しています。削除する場合は本ページの更新とは別のPRで扱います。</li>
-    </ul>
 
     <h2>VR中のシーン切替 / HUD / Debug Panel（v2.15 — WebXR Sandbox Feedback）</h2>
     <div class="m-callout">
@@ -153,7 +133,7 @@
       <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
       <li>操作ガイド（Right A: Next / Left X: Prev / Right B: HUD / Left Y: Debug）</li>
       <li><strong>簡易表示：</strong> <code>inputSources</code>数のみ</li>
-      <li><strong>詳細表示（Left Yで切替）：</strong> 左右コントローラーそれぞれのボタン数、最後に検出した入力、next / prev / hud / debugカウント、現在の<code>currentIdx</code>、nav order長</li>
+      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長</li>
     </ul>
     <ul>
       <li>HUDは<code>camera</code>の子として、前方約2m・視線よりやや下の固定ローカルオフセットに配置されます。</li>
@@ -176,7 +156,7 @@
     <h3>通常画面のVR Debug Log</h3>
     <p>画面左下に、VRセッション実行中・終了後を通じて最後の状態が残る「VR Debug Log」を表示します。ヘッドセットを外した後でも、<code>inputSources</code>数・左右コントローラーのボタン数・最後の入力・next/prev/hud/debugカウント・HUDの表示状態を確認できます。ローカル表示のみで、外部送信・JSON保存・ZIP保存は一切行いません。</p>
     <div class="m-callout">
-      <strong>v2.15.2で追加：</strong> 描画経路そのものを診断するため、<code>renderMode</code>（<code>normal</code>/<code>vr</code>）・<code>threeScene</code>/<code>camera</code>のUUID・<code>renderer.xr.enabled</code>・XRアニメーションループの稼働有無・通常rAFの稼働有無・Cube数・最後のVRループ実行時刻・VRループのフレーム数を追記しました。詳細は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
+      <strong>v2.15.2で追加：</strong> 描画経路そのものを診断するため、<code>renderMode</code>（<code>normal</code>/<code>vr</code>）・<code>threeScene</code>/<code>camera</code>のUUID・<code>renderer.xr.enabled</code>・XRアニメーションループの稼働有無・通常rAFの稼働有無・最後のVRループ実行時刻・VRループのフレーム数を追記しました（v2.16.1でCube Probe撤去に伴いCube数の項目は削除）。詳細は <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/docs/vr-render-path-audit.md">VR Render Path Audit</a> を参照してください。
     </div>
 
     <h2>コントローラー操作が効かない場合</h2>
