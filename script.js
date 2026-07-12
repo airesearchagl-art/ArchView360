@@ -300,6 +300,20 @@ function init() {
   const VR_RING_FADE_TIMEOUT_FRAMES = 300; // ~5s at 60fps: force fade-in if the texture never finishes loading
   const vrRingDebug = { hoveredLeft: '-', hoveredRight: '-', selectedName: '-', lastError: '-' };
 
+  // ---- VR Scene Ring visibility toggle (v2.17.1) ----
+  // VR-session-local only — reset to true every time the ring is (re)built
+  // and discarded on dispose; never persisted to project JSON/ZIP. Bound to
+  // Left Menu (button[12]), the only button/hand combination this project's
+  // own measured Quest Touch Plus mapping (README.md / docs/vr.html —
+  // "左コントローラーのMenu（button[12]）") documents as unused and
+  // unambiguous (there is no measured right-hand Menu button, so there is no
+  // handedness ambiguity to resolve here the way there was for Trigger).
+  let vrRingEnabled = true;
+  // Independent per-gamepad-object edge state for the toggle button, kept
+  // separate from vrRingTrigger (Trigger, button[0]) and from
+  // vrPrevButtonState (button[4]/[5]) above.
+  const vrRingTogglePrevPressed = new WeakMap();
+
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2749,7 +2763,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。周囲に表示されるシーンリングをレーザーポインターで狙い、同じ手のトリガー（button[0]）でそのシーンへ移動できます（VR Scene Ring Navigation）。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。周囲に表示されるシーンリングをレーザーポインターで狙い、同じ手のトリガー（button[0]）でそのシーンへ移動できます（VR Scene Ring Navigation）。左コントローラーのMenuボタン（button[12]）でシーンリングの表示/非表示を切り替えられます。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -2855,7 +2869,7 @@ function init() {
     ctx.fillText('Right A #4 : Next', W / 2, 280);
     ctx.fillText('Left X #4 : Prev', W / 2, 320);
     ctx.fillText('Right B #5 : HUD', W / 2, 360);
-    ctx.fillText('Left Y #5 : Debug', W / 2, 400);
+    ctx.fillText('Left Y #5 : Debug   |   Left Menu #12 : Ring', W / 2, 400);
 
     ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
     ctx.beginPath(); ctx.moveTo(80, 425); ctx.lineTo(W - 80, 425); ctx.stroke();
@@ -2864,15 +2878,18 @@ function init() {
     ctx.fillStyle = '#7a8bab';
     let y = 460;
     if (vrDebugDetailed) {
-      // Detailed debug panel (Left Y toggles this on)
-      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 32;
-      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 32;
-      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 32;
-      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 32;
-      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 32;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 32;
-      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 32;
-      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 32;
+      // Detailed debug panel (Left Y toggles this on). Line spacing tightened
+      // from 32 to 26px to fit the new "ring enabled" line within the fixed
+      // 700px-tall canvas.
+      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 26;
+      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 26;
+      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 26;
+      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 26;
+      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 26;
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 26;
+      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 26;
+      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 26;
+      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 26;
       ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y);
     } else {
       // Simple panel: just the button legend already drawn above, plus
@@ -3022,6 +3039,22 @@ function init() {
     vrRingTrigger.right.armed = false;
   }
 
+  // Ring visibility toggle (v2.17.1, Left Menu / button[12]). Turning the
+  // ring back on always re-arms safely (see _resetVrRingTriggerState) so a
+  // trigger that happened to be held while the ring was hidden can't fire an
+  // immediate selection the instant it reappears.
+  function _toggleVrRingEnabled() {
+    vrRingEnabled = !vrRingEnabled;
+    console.log('[VR Ring]', 'enabled ->', vrRingEnabled);
+    if (vrRingEnabled) {
+      _resetVrRingTriggerState();
+    } else {
+      _updateRingHandHover('left', null);
+      _updateRingHandHover('right', null);
+    }
+    _vrShowHud();
+  }
+
   function _createVrSceneRing() {
     if (vrRingGroup || !threeScene || !camera || !renderer) return;
     // With a single scene there is nothing to navigate to — skip the whole
@@ -3031,6 +3064,7 @@ function init() {
       console.log('[VR Ring]', 'skipped (single scene)');
       return;
     }
+    vrRingEnabled = true;
     _resetVrRingTriggerState();
     try {
       vrRingGroup = new THREE.Group();
@@ -3110,6 +3144,7 @@ function init() {
     vrRingFadeSphereRef = null;
     vrRingFadeLoadFrames = 0;
     _resetVrRingTriggerState();
+    vrRingEnabled = true; // discard the session-local toggle; next VR session always starts with the ring visible
     vrRingDebug.hoveredLeft = '-';
     vrRingDebug.hoveredRight = '-';
     vrRingDebug.selectedName = '-';
@@ -3222,13 +3257,16 @@ function init() {
     try {
       _updateVrRingFade();
 
-      // Fade中はリングとレーザーを非表示にし、hover/選択を完全に止める。
+      // Fade中、または表示トグルでOFFにされている間は、リングとレーザーを
+      // 非表示にしhover/選択を完全に止める（要件: 「Ring非表示時はRing
+      // items、Laser、hover、Trigger選択をすべて無効化する」）。
       const fading = vrRingFadeState !== 'idle';
-      vrRingGroup.visible = !fading;
-      if (vrControllerLaser1) vrControllerLaser1.visible = !fading;
-      if (vrControllerLaser2) vrControllerLaser2.visible = !fading;
+      const visible = vrRingEnabled && !fading;
+      vrRingGroup.visible = visible;
+      if (vrControllerLaser1) vrControllerLaser1.visible = visible;
+      if (vrControllerLaser2) vrControllerLaser2.visible = visible;
 
-      if (fading) {
+      if (!visible) {
         _updateRingHandHover('left', null);
         _updateRingHandHover('right', null);
       } else {
@@ -3280,19 +3318,35 @@ function init() {
       // every selection drops armed again, so re-selecting (including after
       // a fade) always requires release-then-press. State keeps updating
       // during the fade so nothing stale fires when it ends.
+      //
+      // Left Menu (button[12]) toggles the ring's visibility (v2.17.1) and
+      // is polled here too, unconditionally — it must keep working even
+      // while the ring is hidden or fading, so it can always turn the ring
+      // back on. It only ever reads source.gamepad.buttons[12] on the left
+      // hand; it does not touch the Right A/Left X/Right B/Left Y polling
+      // in _pollVrInputSources.
       const session = renderer && renderer.xr && renderer.xr.getSession ? renderer.xr.getSession() : null;
       const sources = session && session.inputSources ? Array.from(session.inputSources) : [];
       sources.forEach((source) => {
         const handedness = source.handedness;
         if (handedness !== 'left' && handedness !== 'right') return;
         const gamepad = source.gamepad;
-        if (!gamepad || !gamepad.buttons || !gamepad.buttons[0]) return;
+        if (!gamepad || !gamepad.buttons) return;
+
+        if (handedness === 'left' && gamepad.buttons[12]) {
+          const togglePressed = !!gamepad.buttons[12].pressed;
+          const wasTogglePressed = !!vrRingTogglePrevPressed.get(gamepad);
+          if (togglePressed && !wasTogglePressed) _toggleVrRingEnabled();
+          vrRingTogglePrevPressed.set(gamepad, togglePressed);
+        }
+
+        if (!gamepad.buttons[0]) return;
         const st = vrRingTrigger[handedness];
         const pressed = !!gamepad.buttons[0].pressed;
         if (!pressed) {
           // Observed released — from here on a fresh press may select.
           st.armed = true;
-        } else if (st.armed && !st.pressed && !fading && vrRingHovered[handedness]) {
+        } else if (st.armed && !st.pressed && vrRingEnabled && !fading && vrRingHovered[handedness]) {
           _selectVrRingItem(vrRingHovered[handedness]);
           st.armed = false;
         }
@@ -4668,7 +4722,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.17.0',
+      appVersion:  '2.17.1',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
