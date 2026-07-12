@@ -1,8 +1,10 @@
 'use strict';
 
 /* ============================================================
- * ArchView360 v2.0
- * Three.js r128 ローカル同梱
+ * ArchView360
+ * Three.js 0.169.0 ローカル同梱
+ * （vendor/three.module.min.js + vendor/three-global.js シム経由で
+ *   window.THREE として公開される。WebXR-Sandbox 実機検証と同一バージョン）
  * ============================================================ */
 
 function init() {
@@ -187,7 +189,10 @@ function init() {
 
   // ---- Three.js (single) ----
   let renderer, threeScene, camera, sphere;
-  let animFrameId = null;
+  // v2.16: renderer.setAnimationLoop(renderLoop) が設定済みかどうか。
+  // 旧 rAF ループ（animFrameId）は廃止 — WebXR-Sandbox と同じく単一の
+  // setAnimationLoop が通常表示と VR の両方を駆動する。
+  let animLoopActive = false;
 
   // ---- WebXR / VR (v2.10) ----
   const vrBtn = $('vr-btn');
@@ -196,23 +201,32 @@ function init() {
   let inVrSession  = false;
   let autoRotateWasOnBeforeVr = false;
 
-  // ---- VR HUD & Controller Navigation (v2.15 — WebXR-Sandbox feedback) ----
+  // ---- VR HUD & Controller Navigation (v2.16 — WebXR-Sandbox runtime port) ----
   // Transient, VR-session-local only — never persisted to project JSON/ZIP.
   //
-  // v2.15 replaces the v2.13/v2.14/v2.14.1 HUD + dual-probe (WORLD/CAMERA
-  // panel) code with the single approach verified working on Meta Quest 3 /
-  // Quest Browser in the WebXR-Sandbox project (merge commit
-  // 34e3d4cf5f1da9c1c7fe3181a67bbe78fdc26ee2):
-  //   - HUD attachment: "camera-forward" — a mesh repositioned every frame
-  //     in front of the mono `camera` object (NOT added as a child of the
-  //     XR sub-camera via renderer.xr.getCamera(camera).add(), which in
-  //     Sandbox testing fell back to the main camera instead of an actual
-  //     XR sub-camera and was dropped for that reason).
-  //   - Input: session.inputSources polled once per frame in vrLoop,
-  //     reading gamepad.buttons directly and edge-detecting the
-  //     false→true transition. No controller 'selectstart'/'squeezestart'
-  //     event listeners — those did not fire reliably on Quest 3 hardware
-  //     in v2.13/v2.13.1 real-device testing.
+  // v2.16 stops layering incremental fixes and instead ports the VR runtime
+  // verified working on Meta Quest 3 / Quest Browser in the WebXR-Sandbox
+  // project as one unit:
+  //   - three.js 0.169.0 — the exact version the Sandbox was verified with.
+  //     The old vendored r128 (2021) was the largest untested difference
+  //     between the two codebases and is replaced wholesale.
+  //   - Renderer: renderer.xr.enabled = true for the renderer's whole
+  //     lifetime (Sandbox sets it once at init), never toggled per session.
+  //   - Loop: a single renderer.setAnimationLoop(renderLoop) drives both
+  //     normal and VR rendering. No rAF↔XR-loop swapping on session
+  //     start/end — three.js internally moves the loop onto the XR
+  //     session's requestAnimationFrame while presenting.
+  //   - HUD attachment: "camera-forward" as actually implemented in the
+  //     Sandbox — the HUD mesh is a *child of the main camera*, and the
+  //     camera itself is part of the scene graph (threeScene.add(camera)).
+  //     v2.15 misported this as a world-positioned mesh repositioned every
+  //     frame from the camera pose; that variant was never verified on
+  //     hardware and is removed.
+  //   - Input: session.inputSources polled once per frame, reading
+  //     gamepad.buttons directly and edge-detecting the false→true
+  //     transition (Sandbox-verified). No controller
+  //     'selectstart'/'squeezestart' event listeners — those did not fire
+  //     reliably on Quest 3 hardware in v2.13/v2.13.1 real-device testing.
   let vrHudVisible = true;
   let vrHudMesh = null, vrHudCanvas = null, vrHudCtx = null, vrHudTexture = null;
   let vrDebugDetailed = false; // Left Y (button[5]): simple <-> detailed debug panel
@@ -250,11 +264,10 @@ function init() {
   // reaching the XR compositor at all. Session-local only; never persisted.
   let vrProbeCubes = []; // Mesh[] — red/blue/green/yellow, see _createVrProbeCubes()
 
-  // ---- VR Render Path (v2.15.2 audit) ----
-  // Explicit render-mode flag so the two rendering paths (normal
-  // requestAnimationFrame loop vs. renderer.setAnimationLoop(vrLoop) during
-  // an XR session) are never ambiguous. See docs/vr-render-path-audit.md
-  // for the full audit of scene/camera/render-loop call sites.
+  // ---- VR Render Path ----
+  // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
+  // drives normal and VR rendering alike (renderLoop branches on inVrSession).
+  // This flag is kept purely for the on-screen VR Debug Log.
   let renderMode = 'normal'; // 'normal' | 'vr'
 
   // ---- VR Observer Mode (v2.11) ----
@@ -467,8 +480,15 @@ function init() {
     if (renderer) return;
     threeScene = new THREE.Scene();
     camera     = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.1, 1000);
+    // v2.16 (WebXR-Sandbox runtime): the camera is part of the scene graph
+    // so camera-parented meshes (VR HUD) are rendered — Sandbox does the
+    // same (`scene.add(camera)`).
+    threeScene.add(camera);
     renderer   = new THREE.WebGLRenderer({ canvas: viewerCanvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // v2.16: xr.enabled stays true for the renderer's whole lifetime
+    // (Sandbox sets it once at init); harmless while no session is active.
+    renderer.xr.enabled = true;
 
     viewerCanvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
@@ -1502,6 +1522,9 @@ function init() {
     new THREE.TextureLoader().load(
       src,
       (texture) => {
+        // three 0.169: renderer.outputColorSpace のデフォルトが sRGB のため、
+        // 写真テクスチャは sRGB として明示しないと色が浅く（白っぽく）なる。
+        texture.colorSpace = THREE.SRGBColorSpace;
         buildSphere(texture, flipH);
         showLoadingOverlay(false);
         // v2.13: during a VR session the XR animation loop is already rendering —
@@ -1548,6 +1571,7 @@ function init() {
     new THREE.TextureLoader().load(
       s.blobUrl,
       (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
         if (s.flipH) {
           texture.wrapS = THREE.RepeatWrapping;
           texture.repeat.x = -1; texture.offset.x = 1;
@@ -1571,53 +1595,64 @@ function init() {
   }
 
   // ============================================================
-  // Render loop
+  // Render loop (v2.16 — single setAnimationLoop, WebXR-Sandbox runtime)
   // ============================================================
-  function startRender() {
-    if (animFrameId !== null) return;
-    if (compareState.mode === 'single' && renderer) fitSingleCanvas();
+  // One loop drives both normal and VR rendering, exactly like the Sandbox.
+  // While an XR session is presenting, three.js internally moves
+  // setAnimationLoop onto the session's requestAnimationFrame — the loop
+  // itself is never swapped or torn down around session start/end.
+  function renderLoop() {
+    if (inVrSession) { vrFrame(); return; }
 
-    function loop() {
-      animFrameId = requestAnimationFrame(loop);
-
-      if (compareState.mode === 'split' || compareState.mode === 'slider') {
-        if (compareState.syncViews) {
-          if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
-          const lx = Math.sin(phi) * Math.cos(theta);
-          const ly = Math.cos(phi);
-          const lz = Math.sin(phi) * Math.sin(theta);
-          if (rendererA && sceneA && cameraA) { cameraA.lookAt(lx,ly,lz); rendererA.render(sceneA, cameraA); }
-          if (rendererB && sceneB && cameraB) { cameraB.lookAt(lx,ly,lz); rendererB.render(sceneB, cameraB); }
-        } else {
-          if (autoRotate && !isDragging && !isSliderDragging) {
-            thetaA += AUTO_ROTATE_SPEED;
-            thetaB += AUTO_ROTATE_SPEED;
-          }
-          if (rendererA && sceneA && cameraA) {
-            cameraA.fov = fovA; cameraA.updateProjectionMatrix();
-            cameraA.lookAt(Math.sin(phiA)*Math.cos(thetaA), Math.cos(phiA), Math.sin(phiA)*Math.sin(thetaA));
-            rendererA.render(sceneA, cameraA);
-          }
-          if (rendererB && sceneB && cameraB) {
-            cameraB.fov = fovB; cameraB.updateProjectionMatrix();
-            cameraB.lookAt(Math.sin(phiB)*Math.cos(thetaB), Math.cos(phiB), Math.sin(phiB)*Math.sin(thetaB));
-            rendererB.render(sceneB, cameraB);
-          }
-        }
-      } else {
-        if (autoRotate && !isDragging) theta += AUTO_ROTATE_SPEED;
+    if (compareState.mode === 'split' || compareState.mode === 'slider') {
+      if (compareState.syncViews) {
+        if (autoRotate && !isDragging && !isSliderDragging) theta += AUTO_ROTATE_SPEED;
         const lx = Math.sin(phi) * Math.cos(theta);
         const ly = Math.cos(phi);
         const lz = Math.sin(phi) * Math.sin(theta);
-        if (renderer && threeScene && camera) { camera.lookAt(lx,ly,lz); renderer.render(threeScene, camera); }
-        if (observerState.enabled && !inVrSession) _observerFrameTick(_thetaToFloorDeg(theta), fov);
+        if (rendererA && sceneA && cameraA) { cameraA.lookAt(lx,ly,lz); rendererA.render(sceneA, cameraA); }
+        if (rendererB && sceneB && cameraB) { cameraB.lookAt(lx,ly,lz); rendererB.render(sceneB, cameraB); }
+      } else {
+        if (autoRotate && !isDragging && !isSliderDragging) {
+          thetaA += AUTO_ROTATE_SPEED;
+          thetaB += AUTO_ROTATE_SPEED;
+        }
+        if (rendererA && sceneA && cameraA) {
+          cameraA.fov = fovA; cameraA.updateProjectionMatrix();
+          cameraA.lookAt(Math.sin(phiA)*Math.cos(thetaA), Math.cos(phiA), Math.sin(phiA)*Math.sin(thetaA));
+          rendererA.render(sceneA, cameraA);
+        }
+        if (rendererB && sceneB && cameraB) {
+          cameraB.fov = fovB; cameraB.updateProjectionMatrix();
+          cameraB.lookAt(Math.sin(phiB)*Math.cos(thetaB), Math.cos(phiB), Math.sin(phiB)*Math.sin(thetaB));
+          rendererB.render(sceneB, cameraB);
+        }
       }
+    } else {
+      if (autoRotate && !isDragging) theta += AUTO_ROTATE_SPEED;
+      const lx = Math.sin(phi) * Math.cos(theta);
+      const ly = Math.cos(phi);
+      const lz = Math.sin(phi) * Math.sin(theta);
+      if (renderer && threeScene && camera) { camera.lookAt(lx,ly,lz); renderer.render(threeScene, camera); }
+      if (observerState.enabled) _observerFrameTick(_thetaToFloorDeg(theta), fov);
     }
-    loop();
+  }
+
+  function startRender() {
+    if (animLoopActive) return;
+    if (!renderer) initThree();
+    if (compareState.mode === 'single') fitSingleCanvas();
+    animLoopActive = true;
+    renderer.setAnimationLoop(renderLoop);
   }
 
   function stopRender() {
-    if (animFrameId !== null) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+    // v2.16: never tear the loop down mid-VR-session — the XR compositor
+    // drives it (loadPanorama calls stopRender() on every scene switch,
+    // including switches triggered from inside VR).
+    if (inVrSession) return;
+    if (animLoopActive && renderer) renderer.setAnimationLoop(null);
+    animLoopActive = false;
   }
 
   // ============================================================
@@ -2684,12 +2719,13 @@ function init() {
   }
 
   // ============================================================
-  // VR HUD & Controller Navigation (v2.15 — WebXR-Sandbox feedback)
+  // VR HUD & Controller Navigation (v2.16 — WebXR-Sandbox runtime port)
   // ============================================================
-  // camera-forward HUD: PlaneGeometry + CanvasTexture panel, repositioned
-  // every frame in front of the mono `camera` object (see header comment
-  // above for why this replaces the XR-sub-camera-add approach). State is
-  // VR-session-local and never saved to JSON/ZIP.
+  // camera-forward HUD, as verified on Quest 3 in the Sandbox: a
+  // PlaneGeometry + CanvasTexture panel added as a *child of the main
+  // camera* (the camera itself is in the scene graph — see initThree).
+  // The HMD moves the camera, the HUD follows for free; no per-frame
+  // world-position math. State is VR-session-local, never saved to JSON/ZIP.
 
   function _vrNavPosition() {
     const order = _getNavOrder();
@@ -2701,11 +2737,12 @@ function init() {
   }
 
   function _createVrHud() {
-    if (vrHudMesh || !threeScene) return;
+    if (vrHudMesh || !camera) return;
     vrHudCanvas = document.createElement('canvas');
     vrHudCanvas.width = 1024; vrHudCanvas.height = 700;
     vrHudCtx = vrHudCanvas.getContext('2d');
     vrHudTexture = new THREE.CanvasTexture(vrHudCanvas);
+    vrHudTexture.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.MeshBasicMaterial({
       map: vrHudTexture, transparent: true, opacity: 1,
       depthTest: false, side: THREE.DoubleSide
@@ -2713,18 +2750,18 @@ function init() {
     vrHudMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.1), mat);
     vrHudMesh.renderOrder = 999;
     vrHudMesh.visible = vrHudVisible;
-    // Placed once synchronously so the panel is not sitting at the world
-    // origin for the first frame or two before vrLoop's per-frame
-    // _updateVrHudPose() call takes over.
+    // v2.16 (Sandbox "camera-forward", Quest 3 verified): fixed local offset
+    // as a child of the main camera — slightly below center so it doesn't
+    // block the middle of the panorama.
     vrHudMesh.position.set(0, -0.45, -2.0);
-    threeScene.add(vrHudMesh);
+    camera.add(vrHudMesh);
     _drawVrHud();
-    console.log('[VR] hud created (camera-forward)');
+    console.log('[VR] hud created (camera-forward, camera-parented)');
   }
 
   function _disposeVrHud() {
     if (!vrHudMesh) return;
-    if (threeScene) threeScene.remove(vrHudMesh);
+    if (vrHudMesh.parent) vrHudMesh.parent.remove(vrHudMesh);
     vrHudMesh.geometry.dispose();
     vrHudMesh.material.dispose();
     if (vrHudTexture) vrHudTexture.dispose();
@@ -2735,7 +2772,7 @@ function init() {
   // VR Cube Probe (v2.15.1 camera-forward cube, replaced by world-fixed
   // cubes in v2.15.2) — minimal WebXR-Sandbox verification block
   // ------------------------------------------------------------
-  // Deliberately independent of _createVrHud/_updateVrHudPose above: this
+  // Deliberately independent of the _createVrHud HUD above: this
   // does not reuse or depend on any HUD/Debug Panel state, so it isolates
   // one question only — does a Mesh added to `threeScene` show up in the
   // headset alongside the 360° photo. v2.15.1 used a single cube
@@ -2853,25 +2890,6 @@ function init() {
     if (vrHudTexture) vrHudTexture.needsUpdate = true;
   }
 
-  const _vrHudPos = new THREE.Vector3();
-  const _vrHudDir = new THREE.Vector3();
-  function _updateVrHudPose() {
-    if (!vrHudMesh || !camera) return;
-    // v2.15 (WebXR-Sandbox "camera-forward" finding): reposition from the
-    // mono `camera` object that renderer.render(threeScene, camera) is
-    // called with, NOT from renderer.xr.getCamera(camera). In Sandbox
-    // testing, attaching to the XR sub-camera (or repositioning from it)
-    // did not behave as a real per-eye XR camera — it fell back to the
-    // main camera anyway, so this reads its pose directly instead.
-    camera.getWorldPosition(_vrHudPos);
-    camera.getWorldDirection(_vrHudDir);
-    vrHudMesh.position.copy(_vrHudPos)
-      .addScaledVector(_vrHudDir, 2.0)
-      .add(new THREE.Vector3(0, -0.45, 0));
-    vrHudMesh.lookAt(_vrHudPos);
-    vrHudMesh.visible = vrHudVisible;
-  }
-
   function _vrShowHud() {
     _drawVrHud();
   }
@@ -2943,7 +2961,7 @@ function init() {
   }
 
   // v2.15: primary input path (WebXR-Sandbox verified). Polled once per
-  // frame from vrLoop — no controller 'selectstart'/'squeezestart' event
+  // frame from vrFrame — no controller 'selectstart'/'squeezestart' event
   // listeners, which did not fire reliably on Meta Quest 3 hardware in
   // v2.13/v2.13.1 real-device testing. Reads session.inputSources directly
   // each frame and edge-detects gamepad.buttons[].pressed transitions.
@@ -3029,8 +3047,8 @@ renderer.xr.enabled: ${vrRenderDebug.xrEnabled}
 animationLoop active: ${vrRenderDebug.animationLoopActive}
 normalRAF active: ${vrRenderDebug.normalRafActive}
 cube count: ${vrRenderDebug.cubeCount}
-last vrLoop timestamp: ${vrRenderDebug.lastLoopAt}
-vrLoop frame count: ${vrRenderDebug.frameCount}
+last vrFrame timestamp: ${vrRenderDebug.lastLoopAt}
+vrFrame count: ${vrRenderDebug.frameCount}
 inputSources: ${vrDebug.inputSourceCount}
 left buttons: ${_vrButtonSummary('left')}
 right buttons: ${_vrButtonSummary('right')}
@@ -3042,15 +3060,14 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   let _vrHudDebugFrameCount = 0;
   let _vrObsFrameCount = 0;
   let _vrDebugLogFrameCount = 0;
-  // v2.15.2: the only render call during an XR session — vrLoop is the sole
-  // body passed to renderer.setAnimationLoop(). No other function calls
-  // renderer.render() while renderMode === 'vr'; see docs/vr-render-path-audit.md
-  // for the full call-site audit that confirmed this was already the case.
-  function vrLoop() {
+  // v2.16: per-frame VR work, called from the single renderLoop while
+  // inVrSession is true. This is not a separate animation loop — the same
+  // setAnimationLoop(renderLoop) installed at startRender() keeps running
+  // through session start/end (WebXR-Sandbox runtime structure).
+  function vrFrame() {
     vrRenderDebug.frameCount++;
     vrRenderDebug.lastLoopAt = Date.now();
     _pollVrInputSources();
-    _updateVrHudPose();
     // Redraw the HUD canvas a few times a second so the live debug
     // counters/inputSources info stay current even without a button edge.
     if (vrHudCtx) {
@@ -3081,8 +3098,12 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     renderMode = 'normal';
     xrSession = null;
     console.log('[VR]', 'session ended', JSON.parse(JSON.stringify(vrDebug)));
-    vrRenderDebug.animationLoopActive = false;
-    vrRenderDebug.xrEnabled = false;
+    // v2.16: no loop teardown / restart — the single setAnimationLoop keeps
+    // running; three.js moves it back off the session's rAF automatically.
+    // renderer.xr.enabled also stays true for the renderer's lifetime.
+    vrRenderDebug.animationLoopActive = animLoopActive;
+    vrRenderDebug.normalRafActive = animLoopActive;
+    vrRenderDebug.xrEnabled = renderer ? renderer.xr.enabled : false;
     // Leave the on-screen log populated with the final state — this is the
     // only way to review input results once the headset is off.
     _renderVrDebugLog('session ended');
@@ -3091,19 +3112,12 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     vrRenderDebug.cubeCount = 0;
     vrHudVisible = true;
     _vrResetInputState();
-    if (renderer) {
-      // v2.15.2: setAnimationLoop(null) is the only place the XR loop is
-      // torn down, and startRender() below is the only place the normal
-      // rAF loop is restarted — each fires exactly once per session end.
-      renderer.setAnimationLoop(null);
-      renderer.xr.enabled = false;
-    }
     autoRotate = autoRotateWasOnBeforeVr;
-    if (compareState.mode === 'single' && scenes.length) {
-      fitSingleCanvas();
-      startRender();
-      vrRenderDebug.normalRafActive = true;
-    }
+    if (compareState.mode === 'single' && scenes.length) fitSingleCanvas();
+    // clearAllAndShowUpload() during VR can't stop the loop itself (stopRender
+    // is a no-op mid-session) — if the session ended with no scenes left,
+    // stop it here instead of rendering an empty scene forever.
+    if (!scenes.length) stopRender();
     observerState.connected = false;
     renderObserverPanel();
     updateVrBtn();
@@ -3119,7 +3133,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       return;
     }
     try {
-      renderer.xr.enabled = true;
+      startRender(); // no-op when the loop is already running (normal case)
       vrHudVisible = true;
       _vrResetInputState();
       _createVrHud();
@@ -3129,23 +3143,22 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrRenderDebug.cubeCount = vrProbeCubes.length;
       vrRenderDebug.frameCount = 0;
       vrRenderDebug.xrEnabled = renderer.xr.enabled;
+      // v2.16: same optionalFeatures as three.js VRButton — the exact
+      // session-start path the WebXR-Sandbox was verified with on Quest 3.
       const session = await navigator.xr.requestSession('immersive-vr', {
-        optionalFeatures: ['local-floor', 'bounded-floor']
+        optionalFeatures: ['local-floor', 'bounded-floor', 'layers']
       });
       xrSession = session;
       inVrSession = true;
       renderMode = 'vr';
       autoRotateWasOnBeforeVr = autoRotate;
       autoRotate = false;
-      // v2.15.2: stopRender() is the only place the normal rAF loop is
-      // cancelled, and it runs before setSession/setAnimationLoop below —
-      // the two render paths are never active at the same time.
-      stopRender();
-      vrRenderDebug.normalRafActive = false;
-      await renderer.xr.setSession(session);
       session.addEventListener('end', onVrSessionEnd);
-      renderer.setAnimationLoop(vrLoop);
-      vrRenderDebug.animationLoopActive = true;
+      // v2.16: no loop swap — the single setAnimationLoop(renderLoop) keeps
+      // running; setSession moves it onto the session's rAF internally.
+      await renderer.xr.setSession(session);
+      vrRenderDebug.animationLoopActive = animLoopActive;
+      vrRenderDebug.normalRafActive = false;
       console.log('[VR]', 'session started');
       console.log('[VR Render]', 'threeScene', threeScene.uuid, 'camera', camera.uuid, 'cubes', vrProbeCubes.length);
       _vrShowHud();
@@ -3169,12 +3182,13 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       _disposeVrHud();
       _disposeVrProbeCubes();
       vrRenderDebug.cubeCount = 0;
-      vrRenderDebug.animationLoopActive = false;
       _vrResetInputState();
-      if (renderer) renderer.xr.enabled = false;
+      // v2.16: the loop was never swapped, so there is nothing to restart;
+      // renderer.xr.enabled also stays true for the renderer's lifetime.
+      vrRenderDebug.animationLoopActive = animLoopActive;
+      vrRenderDebug.normalRafActive = animLoopActive;
       updateVrBtn();
       showToast('VRセッションを開始できませんでした');
-      if (scenes.length) { startRender(); vrRenderDebug.normalRafActive = true; }
     }
   }
 

@@ -12,7 +12,7 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.15.2</span>
+        <span id="app-version-badge" class="app-version-badge">v2.16.0</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
@@ -451,10 +451,10 @@
   </main>
 
   <footer class="footer">
-    <p>ArchView360 v2.15.2 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
+    <p>ArchView360 v2.16.0 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
   </footer>
 
-  <script src="vendor/three.min.js"></script>
+  <script type="module" src="vendor/three-global.js"></script>
   <script src="vendor/jszip.min.js"></script>
   <input type="file" id="file-input"          accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
   <input type="file" id="floorplan-input"     accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
@@ -619,6 +619,6 @@
   <!-- VR Debug Log: on-screen input state (v2.15). Local-only, never persisted. -->
   <pre id="vr-debug-log" class="vr-debug-log" style="display:none" aria-label="VR Debug Log"></pre>
 
-  <script src="script.js?v=20260621a" defer></script>
+  <script src="script.js?v=20260712a" defer></script>
 </body>
 </html>

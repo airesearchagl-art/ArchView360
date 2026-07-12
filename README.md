@@ -1,9 +1,11 @@
 # ArchView360
 
+> **v2.16.0 — VR Runtime移植（WebXR-Sandbox実証基盤）** — v2.13〜v2.15.2の段階的修正では「VR開始とパノラマ表示は成功するが、HUD・Controller・Cube Probeなど追加Meshが一切表示されない」問題が解決しなかったため、修正の積み重ねをやめ、WebXR-Sandbox（Quest 3実機検証済み）のVR描画基盤をひとつのRuntimeとして移植しました。Three.js本体をr128（2021）からSandbox検証と同一の**0.169.0**（2024）へ更新し、`renderer.xr.enabled`常時ON・単一`setAnimationLoop`（rAF⇄XRループ入替の廃止）・カメラのシーングラフ登録＋**カメラ子付けHUD**（Sandboxで実証されたcamera-forward方式）・`optionalFeatures: ['local-floor','bounded-floor','layers']`という、Sandboxで動作確認された構成に置き換えています。比較と移植方針は[`docs/vr-runtime-migration.md`](docs/vr-runtime-migration.md)を参照してください。
+>
 > **v2.15.2 — VR Render Path Audit** — v2.15.1までのHUD/Cube Probeを実機確認してもなお何も表示されなかったため、機能追加ではなく**ArchView360のVR描画経路そのものの監査**を行いました。Scene/Camera/Rendererの生成・再代入箇所、`renderer.render()`・`requestAnimationFrame()`・`renderer.setAnimationLoop()`の全呼び出し箇所を棚卸しし、結果を[`docs/vr-render-path-audit.md`](docs/vr-render-path-audit.md)にまとめています。v2.15.1のcamera前方追従Cubeは、camera-forward計算そのものを疑いから除外するため、固定座標に4色Cubeを配置する方式（Red/Blue/Green/Yellow）に置き換えました。HUD方式・Controller入力（v2.15の内容）には手を加えていません。D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できる、軽量な静的Webビューワーです。サーバーを持たないローカル完結型ツールで、画像・平面図・JSON・ZIPパッケージはすべてブラウザ内で処理され、外部送信されません。プロジェクト全体（設定＋画像）を1つのZIPファイルとして書き出し・読み込みできるようになり、社内展開・施主への共有が簡単になりました。Meta QuestなどのWebXR対応ブラウザでは、現在表示中のシーンを単体VRモードで没入表示できます。シーン一覧は横並びカード（名称＋メタ情報 ／ 固定サイズサムネイル）になり、大量のシーンでも視認性とスクロール性を維持します。未配置判定はmarker基準に統一され、マーカー番号（order）を後から編集できます。← → キーはそのFloorMap上のマーカー番号順で移動し、プロジェクトダッシュボードでシーン数・配置率をリアルタイム確認できます。
 
 [![Static Site](https://img.shields.io/badge/deploy-Vercel-blue)](https://github.com/airesearchagl-art/ArchView360)
-[![Three.js](https://img.shields.io/badge/Three.js-r128-green)](https://threejs.org/)
+[![Three.js](https://img.shields.io/badge/Three.js-0.169.0-green)](https://threejs.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 ## 📖 ユーザーマニュアル
@@ -253,7 +255,7 @@ cd ArchView360
 npx serve .   # → http://localhost:3000
 ```
 
-> Three.js は `vendor/three.min.js` としてローカル同梱されているため、**オフラインでも動作します**。
+> Three.js は `vendor/three.module.min.js` としてローカル同梱されているため、**オフラインでも動作します**。
 
 ---
 
@@ -397,7 +399,7 @@ Settings → Pages → Source を `main` ブランチの `/(root)` に設定
 ## 技術スタック
 
 - HTML5 / CSS3 / Vanilla JavaScript（外部依存なし）
-- [Three.js r128](https://threejs.org/) — `vendor/three.min.js` としてローカル同梱
+- [Three.js 0.169.0](https://threejs.org/) — `vendor/three.module.min.js` としてローカル同梱（`vendor/three-global.js` シム経由で `window.THREE` として公開。WebXR-SandboxのQuest 3実機検証と同一バージョン）
 - [JSZip 3.10.1](https://stuk.github.io/jszip/) — `vendor/jszip.min.js` としてローカル同梱（MIT OR GPL-3.0-or-later）
 - 画像はブラウザ内で処理（`URL.createObjectURL()`）。**サーバーへ送信されません**
 
