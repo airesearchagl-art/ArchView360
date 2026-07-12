@@ -2830,6 +2830,80 @@ function init() {
     return `buttons:${s.buttonsLength} pressed:${s.pressedCount}`;
   }
 
+  // ------------------------------------------------------------
+  // VR Controller Visual Guide (v2.18) — drawn into the same HUD canvas as
+  // everything else, in the "always visible" band above the Debug
+  // simple/detailed split, so it shows/hides with the HUD (vrHudVisible)
+  // and is unaffected by the Left Y detail toggle. Pure Canvas 2D drawing:
+  // no new DOM element, no input handling, no change to button mapping —
+  // it only *reads* vrRingEnabled to grey out the Trigger affordance and to
+  // show the Ring ON/OFF state next to Menu. Internal button indices
+  // (#0/#4/#5/#12) are intentionally not printed here; they remain in
+  // docs/vr.html for reference.
+  function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = active ? '#ffffff' : 'rgba(200, 200, 200, 0.4)';
+    ctx.stroke();
+    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = active ? '#0d121c' : 'rgba(20, 20, 24, 0.85)';
+    ctx.fillText(symbol, x, y + 1);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(labelX, labelY);
+    ctx.strokeStyle = active ? 'rgba(210, 225, 255, 0.55)' : 'rgba(150, 150, 150, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.font = '20px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
+    ctx.fillText(label, labelX, labelY);
+  }
+
+  function _drawVrHudControllerGuide(ctx) {
+    const ringEnabled = vrRingEnabled;
+
+    function controller(cx, hand, color, handLabel) {
+      // Tracking ring + grip, drawn as plain circle/rect strokes — a
+      // deliberately simple silhouette, not a realistic controller model.
+      ctx.beginPath();
+      ctx.arc(cx, 265, 52, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(cx - 28, 310, 56, 118);
+
+      ctx.font = 'bold 24px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = color;
+      ctx.fillText(handLabel, cx, 195);
+
+      if (hand === 'left') {
+        _drawVrHudButtonDot(ctx, cx - 20, 250, 'X', cx - 130, 235, '前', true, color);
+        _drawVrHudButtonDot(ctx, cx + 20, 250, 'Y', cx + 130, 235, 'Debug', true, color);
+        _drawVrHudButtonDot(ctx, cx, 305, 'M', cx - 130, 305, `Ring ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
+        _drawVrHudButtonDot(ctx, cx, 405, 'T', cx, 452, 'Scene選択', ringEnabled, color);
+      } else {
+        _drawVrHudButtonDot(ctx, cx + 20, 250, 'A', cx + 130, 235, '次', true, color);
+        _drawVrHudButtonDot(ctx, cx - 20, 250, 'B', cx - 130, 235, 'HUD', true, color);
+        _drawVrHudButtonDot(ctx, cx, 405, 'T', cx, 452, 'Scene選択', ringEnabled, color);
+      }
+    }
+
+    controller(260, 'left', '#5fd0c0', 'L');
+    controller(764, 'right', '#e0a75f', 'R');
+  }
+
   function _drawVrHud() {
     if (!vrHudCtx) return;
     const ctx = vrHudCtx, W = 1024, H = 700;
@@ -2863,36 +2937,35 @@ function init() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(80, 230); ctx.lineTo(W - 80, 230); ctx.stroke();
 
-    // Quest Touch Plus button mapping (see docs/vr.html for the full table)
-    ctx.font = '32px system-ui, sans-serif';
-    ctx.fillStyle = '#9fb4d8';
-    ctx.fillText('Right A #4 : Next', W / 2, 280);
-    ctx.fillText('Left X #4 : Prev', W / 2, 320);
-    ctx.fillText('Right B #5 : HUD', W / 2, 360);
-    ctx.fillText('Left Y #5 : Debug   |   Left Menu #12 : Ring', W / 2, 400);
+    // v2.18: visual Controller guide replaces the old plain-text button
+    // legend (still drawn in the "always visible" band, independent of the
+    // Left Y detail toggle below — see _drawVrHudControllerGuide comments).
+    _drawVrHudControllerGuide(ctx);
 
     ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
-    ctx.beginPath(); ctx.moveTo(80, 425); ctx.lineTo(W - 80, 425); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(80, 468); ctx.lineTo(W - 80, 468); ctx.stroke();
 
     ctx.font = '24px monospace';
     ctx.fillStyle = '#7a8bab';
-    let y = 460;
+    ctx.textAlign = 'center';
+    let y = 480;
     if (vrDebugDetailed) {
       // Detailed debug panel (Left Y toggles this on). Line spacing tightened
-      // from 32 to 26px to fit the new "ring enabled" line within the fixed
-      // 700px-tall canvas.
-      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 26;
-      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 26;
-      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 26;
-      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 26;
-      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 26;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 26;
-      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 26;
-      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 26;
-      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 26;
+      // to 23px so all 10 lines fit below the controller guide within the
+      // fixed 700px-tall canvas.
+      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 23;
+      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 23;
+      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 23;
+      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 23;
+      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 23;
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 23;
+      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 23;
+      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 23;
+      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 23;
       ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y);
     } else {
-      // Simple panel: just the button legend already drawn above, plus
+      // Simple panel: just the controller guide already drawn above, plus
       // a one-line input-sources sanity check.
       ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y);
     }
@@ -4722,7 +4795,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.17.1',
+      appVersion:  '2.18.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
