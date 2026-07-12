@@ -3232,27 +3232,42 @@ function init() {
         _updateRingHandHover('left', null);
         _updateRingHandHover('right', null);
       } else {
-        // Per-hand raycast: each laser only feeds the hover slot of its own
-        // handedness (resolved via the 'connected' event, see
-        // _onRingControllerConnected). A controller with unknown handedness
-        // contributes no hover and therefore can never select.
-        const hits = { left: null, right: null };
         // Sprite.raycast() reads raycaster.camera internally — leaving it
-        // unset throws every frame, which kills the XR animation loop (seen
-        // on Quest 3 as a freeze plus last-frame reprojection covering only
-        // part of the view).
-        vrRaycaster.camera = camera;
-        [vrController1, vrController2].forEach((controller) => {
-          if (!controller) return;
-          const hand = controller.userData.ringHandedness;
-          if (hand !== 'left' && hand !== 'right') return;
-          vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-          vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
-          const intersects = vrRaycaster.intersectObjects(vrRingGroup.children, false);
-          hits[hand] = intersects.length
-            ? (vrRingItems.find((h) => h.mesh === intersects[0].object) || null)
-            : null;
-        });
+        // unset (or stale) throws every frame, which kills the XR animation
+        // loop entirely (seen on Quest 3 as a freeze plus last-frame
+        // reprojection covering only part of the view). The principled
+        // source is the active XR camera (renderer.xr.getCamera(camera)),
+        // which is only meaningful while a frame is actually being
+        // rendered inside an XR session; resolving it is wrapped so a
+        // throw or a falsy return can never propagate. When it can't be
+        // obtained, this frame's raycast is skipped outright (hover cleared,
+        // no exception) rather than guessing with a substitute camera.
+        let xrCam = null;
+        try {
+          xrCam = (renderer && renderer.xr && renderer.xr.getCamera) ? renderer.xr.getCamera(camera) : null;
+        } catch (err) {
+          xrCam = null;
+        }
+
+        const hits = { left: null, right: null };
+        if (xrCam) {
+          vrRaycaster.camera = xrCam;
+          // Per-hand raycast: each laser only feeds the hover slot of its
+          // own handedness (resolved via the 'connected' event, see
+          // _onRingControllerConnected). A controller with unknown
+          // handedness contributes no hover and therefore can never select.
+          [vrController1, vrController2].forEach((controller) => {
+            if (!controller) return;
+            const hand = controller.userData.ringHandedness;
+            if (hand !== 'left' && hand !== 'right') return;
+            vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
+            const intersects = vrRaycaster.intersectObjects(vrRingGroup.children, false);
+            hits[hand] = intersects.length
+              ? (vrRingItems.find((h) => h.mesh === intersects[0].object) || null)
+              : null;
+          });
+        }
         _updateRingHandHover('left', hits.left);
         _updateRingHandHover('right', hits.right);
       }
