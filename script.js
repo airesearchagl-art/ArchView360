@@ -2842,13 +2842,13 @@ function init() {
   // docs/vr.html for reference.
   function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color) {
     ctx.beginPath();
-    ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.arc(x, y, 13, 0, Math.PI * 2);
     ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = active ? '#ffffff' : 'rgba(200, 200, 200, 0.4)';
     ctx.stroke();
-    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.font = 'bold 15px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = active ? '#0d121c' : 'rgba(20, 20, 24, 0.85)';
@@ -2868,36 +2868,96 @@ function init() {
     ctx.fillText(label, labelX, labelY);
   }
 
+  // Trigger gets its own mark instead of a plain button dot: a curved
+  // "hook" stroke (suggesting a pulled lever, not a face button) at the
+  // front-bottom of the grip, where the index finger actually rests on the
+  // real controller — see the reference photos this shape/position was
+  // adjusted against. Still just a label + leader line underneath, same as
+  // _drawVrHudButtonDot.
+  function _drawVrHudTriggerMark(ctx, x, y, labelX, labelY, label, active, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, 11, -2.4, 0.5);
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(x, y + 10);
+    ctx.lineTo(labelX, labelY);
+    ctx.strokeStyle = active ? 'rgba(210, 225, 255, 0.55)' : 'rgba(150, 150, 150, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
+    ctx.fillText(label, labelX, labelY);
+  }
+
   function _drawVrHudControllerGuide(ctx) {
     const ringEnabled = vrRingEnabled;
 
+    // Real Touch Plus layout (checked against reference photos): thumbstick
+    // and the small secondary button (Menu on left / Meta-Oculus on right)
+    // sit together on the *inner* side of the ring — the side facing the
+    // other controller — with the two main face buttons stacked on the
+    // *outer* side. `inner` is +1 for the left controller (inner = right)
+    // and -1 for the right controller (inner = left).
     function controller(cx, hand, color, handLabel) {
+      const inner = hand === 'left' ? 1 : -1;
+      const ringCy = 300, ringR = 44;
+
       // Tracking ring + grip, drawn as plain circle/rect strokes — a
       // deliberately simple silhouette, not a realistic controller model.
       ctx.beginPath();
-      ctx.arc(cx, 265, 52, 0, Math.PI * 2);
+      ctx.arc(cx, ringCy, ringR, 0, Math.PI * 2);
       ctx.strokeStyle = color;
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
-      ctx.strokeRect(cx - 28, 310, 56, 118);
+      ctx.strokeRect(cx - 26, ringCy + ringR, 52, 64);
 
-      ctx.font = 'bold 24px system-ui, sans-serif';
+      ctx.font = 'bold 22px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = color;
-      ctx.fillText(handLabel, cx, 195);
+      ctx.fillText(handLabel, cx, 253);
+
+      // Thumbstick — undecorated (not app-controlled), just for silhouette
+      // recognizability. No leader line/label.
+      ctx.beginPath();
+      ctx.arc(cx + inner * 22, ringCy - 15, 9, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.55;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      const secondaryX = cx + inner * 6;
+      const secondaryY = ringCy - 44;
+      const secondaryLabelX = cx + inner * 132;
+      const faceX = cx - inner * 24;
+      const faceLabelX = cx - inner * 136;
 
       if (hand === 'left') {
-        _drawVrHudButtonDot(ctx, cx - 20, 250, 'X', cx - 130, 235, '前', true, color);
-        _drawVrHudButtonDot(ctx, cx + 20, 250, 'Y', cx + 130, 235, 'Debug', true, color);
-        _drawVrHudButtonDot(ctx, cx, 305, 'M', cx - 130, 305, `Ring ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
-        _drawVrHudButtonDot(ctx, cx, 405, 'T', cx, 452, 'Scene選択', ringEnabled, color);
+        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, `Ring ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
+        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'Y', faceLabelX, ringCy - 22, 'Debug', true, color);
+        _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'X', faceLabelX, ringCy + 22, '前', true, color);
       } else {
-        _drawVrHudButtonDot(ctx, cx + 20, 250, 'A', cx + 130, 235, '次', true, color);
-        _drawVrHudButtonDot(ctx, cx - 20, 250, 'B', cx - 130, 235, 'HUD', true, color);
-        _drawVrHudButtonDot(ctx, cx, 405, 'T', cx, 452, 'Scene選択', ringEnabled, color);
+        // Meta/Oculus button: exits the current VR app to the system menu
+        // at the OS level — Quest never exposes it as a WebXR
+        // gamepad.buttons entry, so this label is purely informational and
+        // is never gated on vrRingEnabled or any app state.
+        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, 'Meta : VR終了', true, '#a9c3e0');
+        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'B', faceLabelX, ringCy - 22, 'HUD', true, color);
+        _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'A', faceLabelX, ringCy + 22, '次', true, color);
       }
+
+      _drawVrHudTriggerMark(ctx, cx, ringCy + ringR + 48, cx, ringCy + ringR + 100, 'Scene選択', ringEnabled, color);
     }
 
     controller(260, 'left', '#5fd0c0', 'L');

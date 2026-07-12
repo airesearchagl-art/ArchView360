@@ -178,14 +178,17 @@
     </div>
     <ul>
       <li><strong>左右の区別：</strong> 左Controllerは緑系の色、右Controllerは橙系の色、および「L」「R」の文字表記で明確に区別します。</li>
-      <li><strong>ボタン位置：</strong> 各Controllerを円（トラッキングリング）＋四角（グリップ）の簡易シルエットで表し、ボタン位置を小さな丸（内部に記号）で示します。
+      <li><strong>ボタン位置（実機写真に基づき調整）：</strong> 各Controllerを円（トラッキングリング）＋四角（グリップ）の簡易シルエットで表し、ボタン位置を小さな丸（内部に記号）で示します。実際のQuest Touch Plusでは、親指スティックと副ボタン（左のMenu／右のMeta）がリング内側（もう片方のControllerに近い側）の上部にまとまり、主要な2ボタン（X/Y、A/B）がリング外側に並ぶため、この配置を再現しています。
         <ul>
-          <li>左：<code>X</code>・<code>Y</code>・<code>M</code>（Menu）・<code>T</code>（Trigger）</li>
-          <li>右：<code>A</code>・<code>B</code>・<code>T</code>（Trigger）</li>
+          <li>左：<code>Y</code>（外側・上）・<code>X</code>（外側・下）・<code>M</code>（Menu、内側・上）・<code>T</code>（Trigger）</li>
+          <li>右：<code>B</code>（外側・上）・<code>A</code>（外側・下）・<code>M</code>（Meta、内側・上）・<code>T</code>（Trigger）</li>
         </ul>
+        親指スティック自体はラベルなしの小さな塗り丸で示すのみです（アプリの入力処理では使用していないため）。
       </li>
-      <li><strong>短いラベル：</strong> 各ボタンの丸から短い引き出し線を伸ばし、操作名を表示します（<code>次</code> / <code>前</code> / <code>HUD</code> / <code>Debug</code> / <code>Scene選択</code> / <code>Ring ON</code>または<code>Ring OFF</code>）。<code>button[0]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
-      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（Scene選択）の丸とラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。Left Menuのラベルは常に現在の状態（<code>Ring ON</code> / <code>Ring OFF</code>）を表示します。</li>
+      <li><strong>Trigger表現の改善：</strong> Triggerは他のボタンと同じ丸ではなく、握った際に人差し指が触れるグリップ前面の位置に<strong>フック（引き金）状の弧線</strong>で描画し、直下から「Scene選択」ラベルへ引き出し線を伸ばします。記号の<code>T</code>だけに頼らず、位置と形状の両方でTriggerだと分かるようにしています。</li>
+      <li><strong>短いラベル：</strong> 各ボタンの丸／フックから短い引き出し線を伸ばし、操作名を表示します（<code>次</code> / <code>前</code> / <code>HUD</code> / <code>Debug</code> / <code>Scene選択</code> / <code>Ring ON</code>または<code>Ring OFF</code>）。<code>button[0]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
+      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（Scene選択）のフックとラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。Left Menuのラベルは常に現在の状態（<code>Ring ON</code> / <code>Ring OFF</code>）を表示します。</li>
+      <li><strong>右Controller Metaボタンの案内：</strong> 右Controllerの副ボタンは<strong>Meta（Oculus）ボタン</strong>で、VRアプリを終了してシステムメニューに戻る、OS側のハードウェアボタンです。WebXRの<code>gamepad.buttons</code>には公開されないため、ArchView360のコードが処理する入力ではありません。HUD上には常時「<code>Meta : VR終了</code>」という案内のみを表示し、Ring ON/OFF状態やTrigger操作とは独立しています（グレーアウトの対象にもなりません）。</li>
       <li><strong>表示/非表示の連動：</strong> 操作図はHUD本体と同じCanvasTexture・同じMeshに描画されるため、Right Bで通常HUDを非表示にすると操作図も一緒に非表示になります。</li>
       <li><strong>Debugとの独立性：</strong> 操作図はDebug簡易/詳細表示の切替（Left Y）とは独立した「常時表示」領域に描画されるため、Debug表示を切り替えても操作図が消えたり壊れたりしません。</li>
       <li><strong>更新頻度：</strong> 新しい再描画トリガーは追加していません。既存の<code>_vrShowHud()</code>呼び出しと、<code>vrFrame()</code>内の既存の間引き再描画（約20フレームに1回）にそのまま乗る形で更新されます。</li>
