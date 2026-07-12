@@ -118,7 +118,7 @@
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>不使用のボタン：</strong> トリガー（<code>button[0]</code>）・グリップ（<code>button[1]</code>）・スティッククリック（<code>button[3]</code>）・左コントローラーのMenu（<code>button[12]</code>）・axes（ジョイスティック）は、今回のPRでは主要操作に使用していません。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Hotspot Navigation（後述）でホットスポット選択に使用します。グリップ（<code>button[1]</code>）・スティッククリック（<code>button[3]</code>）・左コントローラーのMenu（<code>button[12]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -133,7 +133,7 @@
       <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
       <li>操作ガイド（Right A: Next / Left X: Prev / Right B: HUD / Left Y: Debug）</li>
       <li><strong>簡易表示：</strong> <code>inputSources</code>数のみ</li>
-      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長</li>
+      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、ホットスポット数、ホバー中/選択済みのシーン名（v2.17）</li>
     </ul>
     <ul>
       <li>HUDは<code>camera</code>の子として、前方約2m・視線よりやや下の固定ローカルオフセットに配置されます。</li>
@@ -151,6 +151,19 @@
       <li>✅ Right A / Left Xによる前後シーン切替成功</li>
       <li>✅ Right B（HUD表示切替）/ Left Y（Debug Panel詳細切替）操作成功</li>
       <li>✅ VRセッションを維持したままの2シーン切替成功（セッション再接続なし）</li>
+    </ul>
+
+    <h2>📍 VR Hotspot Navigation（v2.17）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> v2.16.1で完成したVR Runtimeをベースに、VR空間内のホットスポットをレーザーポインターで選択し、Triggerで任意シーンへ移動できるようにする追加機能です。VR Runtimeの初期化・終了処理、camera子付けHUD、Controllerのbutton pollingロジック（Right A/Left X/Right B/Left Y）、render loopには変更を加えていません。
+    </div>
+    <ul>
+      <li><strong>Hotspot表示：</strong> VRモード開始時のみ、現在シーン以外の各シーンに対応するホットスポット（円形アイコン＋シーン名）を生成します。生成元は新しいJSON構造ではなく、既存の<code>marker.sceneId</code> / <code>marker.order</code>（<code>_getNavOrder()</code> — FloorMapやnextScene/prevSceneと共通のナビゲーション順）です。通常表示では生成されません。</li>
+      <li><strong>Billboard：</strong> <code>THREE.Sprite</code>として実装しているため常にカメラ方向を向き、three.jsの標準機能（sizeAttenuation）により距離に応じて自動的に縮小表示されます。</li>
+      <li><strong>Laser Pointer：</strong> 左右Quest Controllerそれぞれから細いLineを前方に表示します。<code>renderer.xr.getController()</code>によるthree.js標準のController姿勢トラッキングを使用し、既存のgamepad.buttons読み取り（Right A/Left X/Right B/Left Y用）とは独立しています。</li>
+      <li><strong>Hover / 選択：</strong> RaycasterがHotspotにHitするとハイライト表示（拡大・色変化）し、シーン名を強調表示します。<strong>Trigger（<code>button[0]</code>）</strong>を押すとそのシーンへ切り替わります。</li>
+      <li><strong>Scene切替演出：</strong> Trigger選択によるシーン切替時のみ、Fade Out（VR空間内の黒フェード、DOM側のフェードはヘッドセット内で見えないため使用しません）→ Texture Load → Fade In を行います。Right A / Left Xによる従来の切替（<code>nextScene()</code> / <code>prevScene()</code>）の挙動は変更していません。</li>
+      <li>ホットスポットの表示状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>

@@ -253,6 +253,37 @@ function init() {
   // populated after the session ends.
   const vrDebugLogEl = $('vr-debug-log');
 
+  // ---- VR Hotspot Navigation (v2.17) ----
+  // Additive VR-only layer: a Quest controller's laser pointer selects a
+  // hotspot floating in the panorama and Trigger (button[0], previously
+  // reserved/unused — see _pollVrInputSources comments) jumps straight to
+  // that scene. Deliberately independent of the button-mapped polling
+  // above: this reads its own Trigger edge state so the existing Right
+  // A/Left X/Right B/Left Y polling in _pollVrInputSources is untouched.
+  // Reuses the same marker/order data as nextScene()/prevScene()/FloorMap
+  // via _getNavOrder() — no new scene data or JSON fields. Session-local
+  // only; never persisted to project JSON/ZIP.
+  let vrHotspotGroup = null;   // THREE.Group holding the hotspot sprites (VR-only, never created outside a session)
+  let vrHotspots = [];         // { mesh, sceneIdx, name, normalTexture, hoverTexture, baseScale }[]
+  let vrHoveredHotspot = null; // currently hovered hotspot record | null
+  let vrController1 = null, vrController2 = null; // renderer.xr.getController(0/1)
+  let vrControllerLaser1 = null, vrControllerLaser2 = null;
+  const vrRaycaster = new THREE.Raycaster();
+  // Independent per-gamepad Trigger (button[0]) edge state — separate from
+  // vrPrevButtonState above, which only tracks the mapped buttons (#4/#5).
+  const vrHotspotPrevTrigger = new WeakMap();
+  let vrHotspotFadeMesh = null;       // black plane, child of camera, for a VR-native fade (DOM fade is invisible in-headset)
+  let vrHotspotFadeState = 'idle';    // 'idle' | 'out' | 'loading' | 'in'
+  let vrHotspotFadeAlpha = 0;
+  let vrHotspotPendingSceneIdx = -1;
+  let vrHotspotFadeSphereRef = null;  // `sphere` snapshot to detect when the new texture has finished loading
+  let vrHotspotFadeLoadFrames = 0;    // safety counter while waiting for the new texture
+  const VR_HOTSPOT_RADIUS = 3;        // meters, fixed world coordinates (same convention the former Cube Probe used)
+  const VR_HOTSPOT_HEIGHT = 1.5;      // meters, near eye height
+  const VR_HOTSPOT_FADE_STEP = 0.06;  // per-frame opacity step (~0.3s at 60fps each way)
+  const VR_HOTSPOT_FADE_TIMEOUT_FRAMES = 600; // ~10s at 60fps: force fade-in if the texture never finishes loading
+  const vrHotspotDebug = { hoveredName: '-', selectedName: '-' };
+
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2702,7 +2733,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。レーザーポインターでホットスポットを狙い、トリガー（button[0]）でそのシーンへ移動できます。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -2823,7 +2854,10 @@ function init() {
       ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 32;
       ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 32;
       ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 32;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y);
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 32;
+      ctx.fillText(`hotspots: ${vrHotspots.length}`, W / 2, y); y += 32;
+      ctx.fillText(`hovered: ${vrHotspotDebug.hoveredName}`, W / 2, y); y += 32;
+      ctx.fillText(`selected: ${vrHotspotDebug.selectedName}`, W / 2, y);
     } else {
       // Simple panel: just the button legend already drawn above, plus
       // a one-line input-sources sanity check.
@@ -2835,6 +2869,260 @@ function init() {
 
   function _vrShowHud() {
     _drawVrHud();
+  }
+
+  // ============================================================
+  // VR Hotspot Navigation (v2.17)
+  // ============================================================
+  // Self-contained VR-only subsystem, following the same pattern the (now
+  // removed) VR Cube Probe used: it hooks in with one call each from
+  // enterVr() / onVrSessionEnd() / the enterVr() catch branch, and one call
+  // from vrFrame() (see below) — the HUD, controller button polling and
+  // render loop code above/elsewhere are otherwise untouched.
+
+  function _buildHotspotTexture(name, hovered) {
+    const W = 256, H = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.arc(W / 2, 104, hovered ? 78 : 70, 0, Math.PI * 2);
+    ctx.fillStyle = hovered ? 'rgba(120, 190, 255, 0.95)' : 'rgba(79, 124, 255, 0.82)';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = hovered ? 8 : 5;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${hovered ? 30 : 26}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    let label = name.length > 14 ? name.slice(0, 13) + '…' : name;
+    ctx.fillText(label, W / 2, 216);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  function _buildLaserLine() {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -8)
+    ]);
+    const material = new THREE.LineBasicMaterial({ color: 0x4f7cff, transparent: true, opacity: 0.85 });
+    const line = new THREE.Line(geometry, material);
+    line.renderOrder = 997;
+    return line;
+  }
+
+  // Places one hotspot per nav-order scene other than the current one, on a
+  // fixed-radius circle around the wearer (no per-scene 3D position exists
+  // in project data, so this reuses the same order — marker.order on the
+  // active floorplan, falling back to plain scene order — as
+  // nextScene()/prevScene()/FloorMap via _getNavOrder(), rather than adding
+  // new positional data).
+  function _populateVrHotspots() {
+    const order = _getNavOrder();
+    const others = order.filter((idx) => idx !== currentIdx);
+    others.forEach((sceneIdx, i) => {
+      const scn = scenes[sceneIdx];
+      if (!scn) return;
+      const angle = (i / others.length) * Math.PI * 2;
+      const x = Math.sin(angle) * VR_HOTSPOT_RADIUS;
+      const z = -Math.cos(angle) * VR_HOTSPOT_RADIUS;
+      const normalTexture = _buildHotspotTexture(scn.name, false);
+      const hoverTexture = _buildHotspotTexture(scn.name, true);
+      // THREE.Sprite always faces the camera (billboard) and scales with
+      // perspective distance automatically (sizeAttenuation defaults to
+      // true) — no per-frame lookAt/scale math needed.
+      const material = new THREE.SpriteMaterial({ map: normalTexture, transparent: true });
+      const sprite = new THREE.Sprite(material);
+      const baseScale = 0.9;
+      sprite.scale.set(baseScale, baseScale, 1);
+      sprite.position.set(x, VR_HOTSPOT_HEIGHT, z);
+      sprite.renderOrder = 998;
+      vrHotspotGroup.add(sprite);
+      vrHotspots.push({ mesh: sprite, sceneIdx, name: scn.name, normalTexture, hoverTexture, baseScale });
+    });
+  }
+
+  function _disposeVrHotspotSprites() {
+    vrHotspots.forEach((h) => {
+      if (vrHotspotGroup) vrHotspotGroup.remove(h.mesh);
+      h.normalTexture.dispose();
+      h.hoverTexture.dispose();
+      h.mesh.material.dispose();
+    });
+    vrHotspots = [];
+    vrHoveredHotspot = null;
+    vrHotspotDebug.hoveredName = '-';
+  }
+
+  // Called once the post-switch fade-in completes, so the layer reflects
+  // the new current scene ("現在Scene以外を表示").
+  function _rebuildVrHotspotLayer() {
+    if (!vrHotspotGroup) return;
+    _disposeVrHotspotSprites();
+    _populateVrHotspots();
+  }
+
+  function _createVrHotspotLayer() {
+    if (vrHotspotGroup || !threeScene || !camera || !renderer) return;
+    vrHotspotGroup = new THREE.Group();
+    threeScene.add(vrHotspotGroup);
+    _populateVrHotspots();
+
+    // Controller pose comes from three.js's own WebXR controller-space
+    // tracking, a mechanism entirely separate from the gamepad.buttons
+    // polling in _pollVrInputSources.
+    vrController1 = renderer.xr.getController(0);
+    vrController2 = renderer.xr.getController(1);
+    vrControllerLaser1 = _buildLaserLine();
+    vrControllerLaser2 = _buildLaserLine();
+    vrController1.add(vrControllerLaser1);
+    vrController2.add(vrControllerLaser2);
+    threeScene.add(vrController1, vrController2);
+
+    const fadeMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0, depthTest: false
+    });
+    vrHotspotFadeMesh = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), fadeMat);
+    vrHotspotFadeMesh.position.set(0, 0, -0.3);
+    vrHotspotFadeMesh.renderOrder = 1000;
+    vrHotspotFadeMesh.visible = false;
+    camera.add(vrHotspotFadeMesh);
+
+    vrHotspotFadeState = 'idle';
+    vrHotspotFadeAlpha = 0;
+    vrHotspotPendingSceneIdx = -1;
+    vrHotspotDebug.hoveredName = '-';
+    vrHotspotDebug.selectedName = '-';
+    console.log('[VR Hotspot]', 'layer created', vrHotspots.length, 'hotspots');
+  }
+
+  function _disposeVrHotspotLayer() {
+    _disposeVrHotspotSprites();
+    if (vrHotspotGroup) { threeScene.remove(vrHotspotGroup); vrHotspotGroup = null; }
+    [vrControllerLaser1, vrControllerLaser2].forEach((laser) => {
+      if (!laser) return;
+      laser.geometry.dispose();
+      laser.material.dispose();
+    });
+    vrControllerLaser1 = null; vrControllerLaser2 = null;
+    if (vrController1) { threeScene.remove(vrController1); vrController1 = null; }
+    if (vrController2) { threeScene.remove(vrController2); vrController2 = null; }
+    if (vrHotspotFadeMesh) {
+      if (vrHotspotFadeMesh.parent) vrHotspotFadeMesh.parent.remove(vrHotspotFadeMesh);
+      vrHotspotFadeMesh.geometry.dispose();
+      vrHotspotFadeMesh.material.dispose();
+      vrHotspotFadeMesh = null;
+    }
+    vrHotspotFadeState = 'idle';
+    vrHotspotFadeAlpha = 0;
+    vrHotspotPendingSceneIdx = -1;
+    vrHotspotFadeSphereRef = null;
+    vrHotspotFadeLoadFrames = 0;
+    vrHotspotDebug.hoveredName = '-';
+    vrHotspotDebug.selectedName = '-';
+  }
+
+  function _setHotspotHighlight(record, active) {
+    record.mesh.material.map = active ? record.hoverTexture : record.normalTexture;
+    record.mesh.material.needsUpdate = true;
+    const scale = active ? record.baseScale * 1.12 : record.baseScale;
+    record.mesh.scale.set(scale, scale, 1);
+  }
+
+  function _selectVrHotspot(record) {
+    if (vrHotspotFadeState !== 'idle') return;
+    vrHotspotPendingSceneIdx = record.sceneIdx;
+    vrHotspotDebug.selectedName = record.name;
+    console.log('[VR Hotspot]', 'selected', record.name, 'sceneIdx', record.sceneIdx);
+    vrHotspotFadeState = 'out';
+  }
+
+  // Fade Out -> Texture Load -> Fade In, driven once per frame from
+  // _updateVrHotspots(). The existing VR Runtime (renderLoop/vrFrame,
+  // enterVr/onVrSessionEnd, camera-forward HUD) is not modified to support
+  // this — the fade plane is a child of `camera` created/disposed only by
+  // this feature, and "Texture Load" completion is detected by watching
+  // the existing `sphere` variable for the reassignment buildSphere()
+  // already performs, with no changes to loadPanorama/buildSphere/switchToScene.
+  function _updateVrHotspotFade() {
+    if (!vrHotspotFadeMesh || vrHotspotFadeState === 'idle') return;
+
+    if (vrHotspotFadeState === 'out') {
+      vrHotspotFadeMesh.visible = true;
+      vrHotspotFadeAlpha = Math.min(1, vrHotspotFadeAlpha + VR_HOTSPOT_FADE_STEP);
+      vrHotspotFadeMesh.material.opacity = vrHotspotFadeAlpha;
+      if (vrHotspotFadeAlpha >= 1 && vrHotspotPendingSceneIdx >= 0) {
+        vrHotspotFadeSphereRef = sphere;
+        vrHotspotFadeLoadFrames = 0;
+        switchToScene(vrHotspotPendingSceneIdx);
+        vrHotspotPendingSceneIdx = -1;
+        vrHotspotFadeState = 'loading';
+      }
+      return;
+    }
+
+    if (vrHotspotFadeState === 'loading') {
+      // Screen stays fully black (opacity already 1) until buildSphere()
+      // has swapped `sphere` for the newly loaded texture. The frame-count
+      // safety valve forces the fade-in even if the load errors out, so a
+      // failed scene switch can never leave the wearer staring at black.
+      vrHotspotFadeLoadFrames++;
+      if (sphere !== vrHotspotFadeSphereRef || vrHotspotFadeLoadFrames > VR_HOTSPOT_FADE_TIMEOUT_FRAMES) {
+        _vrShowHud();
+        vrHotspotFadeState = 'in';
+      }
+      return;
+    }
+
+    // vrHotspotFadeState === 'in'
+    vrHotspotFadeAlpha = Math.max(0, vrHotspotFadeAlpha - VR_HOTSPOT_FADE_STEP);
+    vrHotspotFadeMesh.material.opacity = vrHotspotFadeAlpha;
+    if (vrHotspotFadeAlpha <= 0) {
+      vrHotspotFadeMesh.visible = false;
+      vrHotspotFadeState = 'idle';
+      _rebuildVrHotspotLayer();
+    }
+  }
+
+  // Per-frame hotspot raycast + hover + Trigger-select, called once from
+  // vrFrame() after renderer.render() (so controller matrixWorld reflects
+  // this frame's freshly-updated pose).
+  function _updateVrHotspots() {
+    if (!vrHotspotGroup) return;
+    _updateVrHotspotFade();
+
+    let hit = null;
+    [vrController1, vrController2].forEach((controller) => {
+      if (!controller) return;
+      vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
+      const intersects = vrRaycaster.intersectObjects(vrHotspotGroup.children, false);
+      if (intersects.length && (!hit || intersects[0].distance < hit.distance)) hit = intersects[0];
+    });
+
+    const hitRecord = hit ? vrHotspots.find((h) => h.mesh === hit.object) : null;
+    if (hitRecord !== vrHoveredHotspot) {
+      if (vrHoveredHotspot) _setHotspotHighlight(vrHoveredHotspot, false);
+      vrHoveredHotspot = hitRecord;
+      if (vrHoveredHotspot) _setHotspotHighlight(vrHoveredHotspot, true);
+      vrHotspotDebug.hoveredName = vrHoveredHotspot ? vrHoveredHotspot.name : '-';
+    }
+
+    // Trigger (button[0]) edge detection, independent of the existing
+    // button-mapped polling in _pollVrInputSources — Trigger is explicitly
+    // reserved/unused there (see that function's comments).
+    const session = renderer && renderer.xr && renderer.xr.getSession ? renderer.xr.getSession() : null;
+    const sources = session && session.inputSources ? Array.from(session.inputSources) : [];
+    sources.forEach((source) => {
+      const gamepad = source.gamepad;
+      if (!gamepad || !gamepad.buttons || !gamepad.buttons[0]) return;
+      const pressed = !!gamepad.buttons[0].pressed;
+      const wasPressed = !!vrHotspotPrevTrigger.get(gamepad);
+      if (pressed && !wasPressed && vrHoveredHotspot) _selectVrHotspot(vrHoveredHotspot);
+      vrHotspotPrevTrigger.set(gamepad, pressed);
+    });
   }
 
   function vrGoNextScene() {
@@ -3021,6 +3309,9 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     _vrDebugLogFrameCount = (_vrDebugLogFrameCount + 1) % 30;
     if (_vrDebugLogFrameCount === 0) _renderVrDebugLog('VR session running');
     if (renderer && threeScene && camera) renderer.render(threeScene, camera);
+    // v2.17: single additive call — controller matrixWorld reflects this
+    // frame's pose only after render() has run its scene-graph update.
+    _updateVrHotspots();
     if (observerState.enabled && observerState.connected) {
       // Throttle: update Observer/FloorMap state every ~6 frames (~10/sec at 60fps)
       _vrObsFrameCount = (_vrObsFrameCount + 1) % 6;
@@ -3049,6 +3340,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     // only way to review input results once the headset is off.
     _renderVrDebugLog('session ended');
     _disposeVrHud();
+    _disposeVrHotspotLayer();
     vrHudVisible = true;
     _vrResetInputState();
     autoRotate = autoRotateWasOnBeforeVr;
@@ -3076,6 +3368,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrHudVisible = true;
       _vrResetInputState();
       _createVrHud();
+      _createVrHotspotLayer();
       vrRenderDebug.threeSceneUuid = threeScene.uuid;
       vrRenderDebug.cameraUuid = camera.uuid;
       vrRenderDebug.frameCount = 0;
@@ -3117,6 +3410,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       console.log('[VR]', 'session error', err && err.message);
       _renderVrDebugLog('session failed to start');
       _disposeVrHud();
+      _disposeVrHotspotLayer();
       _vrResetInputState();
       // v2.16: the loop was never swapped, so there is nothing to restart;
       // renderer.xr.enabled also stays true for the renderer's lifetime.
@@ -4191,7 +4485,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.16.1',
+      appVersion:  '2.17.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
