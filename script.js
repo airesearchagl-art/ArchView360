@@ -4256,7 +4256,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.15.2',
+      appVersion:  '2.16.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
