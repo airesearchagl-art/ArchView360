@@ -253,17 +253,6 @@ function init() {
   // populated after the session ends.
   const vrDebugLogEl = $('vr-debug-log');
 
-  // ---- VR Cube Probe (v2.15.1, changed to world-fixed cubes in v2.15.2) ----
-  // Independent, minimal verification block — deliberately NOT wired into
-  // the camera-forward HUD/Debug Panel above and not touched by this
-  // audit's render-path changes. v2.15.1 used a single cube repositioned
-  // every frame in front of the camera; that reposition math is one more
-  // variable this audit wants to rule out, so v2.15.2 replaces it with four
-  // cubes at fixed world coordinates (added once, never moved) — whichever
-  // direction the wearer looks, one should be in view if the scene is
-  // reaching the XR compositor at all. Session-local only; never persisted.
-  let vrProbeCubes = []; // Mesh[] — red/blue/green/yellow, see _createVrProbeCubes()
-
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2768,61 +2757,16 @@ function init() {
     vrHudMesh = null; vrHudCanvas = null; vrHudCtx = null; vrHudTexture = null;
   }
 
-  // ------------------------------------------------------------
-  // VR Cube Probe (v2.15.1 camera-forward cube, replaced by world-fixed
-  // cubes in v2.15.2) — minimal WebXR-Sandbox verification block
-  // ------------------------------------------------------------
-  // Deliberately independent of the _createVrHud HUD above: this
-  // does not reuse or depend on any HUD/Debug Panel state, so it isolates
-  // one question only — does a Mesh added to `threeScene` show up in the
-  // headset alongside the 360° photo. v2.15.1 used a single cube
-  // repositioned every frame in front of the camera; v2.15.2 rules out
-  // that per-frame reposition math entirely by using four cubes at fixed
-  // world coordinates, added once and never moved.
-  // y=1.6: WebXR 'local-floor' reference space puts the floor at y=0, so a
-  // y=0 cube sits near the wearer's feet and is easy to mistake for "not
-  // rendering" when it's actually just below the natural sightline. 1.6m
-  // approximates a standing eye height, keeping all four cubes near where
-  // the wearer is actually looking.
-  const VR_PROBE_CUBE_POSITIONS = [
-    { name: 'red',    color: 0xff0000, pos: [0, 1.6, -2] },
-    { name: 'blue',   color: 0x0000ff, pos: [0, 1.6, 2] },
-    { name: 'green',  color: 0x00ff00, pos: [2, 1.6, 0] },
-    { name: 'yellow', color: 0xffff00, pos: [-2, 1.6, 0] }
-  ];
-
-  function _createVrProbeCubes() {
-    if (vrProbeCubes.length || !threeScene) return;
-    VR_PROBE_CUBE_POSITIONS.forEach((spec) => {
-      const geo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-      const mat = new THREE.MeshBasicMaterial({
-        color: spec.color,
-        depthTest: false,
-        depthWrite: false
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = 9999;
-      mesh.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
-      threeScene.add(mesh);
-      vrProbeCubes.push(mesh);
-    });
-    console.log('[VR Cube Probe]', 'cubes created', vrProbeCubes.length, 'threeScene.uuid', threeScene.uuid);
-  }
-
-  function _disposeVrProbeCubes() {
-    if (!vrProbeCubes.length) return;
-    vrProbeCubes.forEach((mesh) => {
-      if (threeScene) threeScene.remove(mesh);
-      mesh.geometry.dispose();
-      mesh.material.dispose();
-    });
-    vrProbeCubes = [];
-  }
-
   function _vrButtonSummary(side) {
     const s = vrDebug[side];
     if (!s) return '-';
     return s.hasGamepad ? `${s.buttonsLength}` : 'no gamepad';
+  }
+
+  function _vrHandDetail(side) {
+    const s = vrDebug[side];
+    if (!s || !s.hasGamepad) return 'no gamepad';
+    return `buttons:${s.buttonsLength} pressed:${s.pressedCount}`;
   }
 
   function _drawVrHud() {
@@ -2875,12 +2819,11 @@ function init() {
     if (vrDebugDetailed) {
       // Detailed debug panel (Left Y toggles this on)
       ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 32;
-      ctx.fillText(`left buttons: ${_vrButtonSummary('left')}`, W / 2, y); y += 32;
-      ctx.fillText(`right buttons: ${_vrButtonSummary('right')}`, W / 2, y); y += 32;
+      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 32;
+      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 32;
       ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 32;
-      ctx.fillText(`currentIdx: ${currentIdx}`, W / 2, y); y += 32;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 32;
-      ctx.fillText(`next:${vrDebug.nextCount} prev:${vrDebug.prevCount} hud:${vrDebug.hudCount}`, W / 2, y);
+      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 32;
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y);
     } else {
       // Simple panel: just the button legend already drawn above, plus
       // a one-line input-sources sanity check.
@@ -3029,7 +2972,6 @@ function init() {
     xrEnabled: false,
     animationLoopActive: false,
     normalRafActive: false,
-    cubeCount: 0,
     lastLoopAt: 0,
     frameCount: 0
   };
@@ -3046,7 +2988,6 @@ camera uuid: ${vrRenderDebug.cameraUuid}
 renderer.xr.enabled: ${vrRenderDebug.xrEnabled}
 animationLoop active: ${vrRenderDebug.animationLoopActive}
 normalRAF active: ${vrRenderDebug.normalRafActive}
-cube count: ${vrRenderDebug.cubeCount}
 last vrFrame timestamp: ${vrRenderDebug.lastLoopAt}
 vrFrame count: ${vrRenderDebug.frameCount}
 inputSources: ${vrDebug.inputSourceCount}
@@ -3108,8 +3049,6 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
     // only way to review input results once the headset is off.
     _renderVrDebugLog('session ended');
     _disposeVrHud();
-    _disposeVrProbeCubes();
-    vrRenderDebug.cubeCount = 0;
     vrHudVisible = true;
     _vrResetInputState();
     autoRotate = autoRotateWasOnBeforeVr;
@@ -3137,10 +3076,8 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrHudVisible = true;
       _vrResetInputState();
       _createVrHud();
-      _createVrProbeCubes();
       vrRenderDebug.threeSceneUuid = threeScene.uuid;
       vrRenderDebug.cameraUuid = camera.uuid;
-      vrRenderDebug.cubeCount = vrProbeCubes.length;
       vrRenderDebug.frameCount = 0;
       vrRenderDebug.xrEnabled = renderer.xr.enabled;
       // v2.16: same optionalFeatures as three.js VRButton — the exact
@@ -3160,7 +3097,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       vrRenderDebug.animationLoopActive = animLoopActive;
       vrRenderDebug.normalRafActive = false;
       console.log('[VR]', 'session started');
-      console.log('[VR Render]', 'threeScene', threeScene.uuid, 'camera', camera.uuid, 'cubes', vrProbeCubes.length);
+      console.log('[VR Render]', 'threeScene', threeScene.uuid, 'camera', camera.uuid);
       _vrShowHud();
       _renderVrDebugLog('session started');
       // Observer Mode (v2.11): entering VR makes this browser tab act as the "viewer" side
@@ -3180,8 +3117,6 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
       console.log('[VR]', 'session error', err && err.message);
       _renderVrDebugLog('session failed to start');
       _disposeVrHud();
-      _disposeVrProbeCubes();
-      vrRenderDebug.cubeCount = 0;
       _vrResetInputState();
       // v2.16: the loop was never swapped, so there is nothing to restart;
       // renderer.xr.enabled also stays true for the renderer's lifetime.
@@ -4256,7 +4191,7 @@ hud: ${vrHudMesh ? 'visible=' + vrHudVisible : '-'}`;
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.16.0',
+      appVersion:  '2.16.1',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

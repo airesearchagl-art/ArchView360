@@ -1,5 +1,13 @@
 # ArchView360 VR Render Path Audit (v2.15.2)
 
+> **v2.16.1 note:** the Cube Probe (`_createVrProbeCubes` / `_disposeVrProbeCubes`,
+> the fixed-coordinate 4-cube block this audit discusses) was used from
+> v2.15.1 through v2.15.2 and was removed in v2.16.1 once ArchView360's VR
+> Runtime had been validated on real Quest 3 hardware (see
+> [`docs/vr-runtime-migration.md`](vr-runtime-migration.md) and the README).
+> This document is left as-is below as the historical diagnostic record;
+> function names it references no longer exist in `script.js`.
+
 This is not a feature document — it is a diagnostic record for a single
 question: **why doesn't anything ArchView360 adds to the VR scene (HUD,
 Debug Panel, v2.15.1's camera-forward cube) show up on Meta Quest 3 /
