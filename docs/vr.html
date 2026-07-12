@@ -118,7 +118,7 @@
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。グリップ（<code>button[1]</code>）・スティッククリック（<code>button[3]</code>）・左コントローラーのMenu（<code>button[12]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。グリップ（<code>button[1]</code>）・スティッククリック（<code>button[3]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -133,7 +133,7 @@
       <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
       <li>操作ガイド（Right A: Next / Left X: Prev / Right B: HUD / Left Y: Debug）</li>
       <li><strong>簡易表示：</strong> <code>inputSources</code>数のみ</li>
-      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、リング項目数、左右それぞれのホバー中シーン名、直近に選択したシーン名（v2.17）</li>
+      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、リング項目数、リング表示ON/OFF状態、左右それぞれのホバー中シーン名、直近に選択したシーン名（v2.17 / v2.17.1）</li>
     </ul>
     <ul>
       <li>HUDは<code>camera</code>の子として、前方約2m・視線よりやや下の固定ローカルオフセットに配置されます。</li>
@@ -153,7 +153,7 @@
       <li>✅ VRセッションを維持したままの2シーン切替成功（セッション再接続なし）</li>
     </ul>
 
-    <h2>📍 VR Scene Ring Navigation（v2.17）</h2>
+    <h2>📍 VR Scene Ring Navigation（v2.17 / v2.17.1）</h2>
     <div class="m-callout">
       <strong>目的：</strong> v2.16.1で完成したVR Runtimeをベースに、<strong>既存のナビゲーション対象シーンを閲覧者の周囲へリング状に等間隔表示</strong>し、レーザーポインター＋同じ手のTriggerで任意シーンへ移動できるようにする追加機能です。VR Runtimeの初期化・終了処理、camera子付けHUD、Controllerのbutton pollingロジック（Right A/Left X/Right B/Left Y）、render loopには変更を加えていません。
     </div>
@@ -168,7 +168,8 @@
       <li><strong>Trigger arm方式：</strong> VR開始直後は選択が無効で、各Triggerを<strong>一度離したことを確認してから</strong>選択可能（armed）になります。VRモード開始ボタンをTriggerで押したまま入っても即時選択されることはありません。選択後（Fade後）も、Triggerを一度離すまで次の選択はできません。</li>
       <li><strong>Scene切替演出：</strong> Trigger選択によるシーン切替時のみ、Fade Out（VR空間内の黒フェード、DOM側のフェードはヘッドセット内で見えないため使用しません）→ Texture Load → Fade In を行います。<strong>Fade中はリングとレーザーを非表示にし、hover・選択も無効化</strong>するため、演出中の重複選択は発生しません。テクスチャ読込の失敗・停止時も最大約5秒で必ずFade Inへ復帰し（その場合は元のシーンを維持）、黒画面が残留することはありません。Right A / Left Xによる従来の切替（<code>nextScene()</code> / <code>prevScene()</code>）の挙動は変更していません。</li>
       <li><strong>フェイルセーフ：</strong> リングの生成・毎フレーム処理で例外が発生した場合は、リングだけを破棄してVRセッション・HUD・A/X/B/Y操作を継続します。エラー内容は通常画面のVR Debug Log（<code>last ring error</code>行）とconsoleに表示されます。ZIP/JSON復元シーンでシーン名が空/未定義でも、<code>Scene N</code>へ正規化して生成します。</li>
-      <li>リングの表示状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。</li>
+      <li><strong>表示切替（v2.17.1）：</strong> 左コントローラーのMenuボタン（<code>button[12]</code>、実測で未使用と確認済みのボタン）でリング表示のON/OFFを切り替えられます。OFF中はリング項目・左右レーザーが非表示になり、hover・Trigger選択も完全に無効化されます（Right A/Left X/Right B/Left Yには影響しません）。ONに戻した際はTriggerのarm状態を安全にリセットするため、OFF中に押しっぱなしにしていても復帰直後に誤選択されることはありません。</li>
+      <li>リングの表示状態・トグル状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了時に破棄され、次回VR開始時は常にON（表示）から始まります。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
