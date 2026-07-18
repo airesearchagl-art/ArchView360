@@ -2839,21 +2839,46 @@ function init() {
   // it only *reads* vrRingEnabled to grey out the Trigger affordance and to
   // show the リンク先 ON/OFF state next to Menu. Internal button indices
   // (#0/#4/#5/#12) are intentionally not printed here; they remain in
-  // docs/vr.html for reference.
-  function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color) {
+  // docs/vr.html for reference. Shape/layout follows a reference diagram
+  // supplied by the project owner: a tracking-ring silhouette with a
+  // keyring-style loop at the top (Trigger → シーン選択) and a 2x2 button
+  // grid inside the ring (thumbstick + 3 labeled buttons per hand).
+  function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color, iconType) {
     ctx.beginPath();
-    ctx.arc(x, y, 13, 0, Math.PI * 2);
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
     ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = active ? '#ffffff' : 'rgba(200, 200, 200, 0.4)';
     ctx.stroke();
-    ctx.font = 'bold 15px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = active ? '#0d121c' : 'rgba(20, 20, 24, 0.85)';
-    ctx.fillText(symbol, x, y + 1);
-    ctx.textBaseline = 'alphabetic';
+
+    const iconColor = active ? '#0d121c' : 'rgba(20, 20, 24, 0.85)';
+    if (iconType === 'menu') {
+      // Hamburger icon (3 horizontal bars) drawn as vectors rather than a
+      // glyph, so it renders identically regardless of font availability.
+      ctx.strokeStyle = iconColor;
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      [-6, 0, 6].forEach((dy) => {
+        ctx.beginPath();
+        ctx.moveTo(x - 8, y + dy);
+        ctx.lineTo(x + 8, y + dy);
+        ctx.stroke();
+      });
+    } else if (iconType === 'meta') {
+      // Infinity icon (Meta/Oculus logo shape) — two touching circles.
+      ctx.strokeStyle = iconColor;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.arc(x - 5, y, 5.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x + 5, y, 5.5, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.font = 'bold 16px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = iconColor;
+      ctx.fillText(symbol, x, y + 1);
+      ctx.textBaseline = 'alphabetic';
+    }
 
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -2862,113 +2887,118 @@ function init() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.font = '20px system-ui, sans-serif';
+    ctx.font = '19px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
     // label may be a single string or an array of strings (multi-line,
-    // e.g. the Meta button's short-press/long-press note).
+    // e.g. the Menu/Meta labels).
     const labelLines = Array.isArray(label) ? label : [label];
     labelLines.forEach((line, i) => ctx.fillText(line, labelX, labelY + i * 22));
   }
 
-  // Trigger gets its own mark instead of a plain button dot: a curved
-  // "hook" stroke (suggesting a pulled lever, not a face button) at the
-  // front-bottom of the grip, where the index finger actually rests on the
-  // real controller — see the reference photos this shape/position was
-  // adjusted against. Still just a label + leader line underneath, same as
-  // _drawVrHudButtonDot.
-  function _drawVrHudTriggerMark(ctx, x, y, labelX, labelY, label, active, color) {
+  // Trigger is represented as a small keyring-style loop at the top of the
+  // ring (not a face button), with a leader line straight to "シーン選択" —
+  // matches the reference diagram's convention of putting the most
+  // important action at the top, independent of the button grid below.
+  function _drawVrHudTriggerLoop(ctx, cx, ringCy, ringR, labelX, active, color) {
+    const loopHalf = 12;
+    const loopTop = ringCy - ringR - 32;
     ctx.beginPath();
-    ctx.arc(x, y, 11, -2.4, 0.5);
-    ctx.lineWidth = 6;
-    ctx.lineCap = 'round';
+    ctx.moveTo(cx - loopHalf, ringCy - ringR + 8);
+    ctx.lineTo(cx - loopHalf, loopTop + 10);
+    ctx.arcTo(cx - loopHalf, loopTop, cx, loopTop, 10);
+    ctx.arcTo(cx + loopHalf, loopTop, cx + loopHalf, loopTop + 10, 10);
+    ctx.lineTo(cx + loopHalf, ringCy - ringR + 8);
     ctx.strokeStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
+    ctx.lineWidth = 4;
     ctx.stroke();
+
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.arc(cx, loopTop, 4, 0, Math.PI * 2);
     ctx.fillStyle = active ? color : 'rgba(140, 140, 150, 0.45)';
     ctx.fill();
 
-    // Leader line starts from the pivot dot itself (not an offset point)
-    // so it reads unambiguously as "this dot is where the finger presses".
+    const labelY = loopTop + 8;
     ctx.beginPath();
-    ctx.moveTo(x, y);
+    ctx.moveTo(cx, loopTop);
     ctx.lineTo(labelX, labelY);
     ctx.strokeStyle = active ? 'rgba(210, 225, 255, 0.55)' : 'rgba(150, 150, 150, 0.35)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.font = 'bold 21px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
-    ctx.fillText(label, labelX, labelY);
+    ctx.fillText('シーン選択', labelX, labelY);
   }
 
   function _drawVrHudControllerGuide(ctx) {
     const ringEnabled = vrRingEnabled;
 
-    // Real Touch Plus layout (checked against reference photos): thumbstick
-    // and the small secondary button (Menu on left / Meta-Oculus on right)
-    // sit together on the *inner* side of the ring — the side facing the
-    // other controller — with the two main face buttons stacked on the
-    // *outer* side. `inner` is +1 for the left controller (inner = right)
-    // and -1 for the right controller (inner = left).
-    function controller(cx, hand, color, handLabel) {
-      const inner = hand === 'left' ? 1 : -1;
-      const ringCy = 300, ringR = 44;
+    function controller(cx, hand, color) {
+      // `inward` points toward the canvas center — used to mirror the
+      // Trigger label and the decorative grip bump so both controllers
+      // read as a symmetric pair, matching the reference diagram.
+      const inward = hand === 'left' ? 1 : -1;
+      const ringCy = 348, ringR = 58;
 
-      // Tracking ring + grip, drawn as plain circle/rect strokes — a
-      // deliberately simple silhouette, not a realistic controller model.
+      _drawVrHudTriggerLoop(ctx, cx, ringCy, ringR, cx + inward * 100, ringEnabled, color);
+
+      // Tracking ring.
       ctx.beginPath();
       ctx.arc(cx, ringCy, ringR, 0, Math.PI * 2);
       ctx.strokeStyle = color;
       ctx.lineWidth = 4;
       ctx.stroke();
+
+      // Grip: a tapered silhouette below the ring, narrowing to a rounded
+      // point (bullet shape), rather than the old plain rectangle.
+      ctx.beginPath();
+      ctx.moveTo(cx - 28, ringCy + ringR - 6);
+      ctx.bezierCurveTo(cx - 32, ringCy + ringR + 14, cx - 14, ringCy + ringR + 34, cx, ringCy + ringR + 46);
+      ctx.bezierCurveTo(cx + 14, ringCy + ringR + 34, cx + 32, ringCy + ringR + 14, cx + 28, ringCy + ringR - 6);
+      ctx.closePath();
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
-      ctx.strokeRect(cx - 26, ringCy + ringR, 52, 64);
+      ctx.stroke();
 
-      ctx.font = 'bold 22px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = color;
-      ctx.fillText(handLabel, cx, 253);
-
-      // Thumbstick — undecorated (not app-controlled), just for silhouette
-      // recognizability. No leader line/label.
+      // Decorative finger-loop bump on the inner side of the grip — a
+      // silhouette cue only, no leader line/label (matches reference).
       ctx.beginPath();
-      ctx.arc(cx + inner * 22, ringCy - 15, 9, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.55;
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.moveTo(cx + inward * 26, ringCy + ringR + 4);
+      ctx.quadraticCurveTo(cx + inward * 46, ringCy + ringR + 20, cx + inward * 26, ringCy + ringR + 34);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
-      const secondaryX = cx + inner * 6;
-      const secondaryY = ringCy - 44;
-      const secondaryLabelX = cx + inner * 132;
-      const faceX = cx - inner * 24;
-      const faceLabelX = cx - inner * 136;
+      // 2x2 button grid inside the ring.
+      const gx = 24, gy = 22;
+      const at = (qx, qy) => ({ x: cx + qx * gx, y: ringCy + qy * gy });
+      const drawStick = (p) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.55;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      };
 
+      const topLeft = at(-1, -1), topRight = at(1, -1), botLeft = at(-1, 1), botRight = at(1, 1);
       if (hand === 'left') {
-        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, `リンク先 ${ringEnabled ? 'ON' : 'OFF'}`, true, color);
-        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'Y', faceLabelX, ringCy - 22, 'デバッグ ON/OFF', true, color);
-        _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'X', faceLabelX, ringCy + 22, '前', true, color);
+        drawStick(topLeft);
+        _drawVrHudButtonDot(ctx, topRight.x, topRight.y, 'Y', cx + 150, topRight.y - 11, ['デバッグ', 'ON・OFF'], true, color);
+        _drawVrHudButtonDot(ctx, botLeft.x, botLeft.y, null, cx - 150, botLeft.y + 32, ['リンク先', 'ON・OFF'], true, color, 'menu');
+        _drawVrHudButtonDot(ctx, botRight.x, botRight.y, 'X', cx + 150, botRight.y + 32, '前シーン', true, color);
       } else {
-        // Meta/Oculus button: system-level button, never exposed as a
-        // WebXR gamepad.buttons entry, so this label is purely
-        // informational and is never gated on vrRingEnabled or any app
-        // state. Actual behavior is short press = show the system menu,
-        // long press = recenter/reset the view — it does not always exit
-        // VR, so the label must not claim otherwise.
-        _drawVrHudButtonDot(ctx, secondaryX, secondaryY, 'M', secondaryLabelX, secondaryY - 2, ['メニュー表示', '長押しで視界リセット'], true, '#a9c3e0');
-        _drawVrHudButtonDot(ctx, faceX, ringCy - 22, 'B', faceLabelX, ringCy - 22, '操作方法 ON/OFF', true, color);
-        _drawVrHudButtonDot(ctx, faceX, ringCy + 22, 'A', faceLabelX, ringCy + 22, '次', true, color);
+        _drawVrHudButtonDot(ctx, topLeft.x, topLeft.y, 'B', cx - 150, topLeft.y - 11, ['操作方法', 'ON・OFF'], true, color);
+        drawStick(topRight);
+        _drawVrHudButtonDot(ctx, botLeft.x, botLeft.y, 'A', cx - 150, botLeft.y + 32, '次シーン', true, color);
+        _drawVrHudButtonDot(ctx, botRight.x, botRight.y, null, cx + 150, botRight.y + 32, ['メニュー', '※長押しで', '視界リセット'], true, color, 'meta');
       }
-
-      _drawVrHudTriggerMark(ctx, cx, ringCy + ringR + 48, cx, ringCy + ringR + 100, 'シーン選択', ringEnabled, color);
     }
 
-    controller(260, 'left', '#5fd0c0', 'L');
-    controller(764, 'right', '#e0a75f', 'R');
+    controller(260, 'left', '#5fd0c0');
+    controller(764, 'right', '#e0a75f');
   }
 
   function _drawVrHud() {
