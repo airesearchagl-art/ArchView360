@@ -131,7 +131,7 @@
     <p>VR開始直後から、HUDパネルが必ず<code>camera</code>の前方に表示されます。表示内容は次の通りです。</p>
     <ul>
       <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
-      <li>操作ガイド（Right A: Next / Left X: Prev / Right B: HUD / Left Y: Debug）</li>
+      <li><strong>左右Controllerの視覚ガイド（v2.18、後述）：</strong> Debug簡易/詳細のどちらでも常に表示されます</li>
       <li><strong>簡易表示：</strong> <code>inputSources</code>数のみ</li>
       <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、リング項目数、リング表示ON/OFF状態、左右それぞれのホバー中シーン名、直近に選択したシーン名（v2.17 / v2.17.1）</li>
     </ul>
@@ -170,6 +170,29 @@
       <li><strong>フェイルセーフ：</strong> リングの生成・毎フレーム処理で例外が発生した場合は、リングだけを破棄してVRセッション・HUD・A/X/B/Y操作を継続します。エラー内容は通常画面のVR Debug Log（<code>last ring error</code>行）とconsoleに表示されます。ZIP/JSON復元シーンでシーン名が空/未定義でも、<code>Scene N</code>へ正規化して生成します。</li>
       <li><strong>表示切替（v2.17.1）：</strong> 左コントローラーのMenuボタン（<code>button[12]</code>、実測で未使用と確認済みのボタン）でリング表示のON/OFFを切り替えられます。OFF中はリング項目・左右レーザーが非表示になり、hover・Trigger選択も完全に無効化されます（Right A/Left X/Right B/Left Yには影響しません）。ONに戻した際はTriggerのarm状態を安全にリセットするため、OFF中に押しっぱなしにしていても復帰直後に誤選択されることはありません。</li>
       <li>リングの表示状態・トグル状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了時に破棄され、次回VR開始時は常にON（表示）から始まります。</li>
+    </ul>
+
+    <h2>🎮 VR Controller視覚ガイド（v2.18）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> VR HUDのボタン操作案内を、テキストのみの一覧から左右Controllerの簡易シルエット＋ボタン位置＋短いラベル線による視覚的なガイドへ刷新しました。既存のController入力処理（<code>_pollVrInputSources()</code>）・Scene Ring選択ロジック・Ring表示切替ロジックには一切変更を加えていません。HUD CanvasTexture上の描画だけを変更した見た目の改善です。図の形状・配置はプロジェクトオーナーから提供された参考図に準拠しています。
+    </div>
+    <ul>
+      <li><strong>左右の区別：</strong> 左Controllerは緑系の色、右Controllerは橙系の色で区別します（色分けのみで、L/R文字表記はありません）。</li>
+      <li><strong>Trigger＝リング上部の輪っか：</strong> Triggerは他のボタンと同じ丸ではなく、キーホルダーのようなリング上部の小さな輪っかとして描画し、そこから直接「シーン選択」ラベルへ引き出し線を伸ばします。ボタングリッドとは独立した「最重要操作」として最上部に配置しています。</li>
+      <li><strong>2×2ボタングリッド（参考図に準拠）：</strong> リング内側に親指スティック＋3つのボタンを2×2で配置します。
+        <ul>
+          <li>左：親指スティック（左上）・<code>Y</code>（右上、デバッグ ON・OFF）・<code>≡</code>ハンバーガーアイコン（左下、リンク先 ON・OFF）・<code>X</code>（右下、前シーン）</li>
+          <li>右：<code>B</code>（左上、操作方法 ON・OFF）・親指スティック（右上）・<code>A</code>（左下、次シーン）・<code>∞</code>インフィニティアイコン（右下、メニュー／長押しで視界リセット）</li>
+        </ul>
+        親指スティック自体はラベルなしの小さな塗り丸で示すのみです（アプリの入力処理では使用していないため）。Menu（<code>≡</code>）・Meta（<code>∞</code>）は機能を直感的に示すアイコンで描画し、<code>M</code>のような英字記号には頼っていません。
+      </li>
+      <li><strong>グリップの装飾：</strong> リング下に先細りの雫形シルエットを描き、内側（もう片方のControllerに近い側）に小さなフック状の突起を添えています。実機シルエットを想起させる装飾のみで、ラベル・入力処理とは無関係です。</li>
+      <li><strong>短いラベル：</strong> 各ボタン／輪っかから短い引き出し線を伸ばし、操作名を表示します（<code>前シーン</code> / <code>次シーン</code> / <code>デバッグ ON・OFF</code> / <code>操作方法 ON・OFF</code> / <code>リンク先 ON・OFF</code> / <code>シーン選択</code> / <code>メニュー</code> ＋ <code>※長押しで視界リセット</code>）。<code>button[0]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
+      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（シーン選択）の輪っかとラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。他のボタン（Y/X/Menu/B/A/Meta）はRing状態に関わらず常に通常表示です。</li>
+      <li><strong>右Controller Metaボタンの案内：</strong> 右Controllerの<code>∞</code>（Meta/Oculus）ボタンは、OS側のハードウェアボタンです。WebXRの<code>gamepad.buttons</code>には公開されないため、ArchView360のコードが処理する入力ではありません。実際の挙動（短押しでシステムメニューを表示、長押しで視界をリセット）に合わせ、HUD上には常時「<code>メニュー</code>」「<code>※長押しで視界リセット</code>」という案内のみを表示し、リンク先 ON・OFF状態やTrigger操作とは独立しています（グレーアウトの対象にもなりません）。</li>
+      <li><strong>表示/非表示の連動：</strong> 操作図はHUD本体と同じCanvasTexture・同じMeshに描画されるため、Right Bで通常HUDを非表示にすると操作図も一緒に非表示になります。</li>
+      <li><strong>Debugとの独立性：</strong> 操作図はDebug簡易/詳細表示の切替（Left Y）とは独立した「常時表示」領域に描画されるため、Debug表示を切り替えても操作図が消えたり壊れたりしません。</li>
+      <li><strong>更新頻度：</strong> 新しい再描画トリガーは追加していません。既存の<code>_vrShowHud()</code>呼び出しと、<code>vrFrame()</code>内の既存の間引き再描画（約20フレームに1回）にそのまま乗る形で更新されます。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
