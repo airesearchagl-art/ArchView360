@@ -115,10 +115,12 @@
         <tr><td>右（Right）</td><td>B（<code>button[5]</code>）</td><td>HUD表示/非表示</td></tr>
         <tr><td>左（Left）</td><td>X（<code>button[4]</code>）</td><td>前のシーンへ</td></tr>
         <tr><td>左（Left）</td><td>Y（<code>button[5]</code>）</td><td>Debug Panelの詳細/簡易切替</td></tr>
+        <tr><td>左（Left）</td><td>スティック押し込み（<code>button[3]</code>）</td><td>1つ下の階へ（v2.19）</td></tr>
+        <tr><td>右（Right）</td><td>スティック押し込み（<code>button[3]</code>）</td><td>1つ上の階へ（v2.19）</td></tr>
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。グリップ（<code>button[1]</code>）・スティッククリック（<code>button[3]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -172,7 +174,27 @@
       <li>リングの表示状態・トグル状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了時に破棄され、次回VR開始時は常にON（表示）から始まります。</li>
     </ul>
 
-    <h2>🎮 VR Controller視覚ガイド（v2.18）</h2>
+    <h2>🧭 VR階移動ナビゲーション（v2.19）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> VRを終了せずに、1階・2階・3階など複数の階を移動できるようにする追加機能です。「階」＝既存の<code>projectState.floorplans</code>（FloorMap平面図）で、新しいプロジェクトデータは追加していません。A/X（Right A/Left X）は引き続き<strong>現在階の中だけ</strong>でのシーン移動用として維持されています。
+    </div>
+    <ul>
+      <li><strong>操作：</strong> 左スティック押し込み（<code>button[3]</code>）で1つ下の階、右スティック押し込み（<code>button[3]</code>）で1つ上の階へ移動します。</li>
+      <li><strong>axesではなくbuttonを採用した理由：</strong> Quest Touch Plusの左右スティックのaxis番号・符号は、このプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しませんでした。番号・符号を推測で実装しないという方針のもと、実機で確定済みのスティック押し込み（<code>button[3]</code>）を採用しています。</li>
+      <li><strong>階の一覧・順序：</strong> <code>projectState.floorplans</code>の配列順（アップロード順）をそのまま使用します。文字列としての階名ソートは行いません。並べ替えUIは既存FloorMapにも存在しないため、通常画面と完全に同じ順序です。</li>
+      <li><strong>有効な階の判定：</strong> シーンが1つも紐付いていない階（マーカーが存在しない平面図）は移動対象から除外されます。</li>
+      <li><strong>現在階の決定：</strong> 既存の<code>activeFloorplanId</code>をそのまま使用します。この変数は<code>switchToScene()</code>実行のたびに既存コードが自動的に現在シーンの階へ同期しているため、VR専用の新しい判定処理は追加していません。値が不正・未設定の場合のみ、現在シーンのマーカー情報から補完します。</li>
+      <li><strong>移動先シーンの決定：</strong> ①そのVRセッション内で最後に見た当該階のシーン、②未訪問なら当該階のnav order（<code>marker.order</code>）先頭のシーン、の優先順位で選びます。階ごとの最後に見たシーンはVRセッション内のメモリ（<code>Map</code>）だけに保持し、JSON/ZIPには保存しません。</li>
+      <li><strong>範囲外・循環なし：</strong> 最上階で上、最下階で下を押しても移動しません。上下端を超えて反対側の階へ循環することもありません。</li>
+      <li><strong>Scene切替演出：</strong> Scene Ring選択と全く同じFade Out → <code>switchToScene()</code> → Fade Inの仕組みをそのまま再利用しています。階移動後はScene Ringが新しい階の内容で自動的に再生成されます。</li>
+      <li><strong>入力仕様：</strong> 左右スティックはそれぞれ独立したarmed/pressed状態を持ち、<code>pressed</code>の立ち上がりedgeで1回だけ発火します（長押しで連続移動しません）。VR開始直後にスティックが押されていても誤発火しません。左右が同一フレームで同時に押された場合はどちらも実行しません（離してから片方ずつ押し直すと移動できます）。Fade中・シーン切替中は新しい階移動を開始しません。</li>
+      <li><strong>Ring OFF中も移動可能：</strong> 階移動はScene Ring表示のON/OFF（Left Menu）とは独立しており、Ring非表示中でも階移動できます。</li>
+      <li><strong>単一階のプロジェクト：</strong> 階が1つ（または0）のプロジェクトでは、階移動操作は実質的に無効化されます（HUDのラベルはグレーアウト表示、現在階のヘッダー表示自体も出ません）。</li>
+      <li><strong>フェイルセーフ：</strong> 階移動処理は独立したtry/catchで保護されており、失敗してもVRセッション・HUD・A/X/B/Y/Trigger/Menuの既存操作を継続します。</li>
+      <li><strong>Debug詳細（Left Y）：</strong> 現在階名・階index/総有効階数・現在階のシーン数・最後の階移動アクション・左右スティックのpressed/armed状態・階切替のfade状態・最後の階移動エラーを追加表示します。</li>
+    </ul>
+
+    <h2>🎮 VR Controller視覚ガイド（v2.18 / v2.19）</h2>
     <div class="m-callout">
       <strong>目的：</strong> VR HUDのボタン操作案内を、テキストのみの一覧から左右Controllerの簡易シルエット＋ボタン位置＋短いラベル線による視覚的なガイドへ刷新しました。既存のController入力処理（<code>_pollVrInputSources()</code>）・Scene Ring選択ロジック・Ring表示切替ロジックには一切変更を加えていません。HUD CanvasTexture上の描画だけを変更した見た目の改善です。図の形状・配置はプロジェクトオーナーから提供された参考図に準拠しています。
     </div>
@@ -181,14 +203,16 @@
       <li><strong>Trigger＝リング上部の輪っか：</strong> Triggerは他のボタンと同じ丸ではなく、キーホルダーのようなリング上部の小さな輪っかとして描画し、そこから直接「シーン選択」ラベルへ引き出し線を伸ばします。ボタングリッドとは独立した「最重要操作」として最上部に配置しています。</li>
       <li><strong>2×2ボタングリッド（参考図に準拠）：</strong> リング内側に親指スティック＋3つのボタンを2×2で配置します。
         <ul>
-          <li>左：親指スティック（左上）・<code>Y</code>（右上、デバッグ ON・OFF）・<code>≡</code>ハンバーガーアイコン（左下、リンク先 ON・OFF）・<code>X</code>（右下、前シーン）</li>
-          <li>右：<code>B</code>（左上、操作方法 ON・OFF）・親指スティック（右上）・<code>A</code>（左下、次シーン）・<code>∞</code>インフィニティアイコン（右下、メニュー／長押しで視界リセット）</li>
+          <li>左：親指スティック（左上、押し込みで<strong>下の階</strong>）・<code>Y</code>（右上、デバッグ ON・OFF）・<code>≡</code>ハンバーガーアイコン（左下、リンク先 ON・OFF）・<code>X</code>（右下、前シーン）</li>
+          <li>右：<code>B</code>（左上、操作方法 ON・OFF）・親指スティック（右上、押し込みで<strong>上の階</strong>）・<code>A</code>（左下、次シーン）・<code>∞</code>インフィニティアイコン（右下、メニュー／長押しで視界リセット）</li>
         </ul>
-        親指スティック自体はラベルなしの小さな塗り丸で示すのみです（アプリの入力処理では使用していないため）。Menu（<code>≡</code>）・Meta（<code>∞</code>）は機能を直感的に示すアイコンで描画し、<code>M</code>のような英字記号には頼っていません。
+        Menu（<code>≡</code>）・Meta（<code>∞</code>）は機能を直感的に示すアイコンで描画し、<code>M</code>のような英字記号には頼っていません。
       </li>
+      <li><strong>階移動（v2.19、スティック押し込み）：</strong> 親指スティックの塗り丸自体は他のボタンと同じ位置に描かれますが、v2.19からそこにも引き出し線とラベル（<code>下の階</code> / <code>上の階</code>）が付きます。内部の<code>button[3]</code>という番号はHUDには表示しません。プロジェクトに階（FloorMap平面図）が1つしかない場合は、このラベルだけグレーアウト表示になり（レイアウトは変えず、無効であることだけを示す）、Ring OFF状態とは独立しています（Ring非表示中も階移動は可能です）。</li>
       <li><strong>グリップの装飾：</strong> リング下に先細りの雫形シルエットを描き、内側（もう片方のControllerに近い側）に小さなフック状の突起を添えています。実機シルエットを想起させる装飾のみで、ラベル・入力処理とは無関係です。</li>
-      <li><strong>短いラベル：</strong> 各ボタン／輪っかから短い引き出し線を伸ばし、操作名を表示します（<code>前シーン</code> / <code>次シーン</code> / <code>デバッグ ON・OFF</code> / <code>操作方法 ON・OFF</code> / <code>リンク先 ON・OFF</code> / <code>シーン選択</code> / <code>メニュー</code> ＋ <code>※長押しで視界リセット</code>）。<code>button[0]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
-      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（シーン選択）の輪っかとラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。他のボタン（Y/X/Menu/B/A/Meta）はRing状態に関わらず常に通常表示です。</li>
+      <li><strong>短いラベル：</strong> 各ボタン／輪っかから短い引き出し線を伸ばし、操作名を表示します（<code>前シーン</code> / <code>次シーン</code> / <code>デバッグ ON・OFF</code> / <code>操作方法 ON・OFF</code> / <code>リンク先 ON・OFF</code> / <code>シーン選択</code> / <code>メニュー</code> ＋ <code>※長押しで視界リセット</code> / <code>下の階</code> / <code>上の階</code>）。<code>button[0]</code>/<code>[3]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
+      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（シーン選択）の輪っかとラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。他のボタン（Y/X/Menu/B/A/Meta/階移動スティック）はRing状態に関わらず常に通常表示です。</li>
+      <li><strong>現在階の表示（v2.19）：</strong> 通常HUD上部（シーン名の下）に、階が2つ以上ある場合のみ「2階（2 / 3）」のように現在階を表示します。単一階のプロジェクトでは表示されません。</li>
       <li><strong>右Controller Metaボタンの案内：</strong> 右Controllerの<code>∞</code>（Meta/Oculus）ボタンは、OS側のハードウェアボタンです。WebXRの<code>gamepad.buttons</code>には公開されないため、ArchView360のコードが処理する入力ではありません。実際の挙動（短押しでシステムメニューを表示、長押しで視界をリセット）に合わせ、HUD上には常時「<code>メニュー</code>」「<code>※長押しで視界リセット</code>」という案内のみを表示し、リンク先 ON・OFF状態やTrigger操作とは独立しています（グレーアウトの対象にもなりません）。</li>
       <li><strong>表示/非表示の連動：</strong> 操作図はHUD本体と同じCanvasTexture・同じMeshに描画されるため、Right Bで通常HUDを非表示にすると操作図も一緒に非表示になります。</li>
       <li><strong>Debugとの独立性：</strong> 操作図はDebug簡易/詳細表示の切替（Left Y）とは独立した「常時表示」領域に描画されるため、Debug表示を切り替えても操作図が消えたり壊れたりしません。</li>
