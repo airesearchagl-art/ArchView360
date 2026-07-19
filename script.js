@@ -333,6 +333,40 @@ function init() {
   let vrFloorLastScene = new Map();
   const vrFloorDebug = { lastAction: '-', lastError: '-' };
 
+  // ---- VR Minimap Navigation (v2.20) ----
+  // A second camera-parented CanvasTexture panel (same construction pattern
+  // as the main HUD) showing the CURRENT floor's FloorMap image and its
+  // markers, with the current-scene marker highlighted. No new project
+  // data: reuses projectState.floorplans / projectState.markers / the same
+  // normalized [0,1]-within-letterbox marker coordinate system the normal
+  // 2D FloorMap panel already uses (renderFloormapCanvas/_canvasToImage).
+  // Markers are drawn into the canvas, not built as individual THREE
+  // objects — hit-testing intersects the single plane mesh and converts the
+  // local-space hit point to canvas pixels, then matches against a cached
+  // per-floor marker position list. Trigger selection shares vrRingTrigger's
+  // armed/pressed state with Scene Ring (one physical button, one state
+  // machine) so the two can never double-fire; minimap hover takes priority
+  // over Ring hover when present. No toggle button in this first version —
+  // always shown while in VR (a "FloorMapなし" placeholder when the current
+  // floor has no image), per the fallback the spec allows when a new button
+  // mapping would need pre-implementation confirmation.
+  const VR_MINIMAP_CANVAS_SIZE = 480; // px, square canvas
+  const VR_MINIMAP_PLANE_SIZE = 0.46; // meters, square plane
+  const VR_MINIMAP_TITLE_H = 44;      // px reserved at the top of the canvas for the floor-name title
+  const VR_MINIMAP_MARGIN = 10;       // px inset before the letterboxed floor image area
+  const VR_MINIMAP_HIT_RADIUS = 22;   // px, canvas-space hit-test radius around a marker's drawn position
+  let vrMinimapMesh = null, vrMinimapCanvas = null, vrMinimapCtx = null, vrMinimapTexture = null;
+  let vrMinimapMarkers = [];          // [{ id, sceneIdx, name, px, py }] for the current floor only, rebuilt on floor change
+  let vrMinimapCurrentMarkerId = null;
+  const vrMinimapHovered = { left: null, right: null }; // marker record | null
+  let vrMinimapPendingFloorChange = false; // set in _updateVrRingFade's 'out' stage, consumed at fade-in completion
+  const vrMinimapDebug = {
+    floorName: '-', markerCount: 0, imageLoaded: false, imageBounds: '-',
+    currentMarkerId: '-', hoveredLeft: '-', hoveredRight: '-',
+    rayHitLeft: false, rayHitRight: false, switching: false,
+    lastAction: '-', lastError: '-'
+  };
+
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2849,6 +2883,25 @@ function init() {
     return `buttons:${s.buttonsLength} pressed:${s.pressedCount}`;
   }
 
+  // Debug detail text runs two to a row (v2.20, two-column layout) — each
+  // column has roughly half the canvas width, so free-text fields (floor
+  // names, scene names, error messages) must be truncated defensively or a
+  // long one silently overflows the canvas edge. Truncates by measured
+  // PIXEL width (via ctx.measureText, at the ctx's current font) rather
+  // than character count — a character-count limit under- or over-shoots
+  // badly once Japanese (full-width) and Latin (half-width) characters mix
+  // in the same free-text field (floor/scene names are user-provided).
+  function _dbgTrunc(ctx, s, maxPx) {
+    const str = (s == null || s === '') ? '-' : String(s);
+    if (ctx.measureText(str).width <= maxPx) return str;
+    let lo = 0, hi = str.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (ctx.measureText(str.slice(0, mid) + '…').width <= maxPx) lo = mid; else hi = mid - 1;
+    }
+    return str.slice(0, lo) + '…';
+  }
+
   // ------------------------------------------------------------
   // VR Controller Visual Guide (v2.18) — drawn into the same HUD canvas as
   // everything else, in the "always visible" band above the Debug
@@ -3101,30 +3154,46 @@ function init() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(80, 468); ctx.lineTo(W - 80, 468); ctx.stroke();
 
-    ctx.font = '18px monospace';
+    ctx.font = '24px monospace';
     ctx.fillStyle = '#7a8bab';
     ctx.textAlign = 'center';
-    let y = 476;
+    let y = 480;
     if (vrDebugDetailed) {
-      // Detailed debug panel (Left Y toggles this on). Line spacing/font
-      // tightened (24px/23px -> 18px/18px in v2.19) to fit 3 new floor-nav
-      // lines below the original 10 within the fixed 700px-tall canvas.
-      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 18;
-      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 18;
-      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 18;
-      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 18;
-      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 18;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 18;
-      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 18;
-      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 18;
-      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 18;
-      ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y); y += 18;
+      // v2.20: two-column layout (was single-column) — three PRs' worth of
+      // debug fields (Ring, Floor Nav, Minimap) no longer fit one column at
+      // a size legible in-headset. Column A keeps the original Ring/session
+      // fields untouched at their original 24px/23px sizing; column B holds
+      // `selected` plus every field added since (Floor Nav v2.19, Minimap
+      // v2.20), so nothing needs to shrink below what already shipped.
+      const colA = W / 4, colB = (3 * W) / 4;
+      let yA = y, yB = y;
+      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, colA, yA); yA += 23;
+      ctx.fillText(`left: ${_vrHandDetail('left')}`, colA, yA); yA += 23;
+      ctx.fillText(`right: ${_vrHandDetail('right')}`, colA, yA); yA += 23;
+      ctx.fillText(`last action: ${vrDebug.lastAction}`, colA, yA); yA += 23;
+      ctx.fillText(`current scene: ${currentIdx}`, colA, yA); yA += 23;
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, colA, yA); yA += 23;
+      ctx.fillText(`ring items: ${vrRingItems.length}`, colA, yA); yA += 23;
+      ctx.fillText(`ring enabled: ${vrRingEnabled}`, colA, yA); yA += 23;
+      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, colA, yA);
+
+      // Column B's usable half-width (center to canvas edge) is ~256px;
+      // every free-text field below is pixel-truncated (_dbgTrunc) against
+      // a budget sized so the whole line stays comfortably inside that,
+      // however wide the mostly-Japanese source text renders.
+      ctx.fillText(`selected: ${_dbgTrunc(ctx, vrRingDebug.selectedName, 260)}`, colB, yB); yB += 23;
       // v2.19: VR Floor Navigation debug fields.
       const fi = _vrFloorHudInfo();
-      const fiText = fi ? `${fi.name} [${fi.index}/${fi.total}] scenes:${fi.sceneCount}` : 'n/a (single floor or unresolved)';
-      ctx.fillText(`floor: ${fiText}`, W / 2, y); y += 18;
-      ctx.fillText(`floor stick L p:${vrFloorStick.left.pressed ? 1 : 0} a:${vrFloorStick.left.armed ? 1 : 0}  R p:${vrFloorStick.right.pressed ? 1 : 0} a:${vrFloorStick.right.armed ? 1 : 0}`, W / 2, y); y += 18;
-      ctx.fillText(`floor last: ${vrFloorDebug.lastAction} | state:${vrRingFadeState} | err:${vrFloorDebug.lastError}`, W / 2, y);
+      const fiText = fi ? `${_dbgTrunc(ctx, fi.name, 130)} [${fi.index}/${fi.total}] sc:${fi.sceneCount}` : 'n/a (1 floor)';
+      ctx.fillText(`floor: ${fiText}`, colB, yB); yB += 23;
+      ctx.fillText(`floor stick L p:${vrFloorStick.left.pressed ? 1 : 0} a:${vrFloorStick.left.armed ? 1 : 0} R p:${vrFloorStick.right.pressed ? 1 : 0} a:${vrFloorStick.right.armed ? 1 : 0}`, colB, yB); yB += 23;
+      ctx.fillText(`floor last:${_dbgTrunc(ctx, vrFloorDebug.lastAction, 220)} err:${_dbgTrunc(ctx, vrFloorDebug.lastError, 100)}`, colB, yB); yB += 23;
+      // v2.20: VR Minimap Navigation debug fields.
+      ctx.fillText(`mm ${_dbgTrunc(ctx, vrMinimapDebug.floorName, 130)} mk:${vrMinimapDebug.markerCount} img:${vrMinimapDebug.imageLoaded ? 'ok' : 'none'}`, colB, yB); yB += 23;
+      ctx.fillText(`mm bounds:${_dbgTrunc(ctx, vrMinimapDebug.imageLoaded ? vrMinimapDebug.imageBounds : '-', 300)}`, colB, yB); yB += 23;
+      ctx.fillText(`mm cur:${_dbgTrunc(ctx, vrMinimapCurrentMarkerId, 90)} hov L:${_dbgTrunc(ctx, vrMinimapDebug.hoveredLeft, 100)} R:${_dbgTrunc(ctx, vrMinimapDebug.hoveredRight, 100)}`, colB, yB); yB += 23;
+      ctx.fillText(`mm ray L:${vrMinimapDebug.rayHitLeft} R:${vrMinimapDebug.rayHitRight} sw:${vrMinimapDebug.switching}`, colB, yB); yB += 23;
+      ctx.fillText(`mm last:${_dbgTrunc(ctx, vrMinimapDebug.lastAction, 240)} err:${_dbgTrunc(ctx, vrMinimapDebug.lastError, 100)}`, colB, yB);
     } else {
       // Simple panel: just the controller guide already drawn above, plus
       // a one-line input-sources sanity check.
@@ -3439,6 +3508,12 @@ function init() {
         // through to 'in' instead of 'loading', so the black plane can never
         // be left covering the view; on failure the current scene is kept.
         let switched = false;
+        // v2.20: captured before switchToScene() so the fade-in completion
+        // below (several frames later) knows whether to fully rebuild the
+        // minimap (floor changed) or just refresh its current-position
+        // highlight (same floor) — switchToScene()/_doSwitchToScene()
+        // already auto-syncs activeFloorplanId, this only observes it.
+        const floorBefore = activeFloorplanId;
         if (idx >= 0 && idx < scenes.length) {
           try {
             switchToScene(idx);
@@ -3451,6 +3526,7 @@ function init() {
         } else {
           vrRingDebug.lastError = 'switch: invalid sceneIdx ' + idx;
         }
+        if (switched) vrMinimapPendingFloorChange = activeFloorplanId !== floorBefore;
         vrRingFadeState = switched ? 'loading' : 'in';
       }
       return;
@@ -3478,6 +3554,13 @@ function init() {
       vrRingFadeMesh.visible = false;
       vrRingFadeState = 'idle';
       _rebuildVrRing();
+      // v2.20: minimap update on the same fade-completion hook Scene Ring
+      // uses — full rebuild only when the floor actually changed, otherwise
+      // just a lightweight current-position redraw (design requirement:
+      // rebuild the FloorMap/marker list only on floor change).
+      if (vrMinimapPendingFloorChange) _rebuildVrMinimapForFloor();
+      else _drawVrMinimap();
+      vrMinimapPendingFloorChange = false;
     }
   }
 
@@ -3615,6 +3698,272 @@ function init() {
     }
   }
 
+  // ------------------------------------------------------------
+  // VR Minimap Navigation (v2.20)
+  // ------------------------------------------------------------
+  // Second camera-parented CanvasTexture panel (same construction as the
+  // main HUD) showing the current floor's FloorMap image + markers. See the
+  // state block above for the overall design notes.
+
+  let vrMinimapImageArea = null; // { dx, dy, dw, dh } in minimap-canvas pixels, from the same letterbox-fit math renderFloormapCanvas() uses
+
+  // `isCurrent` is passed in rather than read from the marker record — the
+  // record is cached at floor-rebuild time, but currentIdx can change on
+  // every A/X press without a floor change (no rebuild), so "which marker
+  // is the current position" must always be resolved live against the
+  // live currentIdx, never trusted from a stale cached flag.
+  function _drawMinimapMarkerDot(ctx, m, isCurrent, hovered) {
+    const baseR = isCurrent ? 12 : 6;
+    const r = hovered ? baseR + 4 : baseR;
+    if (isCurrent) {
+      // Double-ring emphasis for "you are here" (design: bigger + bright
+      // outline + double circle, in place of a per-frame pulse animation).
+      ctx.beginPath();
+      ctx.arc(m.px, m.py, r + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(m.px, m.py, r, 0, Math.PI * 2);
+    ctx.fillStyle = isCurrent ? '#4f7cff' : (hovered ? '#ffd166' : 'rgba(160, 160, 160, 0.85)');
+    ctx.fill();
+    ctx.strokeStyle = isCurrent ? '#ffffff' : 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = isCurrent ? 2.5 : 1.5;
+    ctx.stroke();
+  }
+
+  // Redraws the minimap canvas from already-cached state (vrMinimapMarkers,
+  // vrMinimapImageArea, hover). Never rebuilds the marker list or reloads
+  // the image itself — only _rebuildVrMinimapForFloor() does that. Called on
+  // hover change, scene change and floor change, not unconditionally every
+  // frame.
+  function _drawVrMinimap() {
+    if (!vrMinimapCtx) return;
+    const ctx = vrMinimapCtx, S = VR_MINIMAP_CANVAS_SIZE;
+    ctx.clearRect(0, 0, S, S);
+
+    ctx.fillStyle = 'rgba(13, 18, 28, 0.88)';
+    ctx.strokeStyle = 'rgba(120, 170, 255, 0.6)';
+    ctx.lineWidth = 3;
+    const r = 20;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(S - r, 0); ctx.arcTo(S, 0, S, r, r);
+    ctx.lineTo(S, S - r); ctx.arcTo(S, S, S - r, S, r);
+    ctx.lineTo(r, S); ctx.arcTo(0, S, 0, S - r, r);
+    ctx.lineTo(0, r); ctx.arcTo(0, 0, r, 0, r);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.fillStyle = '#9fd8c8';
+    ctx.textAlign = 'center';
+    let title = vrMinimapDebug.floorName === '-' ? 'FloorMap' : vrMinimapDebug.floorName;
+    if (title.length > 16) title = title.slice(0, 15) + '…';
+    ctx.fillText(title, S / 2, 30);
+
+    if (!vrMinimapDebug.imageLoaded || !vrMinimapImageArea) {
+      ctx.font = '18px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(190, 190, 190, 0.7)';
+      ctx.fillText('FloorMapなし', S / 2, S / 2);
+      if (vrMinimapTexture) vrMinimapTexture.needsUpdate = true;
+      return;
+    }
+
+    const fpId = _vrResolveCurrentFloorId(projectState.floorplans);
+    const fp = fpId ? projectState.floorplans.find(f => f.id === fpId) : null;
+    const { dx, dy, dw, dh } = vrMinimapImageArea;
+    if (fp && fp.imgEl) {
+      try { ctx.drawImage(fp.imgEl, dx, dy, dw, dh); } catch (err) { /* image draw failed — background/markers still render below */ }
+    }
+
+    // "Current position" is resolved live against currentIdx on every draw
+    // (not from a cached flag) so an A/X move that doesn't trigger a floor
+    // rebuild still highlights the right marker.
+    const hoveredIds = new Set([vrMinimapHovered.left && vrMinimapHovered.left.id, vrMinimapHovered.right && vrMinimapHovered.right.id].filter(Boolean));
+    vrMinimapMarkers.filter(m => m.sceneIdx !== currentIdx).forEach(m => _drawMinimapMarkerDot(ctx, m, false, hoveredIds.has(m.id)));
+    const curMarker = vrMinimapMarkers.find(m => m.sceneIdx === currentIdx);
+    if (curMarker) _drawMinimapMarkerDot(ctx, curMarker, true, hoveredIds.has(curMarker.id));
+    vrMinimapCurrentMarkerId = curMarker ? curMarker.id : null;
+    vrMinimapDebug.currentMarkerId = curMarker ? curMarker.id : '-';
+
+    const hoveredRecord = vrMinimapHovered.left || vrMinimapHovered.right;
+    if (hoveredRecord) {
+      let label = hoveredRecord.name;
+      if (label.length > 18) label = label.slice(0, 17) + '…';
+      ctx.font = 'bold 18px system-ui, sans-serif';
+      ctx.fillStyle = '#eaf1ff';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, S / 2, S - 12);
+    }
+
+    if (vrMinimapTexture) vrMinimapTexture.needsUpdate = true;
+  }
+
+  // Full rebuild: resolves the current floor (reusing the same helper VR
+  // Floor Navigation uses, passing ALL floorplans rather than just
+  // nav-"valid" ones — a floor with a FloorMap image but zero markers is
+  // still worth displaying here even though it's excluded from floor-nav
+  // targets), reloads the floor image if needed, and recomputes the
+  // per-floor marker list with the exact letterbox-fit math
+  // renderFloormapCanvas() uses (scoped to this canvas's own dimensions).
+  // Only called on VR start and on floor change — never per-frame, never
+  // per-scene-switch (see _drawVrMinimap for the lightweight path).
+  function _rebuildVrMinimapForFloor() {
+    if (!vrMinimapCanvas) return;
+    try {
+      vrMinimapMarkers = [];
+      vrMinimapCurrentMarkerId = null;
+      vrMinimapImageArea = null;
+      vrMinimapHovered.left = null;
+      vrMinimapHovered.right = null;
+      vrMinimapDebug.hoveredLeft = '-';
+      vrMinimapDebug.hoveredRight = '-';
+
+      const fpId = _vrResolveCurrentFloorId(projectState.floorplans);
+      const fp = fpId ? projectState.floorplans.find(f => f.id === fpId) : null;
+      vrMinimapDebug.floorName = fp ? (fp.name || fpId) : '-';
+
+      if (!fp || !fp.imgEl) {
+        vrMinimapDebug.imageLoaded = false;
+        vrMinimapDebug.imageBounds = '-';
+        vrMinimapDebug.markerCount = 0;
+        vrMinimapDebug.currentMarkerId = '-';
+        _drawVrMinimap();
+        return;
+      }
+
+      const img = fp.imgEl;
+      if (!img.complete || !img.naturalWidth) {
+        vrMinimapDebug.imageLoaded = false;
+        vrMinimapDebug.imageBounds = '-';
+        // Adds a listener rather than assigning img.onload — the normal 2D
+        // FloorMap panel already owns that property (renderFloormapCanvas);
+        // this must never clobber it.
+        img.addEventListener('load', () => {
+          if (fpId === _vrResolveCurrentFloorId(projectState.floorplans)) _rebuildVrMinimapForFloor();
+        }, { once: true });
+        _drawVrMinimap();
+        return;
+      }
+      vrMinimapDebug.imageLoaded = true;
+
+      const areaW = VR_MINIMAP_CANVAS_SIZE - VR_MINIMAP_MARGIN * 2;
+      const areaH = VR_MINIMAP_CANVAS_SIZE - VR_MINIMAP_TITLE_H - VR_MINIMAP_MARGIN * 2;
+      const ia = img.naturalWidth / img.naturalHeight;
+      const ca = areaW / areaH;
+      let dw, dh, dx, dy;
+      if (ia > ca) { dw = areaW; dh = areaW / ia; dx = VR_MINIMAP_MARGIN; dy = VR_MINIMAP_TITLE_H + VR_MINIMAP_MARGIN + (areaH - dh) / 2; }
+      else         { dh = areaH; dw = areaH * ia; dy = VR_MINIMAP_TITLE_H + VR_MINIMAP_MARGIN; dx = VR_MINIMAP_MARGIN + (areaW - dw) / 2; }
+      vrMinimapImageArea = { dx, dy, dw, dh };
+      vrMinimapDebug.imageBounds = `${Math.round(dw)}x${Math.round(dh)}@${Math.round(dx)},${Math.round(dy)}`;
+
+      // "Current position" is NOT baked into these records — _drawVrMinimap()
+      // resolves it live against currentIdx every time it draws, so it
+      // stays correct across A/X moves that don't trigger a rebuild.
+      const list = [];
+      projectState.markers
+        .filter(m => m.floorplanId === fpId)
+        .forEach((m) => {
+          const sceneIdx = scenes.findIndex(s => s.id === m.sceneId);
+          if (sceneIdx < 0) return; // marker references a missing/deleted scene — skip just this marker
+          const scn = scenes[sceneIdx];
+          const safeName = String(scn.name || scn.title || `Scene ${sceneIdx + 1}`);
+          list.push({
+            id: m.id, sceneIdx, name: safeName,
+            px: dx + m.x * dw, py: dy + m.y * dh
+          });
+        });
+      vrMinimapMarkers = list;
+      vrMinimapDebug.markerCount = list.length;
+      _drawVrMinimap();
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('[VR Minimap]', 'rebuild failed:', err);
+      vrMinimapDebug.lastError = 'rebuild: ' + msg;
+      vrMinimapMarkers = [];
+      vrMinimapCurrentMarkerId = null;
+      try { _drawVrMinimap(); } catch (e2) { /* canvas itself is broken — nothing more to do safely */ }
+    }
+  }
+
+  function _updateMinimapHandHover(hand, record) {
+    if (vrMinimapHovered[hand] === record) return;
+    vrMinimapHovered[hand] = record;
+    vrMinimapDebug[hand === 'left' ? 'hoveredLeft' : 'hoveredRight'] = record ? record.name : '-';
+    _drawVrMinimap();
+  }
+
+  // Mirrors _selectVrRingItem/_vrGoFloor's reuse of the shared Fade Out ->
+  // switchToScene -> Fade In state machine. Guards against re-triggering a
+  // fade to the scene already being viewed (design requirement: selecting
+  // the current-position marker must not cause a re-transition).
+  function _selectVrMinimapMarker(record) {
+    if (vrRingFadeState !== 'idle') return;
+    if (record.sceneIdx === currentIdx) { vrMinimapDebug.lastAction = 'no-op (already current scene)'; return; }
+    vrMinimapDebug.lastAction = 'jump -> ' + record.name;
+    vrMinimapDebug.lastError = '-';
+    console.log('[VR Minimap]', 'selected', record.name, 'sceneIdx', record.sceneIdx);
+    vrRingPendingSceneIdx = record.sceneIdx;
+    vrRingFadeState = 'out';
+  }
+
+  function _createVrMinimap() {
+    if (vrMinimapMesh || !camera) return;
+    try {
+      vrMinimapCanvas = document.createElement('canvas');
+      vrMinimapCanvas.width = VR_MINIMAP_CANVAS_SIZE; vrMinimapCanvas.height = VR_MINIMAP_CANVAS_SIZE;
+      vrMinimapCtx = vrMinimapCanvas.getContext('2d');
+      vrMinimapTexture = new THREE.CanvasTexture(vrMinimapCanvas);
+      vrMinimapTexture.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshBasicMaterial({
+        map: vrMinimapTexture, transparent: true, opacity: 1,
+        depthTest: false, side: THREE.DoubleSide
+      });
+      vrMinimapMesh = new THREE.Mesh(new THREE.PlaneGeometry(VR_MINIMAP_PLANE_SIZE, VR_MINIMAP_PLANE_SIZE), mat);
+      vrMinimapMesh.renderOrder = 999;
+      // Bottom-right corner, clear of the main HUD panel (camera-local
+      // x∈[-0.8,0.8] at z=-2.0 — see _createVrHud).
+      vrMinimapMesh.position.set(1.15, -0.70, -2.0);
+      camera.add(vrMinimapMesh);
+      _rebuildVrMinimapForFloor();
+      console.log('[VR Minimap]', 'created');
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('[VR Minimap]', 'creation failed — continuing without minimap:', err);
+      vrMinimapDebug.lastError = 'create: ' + msg;
+      try { _disposeVrMinimap(); } catch (e2) { /* partially built — ignore */ }
+    }
+  }
+
+  function _disposeVrMinimap() {
+    if (vrMinimapMesh) {
+      if (vrMinimapMesh.parent) vrMinimapMesh.parent.remove(vrMinimapMesh);
+      vrMinimapMesh.geometry.dispose();
+      vrMinimapMesh.material.dispose();
+    }
+    if (vrMinimapTexture) vrMinimapTexture.dispose();
+    vrMinimapMesh = null; vrMinimapCanvas = null; vrMinimapCtx = null; vrMinimapTexture = null;
+    vrMinimapMarkers = [];
+    vrMinimapCurrentMarkerId = null;
+    vrMinimapImageArea = null;
+    vrMinimapHovered.left = null;
+    vrMinimapHovered.right = null;
+    vrMinimapPendingFloorChange = false;
+    vrMinimapDebug.floorName = '-';
+    vrMinimapDebug.markerCount = 0;
+    vrMinimapDebug.imageLoaded = false;
+    vrMinimapDebug.imageBounds = '-';
+    vrMinimapDebug.currentMarkerId = '-';
+    vrMinimapDebug.hoveredLeft = '-';
+    vrMinimapDebug.hoveredRight = '-';
+    vrMinimapDebug.rayHitLeft = false;
+    vrMinimapDebug.rayHitRight = false;
+    vrMinimapDebug.switching = false;
+    vrMinimapDebug.lastAction = '-';
+    // lastError intentionally kept, same convention as vrRingDebug.lastError
+    // (stays readable on the on-screen VR Debug Log after the session ends).
+  }
+
   // Per-frame ring raycast + per-hand hover + armed-Trigger-select, called
   // once from vrFrame() after renderer.render() (so controller matrixWorld
   // reflects this frame's freshly-updated pose). The whole body is guarded:
@@ -3634,48 +3983,86 @@ function init() {
       if (vrControllerLaser1) vrControllerLaser1.visible = visible;
       if (vrControllerLaser2) vrControllerLaser2.visible = visible;
 
-      if (!visible) {
-        _updateRingHandHover('left', null);
-        _updateRingHandHover('right', null);
-      } else {
-        // Sprite.raycast() reads raycaster.camera internally — leaving it
-        // unset (or stale) throws every frame, which kills the XR animation
-        // loop entirely (seen on Quest 3 as a freeze plus last-frame
-        // reprojection covering only part of the view). The principled
-        // source is the active XR camera (renderer.xr.getCamera(camera)),
-        // which is only meaningful while a frame is actually being
-        // rendered inside an XR session; resolving it is wrapped so a
-        // throw or a falsy return can never propagate. When it can't be
-        // obtained, this frame's raycast is skipped outright (hover cleared,
-        // no exception) rather than guessing with a substitute camera.
-        let xrCam = null;
-        try {
-          xrCam = (renderer && renderer.xr && renderer.xr.getCamera) ? renderer.xr.getCamera(camera) : null;
-        } catch (err) {
-          xrCam = null;
+      vrMinimapDebug.switching = fading;
+
+      // Sprite.raycast() reads raycaster.camera internally — leaving it
+      // unset (or stale) throws every frame, which kills the XR animation
+      // loop entirely (seen on Quest 3 as a freeze plus last-frame
+      // reprojection covering only part of the view). The principled
+      // source is the active XR camera (renderer.xr.getCamera(camera)),
+      // which is only meaningful while a frame is actually being rendered
+      // inside an XR session; resolving it is wrapped so a throw or a
+      // falsy return can never propagate. Only Ring-sprite hover needs
+      // this — the v2.20 minimap below is a Mesh (not a Sprite), whose
+      // raycast() doesn't read raycaster.camera at all, so minimap hover
+      // works even in a frame where the XR camera can't be resolved.
+      let xrCam = null;
+      try {
+        xrCam = (renderer && renderer.xr && renderer.xr.getCamera) ? renderer.xr.getCamera(camera) : null;
+      } catch (err) {
+        xrCam = null;
+      }
+      if (xrCam) vrRaycaster.camera = xrCam;
+
+      const ringHits = { left: null, right: null };
+      const minimapHits = { left: null, right: null };
+      // Per-hand raycast: each laser only feeds the hover slot of its own
+      // handedness (resolved via the 'connected' event, see
+      // _onRingControllerConnected). A controller with unknown handedness
+      // contributes no hover and therefore can never select anything.
+      [vrController1, vrController2].forEach((controller) => {
+        if (!controller) return;
+        const hand = controller.userData.ringHandedness;
+        if (hand !== 'left' && hand !== 'right') return;
+        vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
+
+        if (visible && xrCam) {
+          const intersects = vrRaycaster.intersectObjects(vrRingGroup.children, false);
+          ringHits[hand] = intersects.length
+            ? (vrRingItems.find((h) => h.mesh === intersects[0].object) || null)
+            : null;
         }
 
-        const hits = { left: null, right: null };
-        if (xrCam) {
-          vrRaycaster.camera = xrCam;
-          // Per-hand raycast: each laser only feeds the hover slot of its
-          // own handedness (resolved via the 'connected' event, see
-          // _onRingControllerConnected). A controller with unknown
-          // handedness contributes no hover and therefore can never select.
-          [vrController1, vrController2].forEach((controller) => {
-            if (!controller) return;
-            const hand = controller.userData.ringHandedness;
-            if (hand !== 'left' && hand !== 'right') return;
-            vrRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-            vrRaycaster.ray.direction.set(0, 0, -1).transformDirection(controller.matrixWorld).normalize();
-            const intersects = vrRaycaster.intersectObjects(vrRingGroup.children, false);
-            hits[hand] = intersects.length
-              ? (vrRingItems.find((h) => h.mesh === intersects[0].object) || null)
-              : null;
-          });
+        // Minimap marker hover — independent of Ring visibility/fade state
+        // (design requirement: minimap works even with Ring OFF). Hits the
+        // single minimap plane, converts the local-space hit point to
+        // minimap-canvas pixels (matching how markers were placed in
+        // _rebuildVrMinimapForFloor), then picks the nearest cached marker
+        // within VR_MINIMAP_HIT_RADIUS — no per-marker 3D objects needed.
+        if (vrMinimapMesh) {
+          try {
+            const mmIntersects = vrRaycaster.intersectObject(vrMinimapMesh, false);
+            if (mmIntersects.length) {
+              vrMinimapDebug[hand === 'left' ? 'rayHitLeft' : 'rayHitRight'] = true;
+              const localPoint = vrMinimapMesh.worldToLocal(mmIntersects[0].point.clone());
+              const cx = (localPoint.x / VR_MINIMAP_PLANE_SIZE + 0.5) * VR_MINIMAP_CANVAS_SIZE;
+              const cy = (0.5 - localPoint.y / VR_MINIMAP_PLANE_SIZE) * VR_MINIMAP_CANVAS_SIZE;
+              let closest = null, closestDist = VR_MINIMAP_HIT_RADIUS;
+              vrMinimapMarkers.forEach((m) => {
+                const d = Math.hypot(m.px - cx, m.py - cy);
+                if (d <= closestDist) { closest = m; closestDist = d; }
+              });
+              minimapHits[hand] = closest;
+            } else {
+              vrMinimapDebug[hand === 'left' ? 'rayHitLeft' : 'rayHitRight'] = false;
+            }
+          } catch (err) {
+            vrMinimapDebug[hand === 'left' ? 'rayHitLeft' : 'rayHitRight'] = false;
+          }
         }
-        _updateRingHandHover('left', hits.left);
-        _updateRingHandHover('right', hits.right);
+      });
+
+      if (visible) {
+        _updateRingHandHover('left', ringHits.left);
+        _updateRingHandHover('right', ringHits.right);
+      } else {
+        _updateRingHandHover('left', null);
+        _updateRingHandHover('right', null);
+      }
+      if (vrMinimapMesh) {
+        _updateMinimapHandHover('left', minimapHits.left);
+        _updateMinimapHandHover('right', minimapHits.right);
       }
 
       // Trigger (button[0]) arm/press handling, keyed by handedness and
@@ -3740,9 +4127,18 @@ function init() {
         if (!pressed) {
           // Observed released — from here on a fresh press may select.
           st.armed = true;
-        } else if (st.armed && !st.pressed && vrRingEnabled && !fading && vrRingHovered[handedness]) {
-          _selectVrRingItem(vrRingHovered[handedness]);
-          st.armed = false;
+        } else if (st.armed && !st.pressed) {
+          // v2.20: minimap marker hover takes priority over Scene Ring hover
+          // for the same hand/frame — one shared armed/pressed state (never
+          // a second one for the minimap), so the same physical Trigger
+          // press can only ever select one or the other, never both.
+          if (vrMinimapHovered[handedness]) {
+            _selectVrMinimapMarker(vrMinimapHovered[handedness]);
+            st.armed = false;
+          } else if (vrRingEnabled && !fading && vrRingHovered[handedness]) {
+            _selectVrRingItem(vrRingHovered[handedness]);
+            st.armed = false;
+          }
         }
         st.pressed = pressed;
       });
@@ -3778,6 +4174,10 @@ function init() {
     vrDebug.nextCount++;
     console.log('[VR]', 'scene next', currentIdx);
     _vrShowHud();
+    // A/X never changes floor (_getNavOrder() stays scoped to
+    // activeFloorplanId), so only the current-position highlight needs a
+    // lightweight redraw — no marker-list/image rebuild.
+    _drawVrMinimap();
   }
 
   function vrGoPrevScene() {
@@ -3786,6 +4186,7 @@ function init() {
     vrDebug.prevCount++;
     console.log('[VR]', 'scene prev', currentIdx);
     _vrShowHud();
+    _drawVrMinimap();
   }
 
   function vrToggleHud() {
@@ -3984,6 +4385,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     _renderVrDebugLog('session ended');
     _disposeVrHud();
     _disposeVrSceneRing();
+    _disposeVrMinimap();
     vrHudVisible = true;
     _vrResetInputState();
     _vrResetFloorNavState();
@@ -4014,6 +4416,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       _vrResetFloorNavState();
       _createVrHud();
       _createVrSceneRing();
+      _createVrMinimap();
       vrRenderDebug.threeSceneUuid = threeScene.uuid;
       vrRenderDebug.cameraUuid = camera.uuid;
       vrRenderDebug.frameCount = 0;
@@ -4056,6 +4459,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       _renderVrDebugLog('session failed to start');
       _disposeVrHud();
       _disposeVrSceneRing();
+      _disposeVrMinimap();
       _vrResetInputState();
       _vrResetFloorNavState();
       // v2.16: the loop was never swapped, so there is nothing to restart;
@@ -5131,7 +5535,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.19.0',
+      appVersion:  '2.20.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },

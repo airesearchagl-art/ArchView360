@@ -120,7 +120,7 @@
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。<strong>v2.20で追加：</strong> VRミニマップナビゲーション（後述）のマーカージャンプは、新しいボタンを割り当てず、既存のトリガー（<code>button[0]</code>）をScene Ring選択と共有します（同一のarmed/pressed状態、ミニマップhover優先）。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -217,6 +217,25 @@
       <li><strong>表示/非表示の連動：</strong> 操作図はHUD本体と同じCanvasTexture・同じMeshに描画されるため、Right Bで通常HUDを非表示にすると操作図も一緒に非表示になります。</li>
       <li><strong>Debugとの独立性：</strong> 操作図はDebug簡易/詳細表示の切替（Left Y）とは独立した「常時表示」領域に描画されるため、Debug表示を切り替えても操作図が消えたり壊れたりしません。</li>
       <li><strong>更新頻度：</strong> 新しい再描画トリガーは追加していません。既存の<code>_vrShowHud()</code>呼び出しと、<code>vrFrame()</code>内の既存の間引き再描画（約20フレームに1回）にそのまま乗る形で更新されます。</li>
+    </ul>
+
+    <h2>🗺️ VRミニマップナビゲーション（v2.20）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> VRを終了せずに、現在階のFloorMapと現在位置を確認できる小さなミニマップパネルを追加する機能です。「マーカー」＝既存の<code>projectState.markers</code>で、座標系も含めて通常画面のFloorMapパネルと同一のものを再利用します。新しいプロジェクトデータは追加していません。
+    </div>
+    <ul>
+      <li><strong>現在位置表示：</strong> 現在階に属するマーカーだけを表示します（全階を同時に表示することはありません）。現在シーンに対応するマーカーは、他マーカーより大きく、白い二重円で強調表示されます。現在シーンにマーカーが存在しない場合もVRは通常通り継続します。</li>
+      <li><strong>座標系：</strong> マーカーの<code>x</code>/<code>y</code>は、通常画面のFloorMapパネル（<code>renderFloormapCanvas()</code>）が使うのと全く同じ正規化座標（letterbox表示された画像領域内の[0,1]相対値）です。ミニマップは自身のCanvasサイズに対して同じletterbox-fit計算を独自に行い、この座標をそのまま再利用します。<code>rotationOffset</code>はマーカーの向き表示にのみ影響する既存仕様（位置には影響しません）のため、位置表示のみの本バージョンでは使用していません。</li>
+      <li><strong>FloorMap画像表示方式：</strong> HUD本体と同じ「PlaneGeometry + CanvasTexture」構成の第2の独立パネルです。個別マーカーを3Dオブジェクト化せず、Canvas上に描画し、hit-testはray-plane交点をローカル座標経由でCanvas pixel座標へ変換してキャッシュ済みマーカー座標リストと距離判定する方式のため、階が変わっても再生成されるThree.jsオブジェクトはメッシュ1個のみです。</li>
+      <li><strong>FloorMap画像がない場合：</strong> 現在階に画像がない、または読み込み前の場合は、例外を出さず「FloorMapなし」というプレースホルダを表示します。</li>
+      <li><strong>ray hit方式：</strong> 既存Ring用コントローラー（<code>vrController1/2</code>、<code>ringHandedness</code>）とレイをそのまま再利用します。ミニマップのマーカーはSpriteではなくMesh上のCanvas座標判定のため、Sprite特有の<code>raycaster.camera</code>設定は不要です（Ring選択のSprite raycastクラッシュの再発条件とは無関係）。</li>
+      <li><strong>TriggerジャンプとScene Ringとの優先順位：</strong> 同じ手でScene Ring項目とミニマップマーカーの両方がhover状態になった場合、<strong>ミニマップを優先</strong>します。Trigger自体はScene Ring選択と<strong>同一の</strong>armed/pressed状態（<code>vrRingTrigger</code>）を共有しており、新しい別状態を追加していないため、1回のTrigger操作で両方が同時に選択されることはありません。現在シーンのマーカーを選択した場合は不要な再遷移を行いません（no-op）。</li>
+      <li><strong>Scene切替演出：</strong> 既存のFade Out → <code>switchToScene()</code> → Fade Inの仕組みをそのまま再利用しています。専用の遷移処理は追加していません。</li>
+      <li><strong>階移動との連携：</strong> 階移動（v2.19）でFade完了時にFloorMap画像・マーカー一覧を新しい階の内容へ自動的に再構築します。A/XやScene Ring選択など同じ階の中でのシーン切替では、現在位置マーカーの再描画のみを行い、FloorMap画像・マーカー一覧の再構築は行いません。</li>
+      <li><strong>Ring OFF中も利用可能：</strong> ミニマップの表示・hover・Triggerジャンプは、Scene Ring表示のON/OFF（Left Menu）とは独立して動作します。</li>
+      <li><strong>表示切替：</strong> 未使用Controllerボタンの新規割り当てにはリスクが伴うため、本バージョンでは表示切替ボタンを追加せず、VR中は常時表示としました。表示状態はVRセッション内だけの一時的なもので、JSON/ZIPには保存されません。</li>
+      <li><strong>フェイルセーフ：</strong> ミニマップの再構築・描画・raycastはそれぞれ独立したtry/catchで保護されており、失敗してもVRセッション・HUD・A/X/B/Y/Trigger/Menu/階移動の既存操作を継続します。マーカーのscene参照が不正な場合は、そのマーカーだけをスキップします。</li>
+      <li><strong>リソース管理：</strong> VR開始時に1回だけThree.jsのメッシュ・Canvas・Textureを生成し、VR終了時・エラー時に確実にdisposeします。毎フレームの再生成は行いません。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
