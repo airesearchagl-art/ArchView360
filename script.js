@@ -314,6 +314,25 @@ function init() {
   // vrPrevButtonState (button[4]/[5]) above.
   const vrRingTogglePrevPressed = new WeakMap();
 
+  // ---- VR Floor Navigation (v2.19) ----
+  // Floors are existing FloorMap floor plans (projectState.floorplans); no
+  // new project data. Bound to left/right stick-click (button[3]) — real
+  // hardware mapping confirmed by the project owner (this project's own
+  // measurement, not the axes this button-click is distinct from), and
+  // otherwise unused everywhere else in this file (_vrActionForButton only
+  // maps #4/#5; Trigger is #0; Ring toggle is #12). Same per-hand
+  // armed/pressed edge-detection pattern as vrRingTrigger, so a stick
+  // already held down when the VR session starts can never fire an
+  // immediate floor change.
+  const vrFloorStick = {
+    left:  { pressed: false, armed: false },
+    right: { pressed: false, armed: false }
+  };
+  // Per-floorplan "last viewed scene index this VR session" — session-local
+  // only, never persisted to project JSON/ZIP; cleared on VR session end.
+  let vrFloorLastScene = new Map();
+  const vrFloorDebug = { lastAction: '-', lastError: '-' };
+
   // ---- VR Render Path ----
   // v2.16: there is only one render path — renderer.setAnimationLoop(renderLoop)
   // drives normal and VR rendering alike (renderLoop branches on inVrSession).
@@ -2896,6 +2915,27 @@ function init() {
     labelLines.forEach((line, i) => ctx.fillText(line, labelX, labelY + i * 22));
   }
 
+  // Leader line + label from the thumbstick position, for VR floor
+  // navigation (v2.19, stick-click / button[3]) — no circle marker of its
+  // own (the thumbstick's undecorated fill circle, drawn separately, is
+  // enough of a visual anchor) and no internal button number in the label,
+  // matching the existing labeled buttons' text style. Greyed out via
+  // `active` on single/zero-floor projects, same convention as the Trigger
+  // loop's Ring-off state.
+  function _drawVrHudStickLabel(ctx, x, y, labelX, labelY, label, active, color) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(labelX, labelY);
+    ctx.strokeStyle = active ? 'rgba(210, 225, 255, 0.55)' : 'rgba(150, 150, 150, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.font = '19px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = active ? '#eaf1ff' : 'rgba(190, 190, 190, 0.6)';
+    ctx.fillText(label, labelX, labelY);
+  }
+
   // Trigger is represented as a small keyring-style loop at the top of the
   // ring (not a face button), with a leader line straight to "シーン選択" —
   // matches the reference diagram's convention of putting the most
@@ -2934,6 +2974,11 @@ function init() {
 
   function _drawVrHudControllerGuide(ctx) {
     const ringEnabled = vrRingEnabled;
+    // v2.19: stick-click floor navigation is only meaningful with 2+ valid
+    // floors — on a single/zero-floor project the labels below stay drawn
+    // (layout is stable) but greyed out, same convention as the Trigger
+    // loop's Ring-off state.
+    const floorNavActive = _vrValidFloorplans().length >= 2;
 
     function controller(cx, hand, color) {
       // `inward` points toward the canvas center — used to mirror the
@@ -2986,12 +3031,14 @@ function init() {
       const topLeft = at(-1, -1), topRight = at(1, -1), botLeft = at(-1, 1), botRight = at(1, 1);
       if (hand === 'left') {
         drawStick(topLeft);
+        _drawVrHudStickLabel(ctx, topLeft.x, topLeft.y, cx - 150, 300, '下の階', floorNavActive, color);
         _drawVrHudButtonDot(ctx, topRight.x, topRight.y, 'Y', cx + 150, topRight.y - 11, ['デバッグ', 'ON・OFF'], true, color);
         _drawVrHudButtonDot(ctx, botLeft.x, botLeft.y, null, cx - 150, botLeft.y + 32, ['リンク先', 'ON・OFF'], true, color, 'menu');
         _drawVrHudButtonDot(ctx, botRight.x, botRight.y, 'X', cx + 150, botRight.y + 32, '前シーン', true, color);
       } else {
         _drawVrHudButtonDot(ctx, topLeft.x, topLeft.y, 'B', cx - 150, topLeft.y - 11, ['操作方法', 'ON・OFF'], true, color);
         drawStick(topRight);
+        _drawVrHudStickLabel(ctx, topRight.x, topRight.y, cx + 150, 300, '上の階', floorNavActive, color);
         _drawVrHudButtonDot(ctx, botLeft.x, botLeft.y, 'A', cx - 150, botLeft.y + 32, '次シーン', true, color);
         _drawVrHudButtonDot(ctx, botRight.x, botRight.y, null, cx + 150, botRight.y + 32, ['メニュー', '※長押しで', '視界リセット'], true, color, 'meta');
       }
@@ -3030,9 +3077,20 @@ function init() {
     if (name.length > 24) name = name.slice(0, 23) + '…';
     ctx.fillText(name, W / 2, 200);
 
+    // v2.19: current floor indicator — only drawn when the project actually
+    // has 2+ floors with valid scenes (_vrFloorHudInfo returns null on
+    // single/zero-floor projects, so this stays silent there by design).
+    const floorInfo = _vrFloorHudInfo();
+    if (floorInfo) {
+      ctx.font = 'bold 20px system-ui, sans-serif';
+      ctx.fillStyle = '#9fd8c8';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${floorInfo.name}（${floorInfo.index} / ${floorInfo.total}）`, W / 2, 228);
+    }
+
     ctx.strokeStyle = 'rgba(120, 170, 255, 0.35)';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(80, 230); ctx.lineTo(W - 80, 230); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(80, 238); ctx.lineTo(W - 80, 238); ctx.stroke();
 
     // v2.18: visual Controller guide replaces the old plain-text button
     // legend (still drawn in the "always visible" band, independent of the
@@ -3043,24 +3101,30 @@ function init() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(80, 468); ctx.lineTo(W - 80, 468); ctx.stroke();
 
-    ctx.font = '24px monospace';
+    ctx.font = '18px monospace';
     ctx.fillStyle = '#7a8bab';
     ctx.textAlign = 'center';
-    let y = 480;
+    let y = 476;
     if (vrDebugDetailed) {
-      // Detailed debug panel (Left Y toggles this on). Line spacing tightened
-      // to 23px so all 10 lines fit below the controller guide within the
-      // fixed 700px-tall canvas.
-      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 23;
-      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 23;
-      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 23;
-      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 23;
-      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 23;
-      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 23;
-      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 23;
-      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 23;
-      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 23;
-      ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y);
+      // Detailed debug panel (Left Y toggles this on). Line spacing/font
+      // tightened (24px/23px -> 18px/18px in v2.19) to fit 3 new floor-nav
+      // lines below the original 10 within the fixed 700px-tall canvas.
+      ctx.fillText(`inputSources: ${vrDebug.inputSourceCount}`, W / 2, y); y += 18;
+      ctx.fillText(`left: ${_vrHandDetail('left')}`, W / 2, y); y += 18;
+      ctx.fillText(`right: ${_vrHandDetail('right')}`, W / 2, y); y += 18;
+      ctx.fillText(`last action: ${vrDebug.lastAction}`, W / 2, y); y += 18;
+      ctx.fillText(`current scene: ${currentIdx}`, W / 2, y); y += 18;
+      ctx.fillText(`nav order length: ${_getNavOrder().length}`, W / 2, y); y += 18;
+      ctx.fillText(`ring items: ${vrRingItems.length}`, W / 2, y); y += 18;
+      ctx.fillText(`ring enabled: ${vrRingEnabled}`, W / 2, y); y += 18;
+      ctx.fillText(`hovered L:${vrRingDebug.hoveredLeft} R:${vrRingDebug.hoveredRight}`, W / 2, y); y += 18;
+      ctx.fillText(`selected: ${vrRingDebug.selectedName}`, W / 2, y); y += 18;
+      // v2.19: VR Floor Navigation debug fields.
+      const fi = _vrFloorHudInfo();
+      const fiText = fi ? `${fi.name} [${fi.index}/${fi.total}] scenes:${fi.sceneCount}` : 'n/a (single floor or unresolved)';
+      ctx.fillText(`floor: ${fiText}`, W / 2, y); y += 18;
+      ctx.fillText(`floor stick L p:${vrFloorStick.left.pressed ? 1 : 0} a:${vrFloorStick.left.armed ? 1 : 0}  R p:${vrFloorStick.right.pressed ? 1 : 0} a:${vrFloorStick.right.armed ? 1 : 0}`, W / 2, y); y += 18;
+      ctx.fillText(`floor last: ${vrFloorDebug.lastAction} | state:${vrRingFadeState} | err:${vrFloorDebug.lastError}`, W / 2, y);
     } else {
       // Simple panel: just the controller guide already drawn above, plus
       // a one-line input-sources sanity check.
@@ -3417,6 +3481,140 @@ function init() {
     }
   }
 
+  // ------------------------------------------------------------
+  // VR Floor Navigation (v2.19)
+  // ------------------------------------------------------------
+  // Floors are existing FloorMap floor plans (projectState.floorplans); a
+  // floor's scene set/order mirrors exactly what _getNavOrder() already
+  // uses for the active floorplan (markers on that floorplan, sorted by
+  // marker.order). nextScene()/prevScene() (Right A/Left X) and Scene Ring
+  // (_populateVrRingItems) are BOTH already routed through _getNavOrder()
+  // and the shared activeFloorplanId, and _doSwitchToScene() already
+  // auto-syncs activeFloorplanId to the current scene's floor on every
+  // switchToScene() call (marker lookup, falling back to scene.floorplanId)
+  // — in VR and out. So once a floor move lands on a scene belonging to the
+  // target floor, A/X and Scene Ring are automatically re-scoped to that
+  // floor with no changes to either. The helpers below duplicate
+  // _getNavOrder()'s marker-based lookup read-only, because _getNavOrder()
+  // can only report on the CURRENTLY active floorplan and floor navigation
+  // needs to inspect floors that are not currently active (e.g. to find the
+  // next non-empty floor, or its first scene).
+
+  function _vrFloorSceneIndices(floorplanId) {
+    const fpMarkers = projectState.markers
+      .filter(m => m.floorplanId === floorplanId)
+      .sort((a, b) => (a.order || 999) - (b.order || 999));
+    return fpMarkers.map(m => scenes.findIndex(s => s.id === m.sceneId)).filter(i => i >= 0);
+  }
+
+  // Floors with zero valid scenes are excluded from floor navigation
+  // entirely, in the existing projectState.floorplans array order (upload
+  // order — the only order that exists; no floor-number field, no reorder
+  // UI, so there is nothing to string-sort).
+  function _vrValidFloorplans() {
+    return projectState.floorplans.filter(fp => _vrFloorSceneIndices(fp.id).length > 0);
+  }
+
+  // Mirrors the marker-then-scene.floorplanId fallback _doSwitchToScene()
+  // already uses to keep activeFloorplanId in sync, for the case where
+  // activeFloorplanId is null, stale, or points at a now-invalid floor.
+  function _vrResolveCurrentFloorId(validFloors) {
+    if (activeFloorplanId && validFloors.some(fp => fp.id === activeFloorplanId)) return activeFloorplanId;
+    const s = (currentIdx >= 0 && scenes[currentIdx]) ? scenes[currentIdx] : null;
+    if (!s) return null;
+    const markerForScene = projectState.markers.find(m => m.sceneId === s.id);
+    const fallbackId = markerForScene?.floorplanId || s.floorplanId || null;
+    return (fallbackId && validFloors.some(fp => fp.id === fallbackId)) ? fallbackId : null;
+  }
+
+  // Priority: the scene last viewed on that floor this VR session, else the
+  // floor's nav-order first scene. Falls back past a stale remembered index
+  // (e.g. a marker was moved to a different floor mid-session) instead of
+  // trusting it blindly.
+  function _vrTargetSceneForFloor(floorplanId) {
+    const last = vrFloorLastScene.get(floorplanId);
+    if (last != null && last >= 0 && last < scenes.length && isSceneOnFloorplan(scenes[last], floorplanId)) {
+      return last;
+    }
+    const indices = _vrFloorSceneIndices(floorplanId);
+    return indices.length ? indices[0] : null;
+  }
+
+  // Small read-only summary for the HUD (current-floor line + Debug detail).
+  // Returns null when floor navigation has nothing to show (0 or 1 valid
+  // floors) — HUD callers use this to stay silent on single-floor projects.
+  function _vrFloorHudInfo() {
+    const floors = _vrValidFloorplans();
+    if (floors.length < 2) return null;
+    const curId = _vrResolveCurrentFloorId(floors);
+    const idx = curId ? floors.findIndex(fp => fp.id === curId) : -1;
+    if (idx < 0) return null;
+    const fp = floors[idx];
+    return {
+      id: fp.id,
+      name: fp.name || `Floor ${idx + 1}`,
+      index: idx + 1,
+      total: floors.length,
+      sceneCount: _vrFloorSceneIndices(fp.id).length
+    };
+  }
+
+  function _vrResetFloorNavState() {
+    vrFloorStick.left.pressed = false;
+    vrFloorStick.left.armed = false;
+    vrFloorStick.right.pressed = false;
+    vrFloorStick.right.armed = false;
+    vrFloorLastScene = new Map();
+    vrFloorDebug.lastAction = '-';
+    vrFloorDebug.lastError = '-';
+  }
+
+  // direction: -1 (left stick-click → one floor down) | +1 (right
+  // stick-click → one floor up). No cycling: past the top/bottom floor is a
+  // no-op. Reuses the exact same Fade Out -> switchToScene -> Fade In state
+  // machine Scene Ring selection uses (vrRingFadeState/vrRingPendingSceneIdx
+  // /_updateVrRingFade), so fade behavior, the failure-falls-through-to-'in'
+  // guarantee, and the post-fade _rebuildVrRing() call (which re-scopes the
+  // ring to the new activeFloorplanId) are unmodified and shared between
+  // the two features — nothing here duplicates or re-implements that state
+  // machine, it only feeds it a target scene index.
+  function _vrGoFloor(direction) {
+    if (!vrRingGroup) return; // no ring/fade infra built (<=1 scene) — nothing to navigate
+    try {
+      if (vrRingFadeState !== 'idle') { vrFloorDebug.lastError = 'busy: fade in progress'; return; }
+      const floors = _vrValidFloorplans();
+      if (floors.length < 2) { vrFloorDebug.lastAction = 'no-op (single floor)'; return; }
+      const curId = _vrResolveCurrentFloorId(floors);
+      if (!curId) { vrFloorDebug.lastError = 'current floor unresolved'; return; }
+      const curIdx = floors.findIndex(fp => fp.id === curId);
+      const targetIdx = curIdx + direction;
+      if (targetIdx < 0 || targetIdx >= floors.length) {
+        vrFloorDebug.lastAction = (direction < 0 ? 'down' : 'up') + ' blocked (edge floor)';
+        return;
+      }
+      const targetFloor = floors[targetIdx];
+      const targetSceneIdx = _vrTargetSceneForFloor(targetFloor.id);
+      if (targetSceneIdx == null) {
+        vrFloorDebug.lastError = 'no target scene on floor ' + (targetFloor.name || targetFloor.id);
+        return;
+      }
+      vrFloorLastScene.set(curId, currentIdx);
+      vrFloorDebug.lastAction = (direction < 0 ? 'down -> ' : 'up -> ') + (targetFloor.name || targetFloor.id);
+      vrFloorDebug.lastError = '-';
+      console.log('[VR Floor]', vrFloorDebug.lastAction);
+      // Safely reset hover/selected/Trigger-arm for the floor change, same
+      // as the Ring visibility toggle does when re-enabling.
+      vrRingDebug.selectedName = '-';
+      _resetVrRingTriggerState();
+      vrRingPendingSceneIdx = targetSceneIdx;
+      vrRingFadeState = 'out';
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('[VR Floor]', 'floor navigation failed:', err);
+      vrFloorDebug.lastError = msg;
+    }
+  }
+
   // Per-frame ring raycast + per-hand hover + armed-Trigger-select, called
   // once from vrFrame() after renderer.render() (so controller matrixWorld
   // reflects this frame's freshly-updated pose). The whole body is guarded:
@@ -3497,6 +3695,11 @@ function init() {
       // in _pollVrInputSources.
       const session = renderer && renderer.xr && renderer.xr.getSession ? renderer.xr.getSession() : null;
       const sources = session && session.inputSources ? Array.from(session.inputSources) : [];
+      // Floor stick-click (button[3]) edges this frame, collected per hand
+      // so a same-frame double-press (both sticks clicked together) can be
+      // detected and ignored below, instead of acting on whichever hand's
+      // XRInputSource happens to iterate first.
+      const floorStickEdge = { left: false, right: false };
       sources.forEach((source) => {
         const handedness = source.handedness;
         if (handedness !== 'left' && handedness !== 'right') return;
@@ -3508,6 +3711,27 @@ function init() {
           const wasTogglePressed = !!vrRingTogglePrevPressed.get(gamepad);
           if (togglePressed && !wasTogglePressed) _toggleVrRingEnabled();
           vrRingTogglePrevPressed.set(gamepad, togglePressed);
+        }
+
+        // Stick-click (button[3]) — VR floor navigation (v2.19). Confirmed
+        // unused elsewhere in this file. Independent per-hand armed/pressed
+        // state (vrFloorStick), same edge-detection shape as vrRingTrigger
+        // below, but a separate button/state entirely — never touches
+        // Trigger, Menu, or the Right A/Left X/Right B/Left Y polling in
+        // _pollVrInputSources. Placed before the `if (!gamepad.buttons[0])
+        // return;` below so it still runs even on a gamepad that happens to
+        // lack a trigger entry.
+        if (gamepad.buttons[3]) {
+          const fst = vrFloorStick[handedness];
+          const stickPressed = !!gamepad.buttons[3].pressed;
+          if (!stickPressed) {
+            // Observed released — from here on a fresh press may move a floor.
+            fst.armed = true;
+          } else if (fst.armed && !fst.pressed) {
+            floorStickEdge[handedness] = true;
+            fst.armed = false;
+          }
+          fst.pressed = stickPressed;
         }
 
         if (!gamepad.buttons[0]) return;
@@ -3522,6 +3746,18 @@ function init() {
         }
         st.pressed = pressed;
       });
+
+      // Both stick-clicks edged in the same frame: act on neither (avoids
+      // an ambiguous double floor move). Left alone → one floor down;
+      // right alone → one floor up. _vrGoFloor no-ops safely on its own
+      // (busy/edge-floor/single-floor), so no extra guard is needed here.
+      if (floorStickEdge.left && floorStickEdge.right) {
+        vrFloorDebug.lastAction = 'ignored (both stick-clicks same frame)';
+      } else if (floorStickEdge.left) {
+        _vrGoFloor(-1);
+      } else if (floorStickEdge.right) {
+        _vrGoFloor(1);
+      }
     } catch (err) {
       const msg = (err && err.message) ? err.message : String(err);
       console.error('[VR Ring]', 'update failed — disposing ring:', err);
@@ -3750,6 +3986,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     _disposeVrSceneRing();
     vrHudVisible = true;
     _vrResetInputState();
+    _vrResetFloorNavState();
     autoRotate = autoRotateWasOnBeforeVr;
     if (compareState.mode === 'single' && scenes.length) fitSingleCanvas();
     // clearAllAndShowUpload() during VR can't stop the loop itself (stopRender
@@ -3774,6 +4011,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       startRender(); // no-op when the loop is already running (normal case)
       vrHudVisible = true;
       _vrResetInputState();
+      _vrResetFloorNavState();
       _createVrHud();
       _createVrSceneRing();
       vrRenderDebug.threeSceneUuid = threeScene.uuid;
@@ -3819,6 +4057,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       _disposeVrHud();
       _disposeVrSceneRing();
       _vrResetInputState();
+      _vrResetFloorNavState();
       // v2.16: the loop was never swapped, so there is nothing to restart;
       // renderer.xr.enabled also stays true for the renderer's lifetime.
       vrRenderDebug.animationLoopActive = animLoopActive;
@@ -4892,7 +5131,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.18.0',
+      appVersion:  '2.19.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
