@@ -117,10 +117,11 @@
         <tr><td>左（Left）</td><td>Y（<code>button[5]</code>）</td><td>Debug Panelの詳細/簡易切替</td></tr>
         <tr><td>左（Left）</td><td>スティック押し込み（<code>button[3]</code>）</td><td>1つ下の階へ（v2.19）</td></tr>
         <tr><td>右（Right）</td><td>スティック押し込み（<code>button[3]</code>）</td><td>1つ上の階へ（v2.19）</td></tr>
+        <tr><td>左（Left）</td><td>Menu（<code>button[12]</code>）</td><td>ミニマップのcompact/expanded切替（v2.20、旧：Scene Ringリング表示ON/OFF v2.17.1〜v2.19）</td></tr>
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。<strong>v2.20で追加：</strong> VRミニマップナビゲーション（後述）のマーカージャンプは、既存のトリガー（<code>button[0]</code>）を使用します。ミニマップはcompact（通常）／expanded（拡大操作）の2段階表示で、同じトリガーがcompactパネルへのTriggerで拡大、expanded内のマーカーへのTriggerでシーン移動、それ以外の領域へのTriggerで縮小、という3通りの意味を状況に応じて持ちます。実機フィードバックを受けてScene Ringは<code>VR_SCENE_RING_ENABLED = false</code>で一時停止し、VR内の主要ナビゲーションをミニマップへ一本化しました。<strong>左コントローラーのMenu（<code>button[12]</code>）は、Scene Ringリング表示ON/OFFからミニマップのcompact/expanded切替へ用途を変更</strong>しています（同じ物理ボタンをそのまま再利用、新しいボタン割り当てなし）。expanded表示中は左右Controllerのレーザーポインターを表示します（compact表示中は非表示）。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -135,7 +136,7 @@
       <li>「ArchView360 VR」「Scene N / 総数」「現在シーン名」</li>
       <li><strong>左右Controllerの視覚ガイド（v2.18、後述）：</strong> Debug簡易/詳細のどちらでも常に表示されます</li>
       <li><strong>簡易表示：</strong> <code>inputSources</code>数のみ</li>
-      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、リング項目数、リング表示ON/OFF状態、左右それぞれのホバー中シーン名、直近に選択したシーン名（v2.17 / v2.17.1）</li>
+      <li><strong>詳細表示（Left Yで切替）：</strong> <code>inputSources</code>数、左右コントローラーの状態（buttons数・押下数）、最後に検出した入力、現在シーン、nav order長、リング項目数（現状は常に0）、リング機能フラグ（<code>ring feature enabled</code>）とRing入力が実際に有効か（<code>ring input active</code>）、左右それぞれのホバー中シーン名、直近に選択したシーン名（v2.17 / v2.17.1 / v2.20）。ミニマップ関連（mode・Menuトグルsource・Left Menu armed状態・laser可視状態/hand/hit座標・hover中マーカー/シーン名・最後のアクション/close理由など、v2.20）も同じ詳細表示に含まれます。</li>
     </ul>
     <ul>
       <li>HUDは<code>camera</code>の子として、前方約2m・視線よりやや下の固定ローカルオフセットに配置されます。</li>
@@ -155,9 +156,12 @@
       <li>✅ VRセッションを維持したままの2シーン切替成功（セッション再接続なし）</li>
     </ul>
 
-    <h2>📍 VR Scene Ring Navigation（v2.17 / v2.17.1）</h2>
+    <h2>📍 VR Scene Ring Navigation（v2.17 / v2.17.1 / 一時停止 v2.20）</h2>
     <div class="m-callout">
-      <strong>目的：</strong> v2.16.1で完成したVR Runtimeをベースに、<strong>既存のナビゲーション対象シーンを閲覧者の周囲へリング状に等間隔表示</strong>し、レーザーポインター＋同じ手のTriggerで任意シーンへ移動できるようにする追加機能です。VR Runtimeの初期化・終了処理、camera子付けHUD、Controllerのbutton pollingロジック（Right A/Left X/Right B/Left Y）、render loopには変更を加えていません。
+      <strong>⏸️ v2.20時点で一時停止中：</strong> Quest 3実機検証で「リング上の等間隔な合成配置と、360°画像内の実際の移動方向が一致せず分かりにくい」というフィードバックを受け、<code>VR_SCENE_RING_ENABLED = false</code>フラグで一時的に無効化しています。無効化中はリング項目の生成・左右レーザー・hover・Trigger選択・ray hit判定のすべてが停止し、VR内の主要ナビゲーションは後述の「VRミニマップナビゲーション」が担います。<strong>削除ではなく無効化</strong>です — 以下に説明する関数・データ・ロジックはすべてそのまま温存されており、<code>VR_SCENE_RING_ENABLED</code>を<code>true</code>に戻せば再有効化できます（Left Menu（<code>button[12]</code>）の割り当てをリング表示切替へ戻す作業は別途必要です）。将来、360°画像内の実位置とリンク先の方向を対応付けたナビゲーション（本来のリング、または空間リンク）を再導入する予定です。
+    </div>
+    <div class="m-callout">
+      <strong>目的（無効化前の設計）：</strong> v2.16.1で完成したVR Runtimeをベースに、<strong>既存のナビゲーション対象シーンを閲覧者の周囲へリング状に等間隔表示</strong>し、レーザーポインター＋同じ手のTriggerで任意シーンへ移動できるようにする追加機能でした。VR Runtimeの初期化・終了処理、camera子付けHUD、Controllerのbutton pollingロジック（Right A/Left X/Right B/Left Y）、render loopには変更を加えていません。
     </div>
     <div class="m-callout">
       <strong>この機能が「していないこと」：</strong> プロジェクトデータにはシーンごとの空間座標が存在しないため、リング上の表示位置は等間隔の合成配置です。FloorMap上のピン位置をVR空間へ再現・投影する機能ではありません。
@@ -170,7 +174,7 @@
       <li><strong>Trigger arm方式：</strong> VR開始直後は選択が無効で、各Triggerを<strong>一度離したことを確認してから</strong>選択可能（armed）になります。VRモード開始ボタンをTriggerで押したまま入っても即時選択されることはありません。選択後（Fade後）も、Triggerを一度離すまで次の選択はできません。</li>
       <li><strong>Scene切替演出：</strong> Trigger選択によるシーン切替時のみ、Fade Out（VR空間内の黒フェード、DOM側のフェードはヘッドセット内で見えないため使用しません）→ Texture Load → Fade In を行います。<strong>Fade中はリングとレーザーを非表示にし、hover・選択も無効化</strong>するため、演出中の重複選択は発生しません。テクスチャ読込の失敗・停止時も最大約5秒で必ずFade Inへ復帰し（その場合は元のシーンを維持）、黒画面が残留することはありません。Right A / Left Xによる従来の切替（<code>nextScene()</code> / <code>prevScene()</code>）の挙動は変更していません。</li>
       <li><strong>フェイルセーフ：</strong> リングの生成・毎フレーム処理で例外が発生した場合は、リングだけを破棄してVRセッション・HUD・A/X/B/Y操作を継続します。エラー内容は通常画面のVR Debug Log（<code>last ring error</code>行）とconsoleに表示されます。ZIP/JSON復元シーンでシーン名が空/未定義でも、<code>Scene N</code>へ正規化して生成します。</li>
-      <li><strong>表示切替（v2.17.1）：</strong> 左コントローラーのMenuボタン（<code>button[12]</code>、実測で未使用と確認済みのボタン）でリング表示のON/OFFを切り替えられます。OFF中はリング項目・左右レーザーが非表示になり、hover・Trigger選択も完全に無効化されます（Right A/Left X/Right B/Left Yには影響しません）。ONに戻した際はTriggerのarm状態を安全にリセットするため、OFF中に押しっぱなしにしていても復帰直後に誤選択されることはありません。</li>
+      <li><strong>表示切替（v2.17.1、v2.20時点で未使用）：</strong> 左コントローラーのMenuボタン（<code>button[12]</code>、実測で未使用と確認済みのボタン）でリング表示のON/OFFを切り替える<code>_toggleVrRingEnabled()</code>/<code>vrRingEnabled</code>はそのまま残していますが、v2.20でLeft Menuの割り当て自体がミニマップのcompact/expanded切替（後述）へ変更されたため、現在この経路からは呼び出されません。ロジック自体は健全で、Left Menuの割り当てを戻すだけで再度呼び出せます。ONに戻した際はTriggerのarm状態を安全にリセットするため、OFF中に押しっぱなしにしていても復帰直後に誤選択されることはありません。</li>
       <li>リングの表示状態・トグル状態・ハイライト状態はVRセッション内だけの一時状態で、プロジェクトJSON / ZIPには保存されません。VR終了時に破棄され、次回VR開始時は常にON（表示）から始まります。</li>
     </ul>
 
@@ -188,35 +192,60 @@
       <li><strong>範囲外・循環なし：</strong> 最上階で上、最下階で下を押しても移動しません。上下端を超えて反対側の階へ循環することもありません。</li>
       <li><strong>Scene切替演出：</strong> Scene Ring選択と全く同じFade Out → <code>switchToScene()</code> → Fade Inの仕組みをそのまま再利用しています。階移動後はScene Ringが新しい階の内容で自動的に再生成されます。</li>
       <li><strong>入力仕様：</strong> 左右スティックはそれぞれ独立したarmed/pressed状態を持ち、<code>pressed</code>の立ち上がりedgeで1回だけ発火します（長押しで連続移動しません）。VR開始直後にスティックが押されていても誤発火しません。左右が同一フレームで同時に押された場合はどちらも実行しません（離してから片方ずつ押し直すと移動できます）。Fade中・シーン切替中は新しい階移動を開始しません。</li>
-      <li><strong>Ring OFF中も移動可能：</strong> 階移動はScene Ring表示のON/OFF（Left Menu）とは独立しており、Ring非表示中でも階移動できます。</li>
+      <li><strong>Scene Ring無効化中も移動可能：</strong> 階移動はScene Ringの状態（現状は常に無効）とは独立して動作します。</li>
       <li><strong>単一階のプロジェクト：</strong> 階が1つ（または0）のプロジェクトでは、階移動操作は実質的に無効化されます（HUDのラベルはグレーアウト表示、現在階のヘッダー表示自体も出ません）。</li>
       <li><strong>フェイルセーフ：</strong> 階移動処理は独立したtry/catchで保護されており、失敗してもVRセッション・HUD・A/X/B/Y/Trigger/Menuの既存操作を継続します。</li>
       <li><strong>Debug詳細（Left Y）：</strong> 現在階名・階index/総有効階数・現在階のシーン数・最後の階移動アクション・左右スティックのpressed/armed状態・階切替のfade状態・最後の階移動エラーを追加表示します。</li>
     </ul>
 
-    <h2>🎮 VR Controller視覚ガイド（v2.18 / v2.19）</h2>
+    <h2>🎮 VR Controller視覚ガイド（v2.18 / v2.19 / ラベル更新 v2.20）</h2>
     <div class="m-callout">
-      <strong>目的：</strong> VR HUDのボタン操作案内を、テキストのみの一覧から左右Controllerの簡易シルエット＋ボタン位置＋短いラベル線による視覚的なガイドへ刷新しました。既存のController入力処理（<code>_pollVrInputSources()</code>）・Scene Ring選択ロジック・Ring表示切替ロジックには一切変更を加えていません。HUD CanvasTexture上の描画だけを変更した見た目の改善です。図の形状・配置はプロジェクトオーナーから提供された参考図に準拠しています。
+      <strong>目的：</strong> VR HUDのボタン操作案内を、テキストのみの一覧から左右Controllerの簡易シルエット＋ボタン位置＋短いラベル線による視覚的なガイドへ刷新しました。既存のController入力処理（<code>_pollVrInputSources()</code>）には一切変更を加えていません。HUD CanvasTexture上の描画だけを変更した見た目の改善です。図の形状・配置はプロジェクトオーナーから提供された参考図に準拠しています。v2.20でLeft Menuアイコンのラベルのみ「マップ 拡大/縮小」へ更新しました（形状・色・他ボタンは無変更）。
     </div>
     <ul>
       <li><strong>左右の区別：</strong> 左Controllerは緑系の色、右Controllerは橙系の色で区別します（色分けのみで、L/R文字表記はありません）。</li>
       <li><strong>Trigger＝リング上部の輪っか：</strong> Triggerは他のボタンと同じ丸ではなく、キーホルダーのようなリング上部の小さな輪っかとして描画し、そこから直接「シーン選択」ラベルへ引き出し線を伸ばします。ボタングリッドとは独立した「最重要操作」として最上部に配置しています。</li>
       <li><strong>2×2ボタングリッド（参考図に準拠）：</strong> リング内側に親指スティック＋3つのボタンを2×2で配置します。
         <ul>
-          <li>左：親指スティック（左上、押し込みで<strong>下の階</strong>）・<code>Y</code>（右上、デバッグ ON・OFF）・<code>≡</code>ハンバーガーアイコン（左下、リンク先 ON・OFF）・<code>X</code>（右下、前シーン）</li>
+          <li>左：親指スティック（左上、押し込みで<strong>下の階</strong>）・<code>Y</code>（右上、デバッグ ON・OFF）・<code>≡</code>ハンバーガーアイコン（左下、v2.20から「マップ 拡大/縮小」＝ミニマップのcompact/expanded切替。旧ラベル「リンク先 ON・OFF」＝Scene Ringリング表示切替、v2.17.1〜v2.19）・<code>X</code>（右下、前シーン）</li>
           <li>右：<code>B</code>（左上、操作方法 ON・OFF）・親指スティック（右上、押し込みで<strong>上の階</strong>）・<code>A</code>（左下、次シーン）・<code>∞</code>インフィニティアイコン（右下、メニュー／長押しで視界リセット）</li>
         </ul>
         Menu（<code>≡</code>）・Meta（<code>∞</code>）は機能を直感的に示すアイコンで描画し、<code>M</code>のような英字記号には頼っていません。
       </li>
-      <li><strong>階移動（v2.19、スティック押し込み）：</strong> 親指スティックの塗り丸自体は他のボタンと同じ位置に描かれますが、v2.19からそこにも引き出し線とラベル（<code>下の階</code> / <code>上の階</code>）が付きます。内部の<code>button[3]</code>という番号はHUDには表示しません。プロジェクトに階（FloorMap平面図）が1つしかない場合は、このラベルだけグレーアウト表示になり（レイアウトは変えず、無効であることだけを示す）、Ring OFF状態とは独立しています（Ring非表示中も階移動は可能です）。</li>
+      <li><strong>階移動（v2.19、スティック押し込み）：</strong> 親指スティックの塗り丸自体は他のボタンと同じ位置に描かれますが、v2.19からそこにも引き出し線とラベル（<code>下の階</code> / <code>上の階</code>）が付きます。内部の<code>button[3]</code>という番号はHUDには表示しません。プロジェクトに階（FloorMap平面図）が1つしかない場合は、このラベルだけグレーアウト表示になり（レイアウトは変えず、無効であることだけを示す）、Scene Ringの状態とは独立しています。</li>
       <li><strong>グリップの装飾：</strong> リング下に先細りの雫形シルエットを描き、内側（もう片方のControllerに近い側）に小さなフック状の突起を添えています。実機シルエットを想起させる装飾のみで、ラベル・入力処理とは無関係です。</li>
-      <li><strong>短いラベル：</strong> 各ボタン／輪っかから短い引き出し線を伸ばし、操作名を表示します（<code>前シーン</code> / <code>次シーン</code> / <code>デバッグ ON・OFF</code> / <code>操作方法 ON・OFF</code> / <code>リンク先 ON・OFF</code> / <code>シーン選択</code> / <code>メニュー</code> ＋ <code>※長押しで視界リセット</code> / <code>下の階</code> / <code>上の階</code>）。<code>button[0]</code>/<code>[3]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
-      <li><strong>Ring OFF時の表現：</strong> Scene Ring表示がOFFのとき、Trigger（シーン選択）の輪っかとラベルがグレーアウトされ、選択操作が無効であることが一目で分かります。他のボタン（Y/X/Menu/B/A/Meta/階移動スティック）はRing状態に関わらず常に通常表示です。</li>
+      <li><strong>短いラベル：</strong> 各ボタン／輪っかから短い引き出し線を伸ばし、操作名を表示します（<code>前シーン</code> / <code>次シーン</code> / <code>デバッグ ON・OFF</code> / <code>操作方法 ON・OFF</code> / <code>マップ 拡大/縮小</code>（v2.20、旧「リンク先 ON・OFF」） / <code>シーン選択</code> / <code>メニュー</code> ＋ <code>※長押しで視界リセット</code> / <code>下の階</code> / <code>上の階</code>）。<code>button[0]</code>/<code>[3]</code>/<code>[4]</code>/<code>[5]</code>/<code>[12]</code>などの内部インデックスは通常HUDには大きく表示しません（本ページの「Quest Touch Plusボタン割当（実測）」表を参照してください）。</li>
+      <li><strong>Trigger（シーン選択）の表現：</strong> Trigger輪っこの活性表示は内部的に<code>vrRingEnabled</code>（Scene Ring表示ON/OFFの旧トグル状態）を読んで判定していますが、v2.20でこのトグル自体がLeft Menuから切り離されたため、実運用では常にON（通常表示）のまま変化しません。他のボタン（Y/X/Menu/B/A/Meta/階移動スティック）も常に通常表示です。</li>
       <li><strong>現在階の表示（v2.19）：</strong> 通常HUD上部（シーン名の下）に、階が2つ以上ある場合のみ「2階（2 / 3）」のように現在階を表示します。単一階のプロジェクトでは表示されません。</li>
-      <li><strong>右Controller Metaボタンの案内：</strong> 右Controllerの<code>∞</code>（Meta/Oculus）ボタンは、OS側のハードウェアボタンです。WebXRの<code>gamepad.buttons</code>には公開されないため、ArchView360のコードが処理する入力ではありません。実際の挙動（短押しでシステムメニューを表示、長押しで視界をリセット）に合わせ、HUD上には常時「<code>メニュー</code>」「<code>※長押しで視界リセット</code>」という案内のみを表示し、リンク先 ON・OFF状態やTrigger操作とは独立しています（グレーアウトの対象にもなりません）。</li>
+      <li><strong>右Controller Metaボタンの案内：</strong> 右Controllerの<code>∞</code>（Meta/Oculus）ボタンは、OS側のハードウェアボタンです。WebXRの<code>gamepad.buttons</code>には公開されないため、ArchView360のコードが処理する入力ではありません。実際の挙動（短押しでシステムメニューを表示、長押しで視界をリセット）に合わせ、HUD上には常時「<code>メニュー</code>」「<code>※長押しで視界リセット</code>」という案内のみを表示し、マップ 拡大/縮小の状態やTrigger操作とは独立しています（グレーアウトの対象にもなりません）。</li>
       <li><strong>表示/非表示の連動：</strong> 操作図はHUD本体と同じCanvasTexture・同じMeshに描画されるため、Right Bで通常HUDを非表示にすると操作図も一緒に非表示になります。</li>
       <li><strong>Debugとの独立性：</strong> 操作図はDebug簡易/詳細表示の切替（Left Y）とは独立した「常時表示」領域に描画されるため、Debug表示を切り替えても操作図が消えたり壊れたりしません。</li>
       <li><strong>更新頻度：</strong> 新しい再描画トリガーは追加していません。既存の<code>_vrShowHud()</code>呼び出しと、<code>vrFrame()</code>内の既存の間引き再描画（約20フレームに1回）にそのまま乗る形で更新されます。</li>
+    </ul>
+
+    <h2>🗺️ VRミニマップナビゲーション（v2.20）</h2>
+    <div class="m-callout">
+      <strong>目的：</strong> VRを終了せずに、現在階のFloorMapと現在位置を確認できる小さなミニマップパネルを追加する機能です。「マーカー」＝既存の<code>projectState.markers</code>で、座標系も含めて通常画面のFloorMapパネルと同一のものを再利用します。新しいプロジェクトデータは追加していません。実機（Quest 3）検証で「常時表示の小さいパネルではマーカーを直接狙ってのTrigger選択が難しい」「拡大中にController laserが見えず照準位置が分かりにくい」「Scene Ringの方向が実際の移動方向と一致せず分かりにくい」という3件のフィードバックを段階的に受け、<strong>compact（通常時）／expanded（選択操作時）の2段階表示</strong>に改善し、<strong>VR内の主要ナビゲーションをミニマップ主体</strong>へ整理しました。
+    </div>
+    <ul>
+      <li><strong>①通常状態＝右下の小さいマップ：</strong> VR中は通常、画面右下に小さいミニマップ（compact）が常時表示されます。サイズ・位置・カメラ追従はv2.20から変更していません。現在階に属するマーカーだけを表示し（全階同時表示はしません）、現在シーンに対応するマーカーは白い二重円で強調表示されます。</li>
+      <li><strong>②左Menuでミニマップを拡大／縮小（主要操作）：</strong> <strong>左コントローラーのMenuボタン（<code>button[12]</code>）</strong>を押すと、compactとexpandedが切り替わります（v2.17.1で追加したScene Ringリング表示切替からの用途変更、同じ物理ボタンをそのまま再利用し新しいボタン割り当ては追加していません）。長押ししても連続トグルはせず、既存のarmed/pressed edge-detectionパターンをそのまま再利用しています。</li>
+      <li><strong>③compactパネルへのTriggerでも拡大可能（補助操作）：</strong> compact表示中は個別マーカーへの当たり判定を行わず、<strong>パネル全体を1つのhover/選択対象</strong>として扱います。レイがパネルに当たるとhoverフィードバック（枠のハイライトと「Triggerで拡大」の案内）を表示し、その状態でTriggerを押すとexpanded状態へ切り替わります（左Menuが主要操作、こちらは補助操作という位置付けです）。compactパネルへのTriggerでシーンへ直接ジャンプすることはありません。</li>
+      <li><strong>④拡大中はController laserを表示：</strong> expanded表示中は左右Controllerのレーザーポインター（Scene Ring用と同じ<code>THREE.Line</code>描画方式）を表示します。始点はController、終点はray方向で、ミニマップ面に交点がある場合は小さな点（常にカメラ方向を向く<code>THREE.Sprite</code>）で交点位置を示し、マーカーhover中は少し強調表示されます。マーカーがない背景上でも交点位置が分かります。レーザーの終端は交点までの距離に短縮表示されます（既存の<code>BufferGeometry</code>の位置属性を書き換えるだけで、毎フレームのgeometry/material再生成は行いません）。compact表示中はレーザー自体を表示しません。</li>
+      <li><strong>⑤マーカーをTriggerしてシーンへ移動：</strong> expanded状態でhover中のマーカーをTriggerで選択すると、既存のFade Out → <code>switchToScene()</code> → Fade Inでそのシーンへ移動します。現在シーンのマーカーを選択した場合は不要な再遷移を行いません（no-op）。</li>
+      <li><strong>⑥移動後は自動的にcompactへ戻る：</strong> 移動完了（Fade In完了）と同時に自動的にcompact表示へ戻ります。expanded表示中に、マーカー以外の領域（パネル背景やパネル外）でTriggerを押した場合や、左Menuをもう一度押した場合も、シーンジャンプせずにcompact表示へ戻ります。階移動が発生した場合も同様に自動的にcompactへ戻ります。</li>
+      <li><strong>⑦Scene Ringは現段階では一時停止：</strong> <code>VR_SCENE_RING_ENABLED = false</code>によりScene Ring自体が常時無効化されているため、expanded表示中はもちろん、compact表示中も含めてScene Ringのhover・選択・ray hit判定は一切発生しません（Ring自体も常に非表示です）。Scene RingのON/OFF状態（<code>vrRingEnabled</code>）はこの一連の変更によって値が変わることはありません（フラグ自体は将来の再有効化に備えてそのまま維持）。将来、360°画像内の実位置とリンク先の方向を対応付けた段階で、Scene Ring（または空間リンク）の再導入を予定しています。詳しくは前述の「VR Scene Ring Navigation」を参照してください。</li>
+      <li><strong>座標系：</strong> マーカーの<code>x</code>/<code>y</code>は、通常画面のFloorMapパネル（<code>renderFloormapCanvas()</code>）が使うのと全く同じ正規化座標（letterbox表示された画像領域内の[0,1]相対値）です。ミニマップは自身のCanvasサイズに対して同じletterbox-fit計算を独自に行い、この座標をそのまま再利用します（compact/expandedで共通）。<code>rotationOffset</code>はマーカーの向き表示にのみ影響する既存仕様（位置には影響しません）のため、位置表示のみの本バージョンでは使用していません。</li>
+      <li><strong>拡大・縮小の実装方式：</strong> compact/expandedで別々のジオメトリ・Canvasテクスチャを作成せず、<strong>同一のThree.jsメッシュを<code>mesh.scale</code>で拡大縮小し、position（compactは右下・expandedは視界中央やや下）だけ切り替える</strong>ことで実現しています。<code>Object3D.worldToLocal()</code>はscaleも正しく打ち消すため、ray-plane交点をCanvas pixel座標へ変換する計算式はcompact/expandedで共通のまま変更していません。モード切替のたびに再生成されるThree.jsオブジェクトはありません。</li>
+      <li><strong>FloorMap画像がない場合：</strong> 現在階に画像がない、または読み込み前の場合は、例外を出さず「FloorMapなし」というプレースホルダを表示します（compact/expandedどちらでも同様）。</li>
+      <li><strong>ray hit方式：</strong> 既存Ring用コントローラー（<code>vrController1/2</code>、<code>ringHandedness</code>）とレイをそのまま再利用します。ミニマップのマーカーはSpriteではなくMesh上のCanvas座標判定のため、Sprite特有の<code>raycaster.camera</code>設定は不要です（Ring選択のSprite raycastクラッシュの再発条件とは無関係）。expanded中のマーカーhit-test半径は、描画上のマーカー半径よりもやや大きく設定しており（Quest 3のController照準の誤差を許容するため）、複数マーカーが近接する場合は最も近いものを優先します。</li>
+      <li><strong>誤操作防止（Trigger/Menu armed/pressed共有）：</strong> compact→expandedへの遷移とexpanded内でのマーカー選択・クローズは、Scene Ring選択と<strong>同一の</strong>armed/pressed状態（<code>vrRingTrigger</code>）を1箇所の判定ロジックで共有しており、新しい別状態は追加していません。左Menuのトグルも専用の同形の状態（<code>vrMinimapMenuToggle</code>）で管理しています。そのため1回の物理的なTrigger押下で2つのアクション（遷移＋選択など）が同時に発生することはありません。compact→expanded遷移直後は、そのままTriggerを押し続けてもマーカーは選択されず、<strong>一度Triggerを離して再度押し直すまで</strong>選択・クローズ操作を受け付けません。<strong>左Triggerと左Menuが同一フレームで同時に押された場合</strong>は、Menuのトグルだけが成立し、その回のTrigger押下はそのフレームでは選択・開閉に使われません（Triggerを一度離して押し直すと通常通り動作します）。</li>
+      <li><strong>Scene切替演出：</strong> 既存のFade Out → <code>switchToScene()</code> → Fade Inの仕組みをそのまま再利用しています。専用の遷移処理は追加していません。</li>
+      <li><strong>階移動との連携：</strong> 階移動（v2.19）でFade完了時にFloorMap画像・マーカー一覧を新しい階の内容へ自動的に再構築し、expanded表示中であればcompactへ戻します。A/Xなど同じ階の中でのシーン切替では、現在位置マーカーの再描画のみを行い、FloorMap画像・マーカー一覧の再構築は行いません。</li>
+      <li><strong>Scene Ring無効化中も利用可能：</strong> ミニマップの表示・hover・Triggerジャンプ・左Menuでの開閉は、Scene Ringの状態（現状は常に無効）とは独立して動作します。</li>
+      <li><strong>表示状態の保存：</strong> compact/expandedの状態はVRセッション内だけの一時的なもので、JSON/ZIPには保存されません。VRセッション終了時は必ずcompactへリセットされます。</li>
+      <li><strong>フェイルセーフ：</strong> ミニマップの再構築・描画・raycastはそれぞれ独立したtry/catchで保護されており、失敗してもVRセッション・HUD・A/X/B/Y/Trigger/Menu/階移動の既存操作を継続します。マーカーのscene参照が不正な場合は、そのマーカーだけをスキップします。</li>
+      <li><strong>リソース管理：</strong> VR開始時に1回だけThree.jsのメッシュ・Canvas・Texture・Controller laser・laser hit-dotを生成し、VR終了時・エラー時に確実にdisposeします。毎フレームの再生成は行わず、モード切替時はメッシュのposition/scaleのみを更新します。laser hit-dotは2つの<code>THREE.Sprite</code>で1つのCanvasTextureを共有し、VR再入場のたびに重複生成しません。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
