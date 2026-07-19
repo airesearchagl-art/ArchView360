@@ -120,7 +120,7 @@
       </tbody>
     </table>
     <div class="m-callout">
-      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。<strong>v2.20で追加：</strong> VRミニマップナビゲーション（後述）のマーカージャンプは、新しいボタンを割り当てず、既存のトリガー（<code>button[0]</code>）をScene Ring選択と共有します（同一のarmed/pressed状態、ミニマップhover優先）。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
+      <strong>v2.17で追加：</strong> トリガー（<code>button[0]</code>）は、VR Scene Ring Navigation（後述）でリング項目の選択に使用します（左手トリガーは左レーザーのhover対象のみ、右手トリガーは右レーザーのhover対象のみ）。<strong>v2.17.1で追加：</strong> 左コントローラーのMenu（<code>button[12]</code>）は、同機能のリング表示ON/OFF切替に使用します。<strong>v2.19で追加：</strong> 左右スティック押し込み（<code>button[3]</code>）は、VR階移動ナビゲーション（後述）の階移動に使用します。<strong>v2.20で追加：</strong> VRミニマップナビゲーション（後述）のマーカージャンプは、新しいボタンを割り当てず、既存のトリガー（<code>button[0]</code>）をScene Ring選択と共有します（同一のarmed/pressed状態、ミニマップhover優先）。<strong>v2.20.1で追加：</strong> ミニマップがcompact（通常）／expanded（拡大操作）の2段階表示になり、同じトリガーがcompactパネルへのTriggerで拡大、expanded内のマーカーへのTriggerでシーン移動、それ以外の領域へのTriggerで縮小、という3通りの意味を状況に応じて持つようになりました（新しいボタンの割り当てはありません。expanded表示中はScene Ring自体が反応しなくなります）。グリップ（<code>button[1]</code>）・axes（ジョイスティック）は、引き続き主要操作に使用していません。axesではなくスティック押し込み（button）を階移動に採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクト・WebXR-Sandboxのどちらの実機記録にも存在しないためです（番号・符号を推測で実装しない方針）。
     </div>
     <ul>
       <li>移動順は、FloorMap上のマーカー番号（order）が設定されていればその順、なければシーン一覧順です（通常表示の ← → キーと同じ順序）。</li>
@@ -219,23 +219,28 @@
       <li><strong>更新頻度：</strong> 新しい再描画トリガーは追加していません。既存の<code>_vrShowHud()</code>呼び出しと、<code>vrFrame()</code>内の既存の間引き再描画（約20フレームに1回）にそのまま乗る形で更新されます。</li>
     </ul>
 
-    <h2>🗺️ VRミニマップナビゲーション（v2.20）</h2>
+    <h2>🗺️ VRミニマップナビゲーション（v2.20 / 2段階表示 v2.20.1）</h2>
     <div class="m-callout">
-      <strong>目的：</strong> VRを終了せずに、現在階のFloorMapと現在位置を確認できる小さなミニマップパネルを追加する機能です。「マーカー」＝既存の<code>projectState.markers</code>で、座標系も含めて通常画面のFloorMapパネルと同一のものを再利用します。新しいプロジェクトデータは追加していません。
+      <strong>目的：</strong> VRを終了せずに、現在階のFloorMapと現在位置を確認できる小さなミニマップパネルを追加する機能です。「マーカー」＝既存の<code>projectState.markers</code>で、座標系も含めて通常画面のFloorMapパネルと同一のものを再利用します。新しいプロジェクトデータは追加していません。実機（Quest 3）検証で「常時表示の小さいパネルではマーカーを直接狙ってのTrigger選択が難しい」というフィードバックを受け、v2.20.1で<strong>compact（通常時）／expanded（選択操作時）の2段階表示</strong>に改善しました。
     </div>
     <ul>
-      <li><strong>現在位置表示：</strong> 現在階に属するマーカーだけを表示します（全階を同時に表示することはありません）。現在シーンに対応するマーカーは、他マーカーより大きく、白い二重円で強調表示されます。現在シーンにマーカーが存在しない場合もVRは通常通り継続します。</li>
-      <li><strong>座標系：</strong> マーカーの<code>x</code>/<code>y</code>は、通常画面のFloorMapパネル（<code>renderFloormapCanvas()</code>）が使うのと全く同じ正規化座標（letterbox表示された画像領域内の[0,1]相対値）です。ミニマップは自身のCanvasサイズに対して同じletterbox-fit計算を独自に行い、この座標をそのまま再利用します。<code>rotationOffset</code>はマーカーの向き表示にのみ影響する既存仕様（位置には影響しません）のため、位置表示のみの本バージョンでは使用していません。</li>
-      <li><strong>FloorMap画像表示方式：</strong> HUD本体と同じ「PlaneGeometry + CanvasTexture」構成の第2の独立パネルです。個別マーカーを3Dオブジェクト化せず、Canvas上に描画し、hit-testはray-plane交点をローカル座標経由でCanvas pixel座標へ変換してキャッシュ済みマーカー座標リストと距離判定する方式のため、階が変わっても再生成されるThree.jsオブジェクトはメッシュ1個のみです。</li>
-      <li><strong>FloorMap画像がない場合：</strong> 現在階に画像がない、または読み込み前の場合は、例外を出さず「FloorMapなし」というプレースホルダを表示します。</li>
-      <li><strong>ray hit方式：</strong> 既存Ring用コントローラー（<code>vrController1/2</code>、<code>ringHandedness</code>）とレイをそのまま再利用します。ミニマップのマーカーはSpriteではなくMesh上のCanvas座標判定のため、Sprite特有の<code>raycaster.camera</code>設定は不要です（Ring選択のSprite raycastクラッシュの再発条件とは無関係）。</li>
-      <li><strong>TriggerジャンプとScene Ringとの優先順位：</strong> 同じ手でScene Ring項目とミニマップマーカーの両方がhover状態になった場合、<strong>ミニマップを優先</strong>します。Trigger自体はScene Ring選択と<strong>同一の</strong>armed/pressed状態（<code>vrRingTrigger</code>）を共有しており、新しい別状態を追加していないため、1回のTrigger操作で両方が同時に選択されることはありません。現在シーンのマーカーを選択した場合は不要な再遷移を行いません（no-op）。</li>
+      <li><strong>①通常状態＝右下の小さいマップ：</strong> VR中は通常、画面右下に小さいミニマップ（compact）が常時表示されます。サイズ・位置・カメラ追従はv2.20から変更していません。現在階に属するマーカーだけを表示し（全階同時表示はしません）、現在シーンに対応するマーカーは白い二重円で強調表示されます。</li>
+      <li><strong>②小さいマップにTriggerで拡大：</strong> compact表示中は個別マーカーへの当たり判定を行わず、<strong>パネル全体を1つのhover/選択対象</strong>として扱います。レイがパネルに当たるとhoverフィードバック（枠のハイライトと「Triggerで拡大」の案内）を表示し、その状態でTriggerを押すと視界中央よりやや下に大きく表示される<strong>expanded</strong>状態へ切り替わります。compactパネルへのTriggerでシーンへ直接ジャンプすることはありません。</li>
+      <li><strong>③拡大後にマーカーを選択：</strong> expanded状態では、compactと同じletterbox-fit計算・同じCanvas描画関数を使って、実際にマーカーを狙って選択できるサイズでFloorMapが表示されます。レイをCanvas上のマーカー座標との距離で判定してhoverし、hover中はマーカーが拡大表示されシーン名が表示されます（長い名前はピクセル幅基準で省略）。</li>
+      <li><strong>④Triggerでシーンへ移動：</strong> hover中のマーカーをTriggerで選択すると、既存のFade Out → <code>switchToScene()</code> → Fade Inでそのシーンへ移動します。現在シーンのマーカーを選択した場合は不要な再遷移を行いません（no-op）。移動完了（Fade In完了）と同時に自動的にcompact表示へ戻ります。</li>
+      <li><strong>⑤マップ外・クローズ領域でTriggerすると小さい表示に戻る：</strong> expanded表示中に、マーカー以外の領域（パネル背景やパネル外）でTriggerを押した場合はシーンジャンプせずにcompact表示へ戻ります。この操作専用の新しいControllerボタン割り当ては追加していません。階移動が発生した場合も同様に自動的にcompactへ戻ります。</li>
+      <li><strong>⑥拡大中はScene Ringが反応しない：</strong> expanded表示中はScene Ring自体を非表示にし、hover・選択判定も行いません。compact表示に戻ると同時にScene Ringの操作性も復帰します。Scene RingのON/OFF状態（Left Menu、<code>vrRingEnabled</code>）はこの一連の遷移によって変化しません。</li>
+      <li><strong>座標系：</strong> マーカーの<code>x</code>/<code>y</code>は、通常画面のFloorMapパネル（<code>renderFloormapCanvas()</code>）が使うのと全く同じ正規化座標（letterbox表示された画像領域内の[0,1]相対値）です。ミニマップは自身のCanvasサイズに対して同じletterbox-fit計算を独自に行い、この座標をそのまま再利用します（compact/expandedで共通）。<code>rotationOffset</code>はマーカーの向き表示にのみ影響する既存仕様（位置には影響しません）のため、位置表示のみの本バージョンでは使用していません。</li>
+      <li><strong>拡大・縮小の実装方式：</strong> compact/expandedで別々のジオメトリ・Canvasテクスチャを作成せず、<strong>同一のThree.jsメッシュを<code>mesh.scale</code>で拡大縮小し、position（compactは右下・expandedは視界中央やや下）だけ切り替える</strong>ことで実現しています。<code>Object3D.worldToLocal()</code>はscaleも正しく打ち消すため、ray-plane交点をCanvas pixel座標へ変換する計算式はcompact/expandedで共通のまま変更していません。モード切替のたびに再生成されるThree.jsオブジェクトはありません。</li>
+      <li><strong>FloorMap画像がない場合：</strong> 現在階に画像がない、または読み込み前の場合は、例外を出さず「FloorMapなし」というプレースホルダを表示します（compact/expandedどちらでも同様）。</li>
+      <li><strong>ray hit方式：</strong> 既存Ring用コントローラー（<code>vrController1/2</code>、<code>ringHandedness</code>）とレイをそのまま再利用します。ミニマップのマーカーはSpriteではなくMesh上のCanvas座標判定のため、Sprite特有の<code>raycaster.camera</code>設定は不要です（Ring選択のSprite raycastクラッシュの再発条件とは無関係）。expanded中のマーカーhit-test半径は、描画上のマーカー半径よりもやや大きく設定しており（Quest 3のController照準の誤差を許容するため）、複数マーカーが近接する場合は最も近いものを優先します。</li>
+      <li><strong>誤操作防止（Trigger armed/pressed共有）：</strong> compact→expandedへの遷移とexpanded内でのマーカー選択・クローズは、Scene Ring選択と<strong>同一の</strong>armed/pressed状態（<code>vrRingTrigger</code>）を1箇所の判定ロジックで共有しており、新しい別状態は追加していません。そのため1回の物理的なTrigger押下で2つのアクション（遷移＋選択など）が同時に発生することはありません。compact→expanded遷移直後は、そのままTriggerを押し続けてもマーカーは選択されず、<strong>一度Triggerを離して再度押し直すまで</strong>選択・クローズ操作を受け付けません。</li>
       <li><strong>Scene切替演出：</strong> 既存のFade Out → <code>switchToScene()</code> → Fade Inの仕組みをそのまま再利用しています。専用の遷移処理は追加していません。</li>
-      <li><strong>階移動との連携：</strong> 階移動（v2.19）でFade完了時にFloorMap画像・マーカー一覧を新しい階の内容へ自動的に再構築します。A/XやScene Ring選択など同じ階の中でのシーン切替では、現在位置マーカーの再描画のみを行い、FloorMap画像・マーカー一覧の再構築は行いません。</li>
-      <li><strong>Ring OFF中も利用可能：</strong> ミニマップの表示・hover・Triggerジャンプは、Scene Ring表示のON/OFF（Left Menu）とは独立して動作します。</li>
-      <li><strong>表示切替：</strong> 未使用Controllerボタンの新規割り当てにはリスクが伴うため、本バージョンでは表示切替ボタンを追加せず、VR中は常時表示としました。表示状態はVRセッション内だけの一時的なもので、JSON/ZIPには保存されません。</li>
+      <li><strong>階移動との連携：</strong> 階移動（v2.19）でFade完了時にFloorMap画像・マーカー一覧を新しい階の内容へ自動的に再構築し、expanded表示中であればcompactへ戻します。A/XやScene Ring選択など同じ階の中でのシーン切替では、現在位置マーカーの再描画のみを行い、FloorMap画像・マーカー一覧の再構築は行いません。</li>
+      <li><strong>Ring OFF中も利用可能：</strong> ミニマップの表示・hover・Triggerジャンプは、Scene Ring表示のON/OFF（Left Menu）とは独立して動作します（ただしexpanded中はRing自体が非表示・非反応になります）。</li>
+      <li><strong>表示状態の保存：</strong> compact/expandedの状態はVRセッション内だけの一時的なもので、JSON/ZIPには保存されません。VRセッション終了時は必ずcompactへリセットされます。</li>
       <li><strong>フェイルセーフ：</strong> ミニマップの再構築・描画・raycastはそれぞれ独立したtry/catchで保護されており、失敗してもVRセッション・HUD・A/X/B/Y/Trigger/Menu/階移動の既存操作を継続します。マーカーのscene参照が不正な場合は、そのマーカーだけをスキップします。</li>
-      <li><strong>リソース管理：</strong> VR開始時に1回だけThree.jsのメッシュ・Canvas・Textureを生成し、VR終了時・エラー時に確実にdisposeします。毎フレームの再生成は行いません。</li>
+      <li><strong>リソース管理：</strong> VR開始時に1回だけThree.jsのメッシュ・Canvas・Textureを生成し、VR終了時・エラー時に確実にdisposeします。毎フレームの再生成は行わず、モード切替時はメッシュのposition/scaleのみを更新します。</li>
     </ul>
 
     <h3>通常画面のVR Debug Log</h3>
