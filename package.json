@@ -3,6 +3,9 @@
   "private": true,
   "version": "2.22.0",
   "description": "Automated smoke test baseline for ArchView360 (static site, no build step).",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
