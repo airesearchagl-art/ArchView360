@@ -161,6 +161,7 @@ function init() {
   const dirtyConfirmCloseBtn   = $('dirty-confirm-close-btn');
   const dirtyConfirmCancelBtn  = $('dirty-confirm-cancel-btn');
   const dirtyConfirmDiscardBtn = $('dirty-confirm-discard-btn');
+  const dirtyConfirmBodyEl     = $('dirty-confirm-modal-body');
 
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
@@ -651,25 +652,66 @@ function init() {
   }
 
   // ============================================================
-  // Unsaved-changes confirmation (Dirty State) — foundation (v2.21.x)
+  // Unsaved-changes confirmation (Dirty State) — foundation (v2.21.x/2.22.x)
   // ============================================================
-  // The single shared gate in front of any operation that would discard
-  // unsaved Editor changes. Resolves to 'proceed' immediately (no dialog)
-  // when clean; when dirty, shows one shared modal and resolves to
-  // 'proceed' (user chose to discard) or 'cancel' (user backed out).
+  // The single shared gate in front of any operation that needs the user's
+  // acknowledgement of unsaved Editor changes. Two contexts, because they
+  // mean genuinely different things and must never share copy or a result
+  // token:
   //
-  // This PR intentionally offers only Discard/Cancel from the dialog
-  // itself, not a third "save and continue" option — see PR body for the
-  // reasoning (no single canonical save action exists: JSON export and
-  // ZIP export are two separate, format-choosing actions, and guessing
-  // one on the user's behalf risks silently saving the wrong artifact).
-  // Saving remains an explicit, separate action via the existing export
-  // buttons, done before triggering the operation that needs this gate.
+  //   'switch-to-viewer' — Editor -> Viewer. This NEVER touches project
+  //   data (Viewer keeps browsing the same in-memory state), so nothing is
+  //   actually discarded here. Resolves 'continue-without-saving' (user
+  //   acknowledged and wants to proceed) or 'cancel'. The caller must NOT
+  //   call markProjectClean() on 'continue-without-saving' — the unsaved
+  //   changes are still unsaved after the switch.
+  //
+  //   'replace-project' — an operation that actually overwrites/merges
+  //   into current project data (JSON/ZIP import into a non-empty
+  //   project, or clearing the project). Resolves 'discard-and-continue'
+  //   or 'cancel'. Here the caller's own mutation logic determines the
+  //   resulting dirty/clean state (e.g. clearAllAndShowUpload({markClean})
+  //   or the import's own post-merge markProjectDirty()).
+  //
+  // Resolves immediately (no dialog) when clean, since there is nothing to
+  // acknowledge. Never stacks a second dialog.
+  //
+  // This PR intentionally offers only continue/discard + Cancel from the
+  // dialog itself, not a third "save and continue" option — see PR body
+  // for the reasoning (no single canonical save action exists: JSON
+  // export and ZIP export are two separate, format-choosing actions, and
+  // guessing one on the user's behalf risks silently saving the wrong
+  // artifact). Saving remains an explicit, separate action via the
+  // existing export buttons, done before triggering the operation that
+  // needs this gate.
+  const DIRTY_CONFIRM_COPY = {
+    'switch-to-viewer': {
+      body: '編集中の内容はまだ保存されていません。保存せずにViewerへ移動しても、編集内容はメモリ上に残り、Editorへ戻れば引き続き編集できます。ただし保存されるまでは、ページの再読み込みやファイルを開く操作で失われる可能性があります。',
+      confirmLabel: '保存せずViewerへ移動',
+      confirmClass: 'btn-primary',
+      resultToken: 'continue-without-saving',
+    },
+    'replace-project': {
+      body: 'このまま続行すると、保存していない変更が失われます。保存する場合は先にキャンセルし、既存の「設定を書き出し」または「パッケージ書き出し」から保存してください。',
+      confirmLabel: '破棄して続行',
+      confirmClass: 'btn-danger',
+      resultToken: 'discard-and-continue',
+    },
+  };
   let _dirtyConfirmResolve = null;
+  let _dirtyConfirmActiveCopy = null;
 
-  function confirmDiscardUnsavedChanges() {
+  function confirmUnsavedChanges(context) {
     if (!projectDirty) return Promise.resolve('proceed');
     if (_dirtyConfirmResolve) return Promise.resolve('cancel'); // already open — never stack a second dialog
+    const copy = DIRTY_CONFIRM_COPY[context];
+    _dirtyConfirmActiveCopy = copy;
+    if (dirtyConfirmBodyEl) dirtyConfirmBodyEl.textContent = copy.body;
+    if (dirtyConfirmDiscardBtn) {
+      dirtyConfirmDiscardBtn.textContent = copy.confirmLabel;
+      dirtyConfirmDiscardBtn.classList.remove('btn-primary', 'btn-danger');
+      dirtyConfirmDiscardBtn.classList.add(copy.confirmClass);
+    }
     showEl(dirtyConfirmModal);
     return new Promise((resolve) => { _dirtyConfirmResolve = resolve; });
   }
@@ -678,10 +720,15 @@ function init() {
     hideEl(dirtyConfirmModal);
     const resolve = _dirtyConfirmResolve;
     _dirtyConfirmResolve = null;
+    _dirtyConfirmActiveCopy = null;
     if (resolve) resolve(result);
   }
 
-  if (dirtyConfirmDiscardBtn) dirtyConfirmDiscardBtn.addEventListener('click', () => _closeDirtyConfirmModal('proceed'));
+  if (dirtyConfirmDiscardBtn) {
+    dirtyConfirmDiscardBtn.addEventListener('click', () => {
+      _closeDirtyConfirmModal(_dirtyConfirmActiveCopy ? _dirtyConfirmActiveCopy.resultToken : 'cancel');
+    });
+  }
   if (dirtyConfirmCancelBtn)  dirtyConfirmCancelBtn.addEventListener('click',  () => _closeDirtyConfirmModal('cancel'));
   if (dirtyConfirmCloseBtn)   dirtyConfirmCloseBtn.addEventListener('click',   () => _closeDirtyConfirmModal('cancel'));
   if (dirtyConfirmModal) {
@@ -875,7 +922,10 @@ function init() {
       stopRender();
       showError('WebGLコンテキストが失われました。ページを再読み込みしてください。');
     });
-    viewerCanvas.addEventListener('webglcontextrestored', clearAllAndShowUpload);
+    // WebGL context loss is involuntary — never a confirmed user decision
+    // to discard unsaved work — so this recovery reset must not clear an
+    // existing dirty flag.
+    viewerCanvas.addEventListener('webglcontextrestored', () => clearAllAndShowUpload({ markClean: false }));
   }
 
   function fitSingleCanvas() {
@@ -1255,12 +1305,18 @@ function init() {
     if (wasCurrent) stopRender();
     if (compareState.mode !== 'single') exitCompareMode(true);
     scenes.splice(idx, 1);
-
-    // Deleting the last scene resets to the pristine empty project —
-    // clearAllAndShowUpload() itself marks that state clean, so it takes
-    // over the dirty transition here rather than marking dirty first.
-    if (!scenes.length) { disposeCurrentSphere(); clearAllAndShowUpload(); return; }
+    // Mark dirty for the delete itself before the possible cascade below —
+    // deleting the last scene wasn't confirmed through
+    // confirmUnsavedChanges(), and it also wipes floorplans/markers/groups
+    // via clearAllAndShowUpload(), so this must not silently present as
+    // clean just because the project ends up empty.
     markProjectDirty('シーン削除');
+
+    if (!scenes.length) {
+      disposeCurrentSphere();
+      clearAllAndShowUpload({ markClean: false });
+      return;
+    }
     // Remove markers referencing deleted scene
     const deletedId = scenes[idx]?.id; // scenes[idx] was already spliced? No, we spliced before this line
     // Actually: idx was already removed by splice above; use the blobUrl approach
@@ -1326,7 +1382,13 @@ function init() {
     return idx;
   }
 
-  function clearAllAndShowUpload() {
+  // markClean defaults to false: this function is also called from
+  // forced/automatic recovery paths (WebGL context restore, error
+  // recovery) where the reset is involuntary, not a confirmed user
+  // decision to start fresh — those must NOT silently clear an unsaved
+  // dirty flag. Only call sites that represent a genuinely confirmed,
+  // intentional "start a new empty project" pass markClean: true.
+  function clearAllAndShowUpload({ markClean = false } = {}) {
     if (inVrSession) exitVr();
     if (observerState.enabled) endObserverMode();
     if (compareState.mode !== 'single') exitCompareMode(true);
@@ -1371,12 +1433,13 @@ function init() {
 
     hideEl(viewerLayout);
     showEl(uploadSection);
-    // The project genuinely is empty/pristine after this point in every
-    // caller (explicit clear, cascading last-scene delete, WebGL-context
-    // recovery, error recovery) — always clean, never gated here. The
-    // discard *confirmation* before an intentional clear lives at the
-    // clear-all-btn/back-btn handlers, not in this shared reset function.
-    markProjectClean('プロジェクトをクリア');
+    // The project data itself is always empty/pristine after this point,
+    // but whether that counts as an acknowledged "clean" state depends on
+    // *why* this ran — see markClean's doc comment above and each call
+    // site. The discard *confirmation* before an intentional clear lives
+    // at the clear-all-btn/back-btn handlers, not in this shared reset
+    // function.
+    if (markClean) markProjectClean('プロジェクトをクリア');
   }
 
   // ============================================================
@@ -2415,17 +2478,20 @@ function init() {
   if (appModeToggleBtn) {
     appModeToggleBtn.addEventListener('click', async () => {
       if (getAppMode() === 'editor') {
-        // Editor -> Viewer never destroys data (Viewer keeps browsing the
-        // same in-memory project), so "discard" here only clears the dirty
-        // flag, not the data itself.
-        const result = await confirmDiscardUnsavedChanges();
+        // Editor -> Viewer never touches project data (Viewer keeps
+        // browsing the same in-memory state) — nothing is actually
+        // discarded by switching, so the dirty flag must NOT be cleared
+        // here. It stays dirty (indicator + beforeunload keep warning)
+        // until an actual save or an actual data-replacing operation
+        // resolves it. See confirmUnsavedChanges()'s 'switch-to-viewer'
+        // context.
+        const result = await confirmUnsavedChanges('switch-to-viewer');
         if (result === 'cancel') return;
-        markProjectClean('Editor → Viewer 切替（破棄）');
         enterViewerMode();
       } else {
-        // Viewer -> Editor never needs a discard confirmation: Viewer can
-        // never be dirty (every mutation path is guarded), so this is
-        // always a no-op fast path via confirmDiscardUnsavedChanges().
+        // Viewer -> Editor never needs an unsaved-changes confirmation:
+        // Viewer can never be dirty (every mutation path is guarded), so
+        // this is always a no-op fast path via confirmUnsavedChanges().
         requestEditorAccess();
       }
     });
@@ -3045,11 +3111,16 @@ function init() {
   // shared reset function itself, because that function is also called
   // from forced/automatic recovery paths (WebGL context restore, error
   // recovery, the last-scene-deleted cascade) that must never block on a
-  // dialog. See clearAllAndShowUpload()'s own comment.
+  // dialog. See clearAllAndShowUpload()'s own comment. This is a genuine
+  // 'replace-project' operation — the current project is actually wiped —
+  // so it uses the discard/cancel context, not 'switch-to-viewer'.
   async function _confirmedClearAll() {
-    const result = await confirmDiscardUnsavedChanges();
+    const result = await confirmUnsavedChanges('replace-project');
     if (result === 'cancel') return;
-    clearAllAndShowUpload();
+    // User explicitly confirmed discarding — this intentionally creates a
+    // fresh empty project, so it's the one clearAllAndShowUpload() call
+    // site that always ends clean.
+    clearAllAndShowUpload({ markClean: true });
   }
   clearAllBtn.addEventListener('click',  _confirmedClearAll);
   backBtn.addEventListener('click',      _confirmedClearAll);
@@ -3118,7 +3189,9 @@ function init() {
 
   errorBackBtn.addEventListener('click', () => {
     hideErrorOverlay();
-    if (!scenes.length) clearAllAndShowUpload();
+    // Dismissing a global error is UI recovery, not a confirmed decision
+    // to discard unsaved work — never auto-clean here.
+    if (!scenes.length) clearAllAndShowUpload({ markClean: false });
   });
 
   // ============================================================
@@ -6471,11 +6544,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!projectWasEmpty && !assertEditorMode('JSON/ZIP読み込み')) return;
     // Importing into a non-empty project can overwrite projectInfo/
     // projectName and any marker sharing an id with the imported data, so
-    // it goes through the same discard confirmation as any other
+    // it goes through the same 'replace-project' confirmation as any other
     // project-replacing operation. Opening into an empty project never
     // reaches here (nothing to lose), so it's never gated.
     if (!projectWasEmpty) {
-      const result = await confirmDiscardUnsavedChanges();
+      const result = await confirmUnsavedChanges('replace-project');
       if (result === 'cancel') return;
     }
     const fileMap = {};
