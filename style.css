@@ -125,6 +125,34 @@ body {
 }
 .header-link-btn:hover { background: var(--surface-3); border-color: var(--accent); color: var(--accent-h); }
 
+/* ===== v2.21: App Mode (Viewer / Editor) switch ===== */
+.app-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.app-mode-label {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mode-editor .app-mode-label { color: var(--accent-h); }
+.app-mode-toggle-btn { padding: 5px 10px; font-size: .74rem; }
+
+/* Editor-only / Viewer-only UI, gated purely by the body-level mode class
+   renderModeUi() toggles — see script.js "App Mode" section. Mutation
+   guards inside the underlying functions are the real enforcement; these
+   rules only keep the corresponding controls out of view/off the tab
+   order in the mode they don't apply to. */
+.mode-viewer .editor-only { display: none !important; }
+.mode-editor .viewer-only { display: none !important; }
+
 /* ===== v2.9.4: Quick help modal ===== */
 .quick-help-box { max-width: 480px; width: 100%; }
 .quick-help-body { max-height: 60vh; overflow-y: auto; }

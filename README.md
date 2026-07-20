@@ -1,5 +1,7 @@
 # ArchView360
 
+> **v2.21.0 — Viewer / Editor Mode基盤** — ArchView360全体に、閲覧専用の**Viewer**と既存の編集機能を使える**Editor**という2つのApp Modeを導入しました。**Panorama / Compare / Slider / VRは引き続きView Type（「何を見ているか」）**のままで、今回追加したApp Mode（「編集できるか」）とは独立した軸として扱っています。起動時・reload後は必ずViewerから始まり（localStorage・URLパラメータからの復元なし、JSON/ZIP読み込みでもmodeは変化しません）、ツールバー右上の切替UI（Viewer時「[ Viewer ] [ Editorへ切替 ]」）からのみ`requestEditorAccess()`を経由してEditorへ移行できます。UIの出し分けは`body`要素のmode class（`mode-viewer`/`mode-editor`）に対するCSSカスケードで行い、mode切替のたびにイベントリスナーやレンダラーを再生成することはありません。**UIを隠すだけでなく**、シーン追加・更新・削除・並び替え・反転、平面図追加・削除・方位補正、マーカー配置・移動・回転・削除・番号変更、グループ作成・名前変更・削除、比較セット保存・削除・名前変更、プロジェクト情報保存、JSON/ZIP書き出し・（既存プロジェクトへの）読み込みなど、project dataを変更する関数の入口に`assertEditorMode()` / `canMutateProject()`によるguardを追加しており、キーボードショートカット・右クリックメニュー・隠しDOM要素・console等からの直接呼び出し経由でもViewer中の変更は行われません。Viewerでも空のプロジェクトへ単一画像・JSON・ZIPを「開いて閲覧する」ことは引き続き可能です。`appMode`はセッション内のJavaScript変数のみで保持し、プロジェクトJSON・ZIP・localStorageのいずれにも保存されません。VRはViewer/Editorどちらからも既存の閲覧機能（Minimapナビゲーション含む）をそのまま利用でき、VR側に新しい編集UIは追加していません。既存のPanorama/Compare/Slider/VR閲覧機能、JSON/ZIP互換性は変更していません。未保存編集の確認ダイアログ（dirty state）の全面実装、Viewer Preview機能、認証・権限確認の実装、Viewer/Editorの別URL分離は今回のスコープ外です。詳細は後述の「Viewer / Editor Mode基盤」を参照してください。
+>
 > **v2.20.0 — VRミニマップナビゲーション（compact/expanded 2段階表示・ミニマップ主体化）** — VRを終了せずに現在階のFloorMapと現在位置を確認できるミニマップパネルを追加しました。**compact（通常時・右下に常時表示・カメラ追従）／expanded（視界中央よりやや下・実際にマーカーを狙って選択できる大きさ）**の2段階表示で、compact表示中は個別マーカーへの当たり判定を行わずパネル全体を1つのhover/選択対象として扱います。**左コントローラーのMenuボタン（`button[12]`）がcompact⇔expandedの主要な開閉操作**で（compactパネルへのTriggerでも拡大できる補助操作も用意）、expanded表示中はhover中のマーカーをTriggerで選択すると既存のFade Out→`switchToScene()`→Fade Inでそのシーンへ移動し、移動完了・マーカー以外の領域でのTrigger・階移動発生・Menu再押下のいずれでも自動的にcompactへ戻ります。**expanded表示中は左右Controllerのレーザーポインターとray-ミニマップ交点を示す小さな点（hit-dot）を表示**し、マーカーhover中は少し強調表示されます。compact/expandedとも同一のThree.jsメッシュを`mesh.scale`で拡大縮小するだけで実現しており、モード切替のたびにジオメトリ・Canvasテクスチャ・レーザーを再生成することはありません。Trigger・Menuとも既存のarmed/pressed状態を1箇所の判定ロジックで共有しており、同一フレームで両方が押されても二重アクションは発生しません。実機（Quest 3）検証で「常時表示の小さいミニマップはマーカーの直接選択が困難」「拡大中はController laserが見えず照準位置が分かりにくい」「Scene Ringのリング配置方向と360°画像内の実際の移動方向が一致せず分かりにくい」という3件のフィードバックを受けて段階的に改善し、**VR内の主要ナビゲーションをミニマップ主体**へ整理しました。**Scene Ring Navigationは削除せず、`VR_SCENE_RING_ENABLED`フラグで一時的に無効化**しています（リング項目・hover・Trigger選択・ray hit判定はすべて停止、関連関数・データは温存 — 将来、360°画像内の実位置とリンク先を対応付けた段階で再導入予定）。新しいController割り当ては追加しておらず、新しいJSON/ZIP構造も追加していません。詳細は後述の「VRミニマップナビゲーション」「VR Scene Ring Navigation」を参照してください。
 >
 > **v2.19.0 — VR階移動ナビゲーション** — VRを終了せずに1階・2階・3階などの階（既存FloorMapの平面図）を移動できるようにしました。左右スティック押し込み（`button[3]`、実機実測で確認済み・未使用だったボタン）に、左＝1つ下の階、右＝1つ上の階を割り当てています。A/Xは引き続き現在階の中でのシーン移動専用です。階の一覧・順序・所属シーンはすべて既存のFloorMap平面図（`projectState.floorplans`の配列順）とマーカー情報を再利用しており、新しいプロジェクトデータは追加していません。階移動先のシーンは「そのVRセッションで最後に見たシーン」を優先し、未訪問の階ではnav order先頭のシーンへ移動します（セッション内メモリのみで保持、JSON/ZIPには保存しません）。最上階・最下階では循環せず移動を止めます。Scene切替は既存のFade Out→switchToScene→Fade Inをそのまま再利用し、階移動後はScene Ringが新しい階の内容で再生成されます。axesではなくスティック押し込み（button）を採用しているのは、Quest Touch Plusのaxis番号・符号がこのプロジェクトのどの実機記録にも存在せず、推測を避けたためです。既存のController入力処理（Trigger/Menu/A/X/B/Y）には一切変更を加えていません。詳細は後述の「VR Controller視覚ガイド」内の階移動操作説明を参照してください。
@@ -202,6 +204,20 @@ VR開始直後に固定座標4色キューブ（Red/Blue/Green/Yellow、一辺40
 v2.16.0でVR Runtimeの移植とArchView360本体としてのQuest 3実機確認（HUD表示・Controller操作・シーン切替）が完了し、Probeの役目は終えたため、v2.16.1で撤去しました。
 
 詳しい描画経路の監査結果は [VR Render Path Audit](docs/vr-render-path-audit.md) を参照してください。
+
+---
+
+## 🔀 Viewer / Editor Mode基盤 (v2.21)
+
+ArchView360全体を、閲覧専用の**Viewer**と既存の編集機能を使える**Editor**という2つの**App Mode**に分離しました。**Panorama / Compare / Slider / VRは引き続きView Type（「何を見ているか」）**で、今回のApp Mode（「編集できるか」）とは別軸です。VRを特別扱いせず、ViewerとEditorのどちらからでも既存のVR閲覧機能（Minimapナビゲーション含む）をそのまま利用できます。VR側に新しい編集UIは追加していません。
+
+- **初期状態：** アプリ起動時・reload後は必ずViewerから始まります。localStorage・URLパラメータからの復元は行わず、JSON/ZIPプロジェクトの読み込みでもmodeは変化しません。
+- **切替UI：** ツールバー右上に現在modeのラベルと切替ボタンを表示します（Viewer時「[ Viewer ] [ Editorへ切替 ]」、Editor時「[ Editor ] [ Viewerで確認 ]」）。既存の`.header-actions`のレイアウトに沿って配置しており、モバイル・デスクトップとも大きなレイアウト変更はありません。
+- **Editorへの入口の抽象化：** UIのクリックイベントから直接modeを書き換えることはせず、すべて`requestEditorAccess()`を経由します。現状は素通しの実装ですが、将来の認証・ライセンス・権限確認をこの1箇所に追加するだけで済むようにするための抽象化です。
+- **「開く」と「追加」の区別：** Viewerでも単一画像・JSON・ZIPを「開いて閲覧する」ことは引き続き可能です。既存プロジェクトが空の状態での読み込みは「開く」として許可し、既にシーンが存在する状態への追加読み込みのみをEditor限定の「追加」として区別しています。
+- **mutation guard：** UIを隠すだけで終わらせず、シーン追加・更新・削除・並び替え・反転、平面図追加・削除・方位補正、マーカー配置・移動・回転・削除・番号変更、グループ作成・名前変更・削除、比較セット保存・削除・名前変更、プロジェクト情報保存、JSON/ZIP書き出し・（既存プロジェクトへの）読み込みなど、project dataを変更する関数の入口に`assertEditorMode()` / `canMutateProject()`によるguardを追加しました。キーボードショートカット、右クリックのコンテキストメニュー、ドラッグ＆ドロップ、隠しDOM要素、console等からの直接呼び出し経由でもViewer中の変更は行えません。
+- **非保存：** `appMode`はセッション内のJavaScript変数のみで保持し、プロジェクトJSON・ZIP・localStorageのいずれにも含まれません。既存のJSON/ZIPスキーマ・互換性は変更していません。
+- **今回のスコープ外：** 未保存編集の確認ダイアログ（dirty state）の全面実装、Viewer Preview機能、認証・ライセンス・権限確認の実装、Viewer/Editorの別URL・別エントリーポイント分離は今回は行っていません（既存のdirty state実装がなかったため、今回新規に追加してもいません）。
 
 ---
 
