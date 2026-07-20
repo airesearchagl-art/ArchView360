@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>更新履歴 - ArchView360 マニュアル</title>
+<link rel="stylesheet" href="/docs/manual.css" />
+</head>
+<body>
+<header class="m-header" id="m-header"></header>
+<div class="m-layout">
+  <nav class="m-nav" id="m-nav"></nav>
+  <main class="m-content">
+    <h1>🕘 更新履歴</h1>
+    <p class="lead">ArchView360の主なバージョンで、利用者の操作に影響する変更をまとめています。現在の対応バージョンは <strong>v2.22.0</strong> です。</p>
+
+    <div class="m-callout">
+      <strong>v2.20以前の変更について：</strong> VRモード（<a href="/docs/vr.html">VRモード</a>・<a href="/docs/observer.html">Observer Mode</a>）やプロジェクトZIP（<a href="/docs/project-json.html">プロジェクトJSON / プロジェクトZIP</a>）など、v2.20までの機能追加は各トピックページ内にバージョン表記つきで解説があります。ここでは重複を避け、それらのページに未反映だった<strong>v2.21.0以降</strong>の変更を中心にまとめます。
+    </div>
+
+    <h2>Version 2.22.0</h2>
+    <p><strong>概要：</strong> 保存前にEditorでの編集内容が失われることを防ぐ「未保存の変更」管理を追加しました。あわせて、主要な操作を継続的に自動確認する仕組みを導入しました。</p>
+    <p><strong>新機能：</strong></p>
+    <ul>
+      <li>ツールバーに「● 未保存」インジケーターを追加。編集中の内容がまだ保存されていない間、表示されます</li>
+      <li>ブラウザタブのタイトルにも、未保存の変更がある間は先頭に <code>*</code> が付きます</li>
+      <li>未保存の変更がある状態でページを離れよう（閉じる・再読み込み）とすると、ブラウザ標準の確認が表示されます</li>
+    </ul>
+    <p><strong>変更：</strong></p>
+    <ul>
+      <li>Editorで未保存の変更がある状態からViewerへ切り替えようとすると、「保存せずViewerへ移動しますか」という確認が表示されます。「保存せずViewerへ移動」を選んでも編集内容は消えず、そのままメモリ上に残ります。Viewerで閲覧している間も未保存インジケーターは表示されたままで、Editorへ戻ればそのまま編集を続けられます</li>
+      <li>設定JSON・プロジェクトZIPの書き出しが完了すると、未保存の状態は解除されます</li>
+      <li>すでに読み込んでいるプロジェクトに別のJSON・ZIPを読み込もうとすると（既存内容を置き換える操作のため）、「このまま続行すると保存していない変更が失われます」という確認が表示されます。「破棄して続行」を選んだ場合のみ、実際の読み込みが完了した後で未保存状態が解除されます</li>
+      <li>空の状態（何も読み込んでいない状態）へ新しく画像・JSON・ZIPを開く操作は、確認なしでそのまま開けます</li>
+    </ul>
+    <p><strong>注意事項：</strong></p>
+    <ul>
+      <li>未保存の状態はブラウザのタブを閉じたり再読み込みしたりすると失われます（意図的な設計です）。重要な変更は、確認ダイアログに従って保存してから次の操作を行ってください</li>
+      <li>ダイアログから直接保存する機能は今回のバージョンでは未対応です。保存する場合はキャンセルを選び、既存の「設定を書き出し」または「パッケージ書き出し」から保存してください</li>
+      <li><strong>品質保証・安定性向上：</strong> 主要な操作（起動確認・Viewer/Editor切替・保存後の状態確認など）を自動で確認する仕組みを追加し、コードの変更のたびにGitHub Actions上で自動テストが実行されるようにしました。リリースごとの動作確認の抜け漏れを減らすためのもので、画面の見た目や操作方法に変更はありません。</li>
+    </ul>
+
+    <h2>Version 2.21.0</h2>
+    <p><strong>概要：</strong> アプリ全体に「閲覧専用で使う」か「編集する」かを切り替えられるモードを導入しました。</p>
+    <p><strong>新機能：</strong></p>
+    <ul>
+      <li><strong>Viewerモード（閲覧専用）</strong> と <strong>Editorモード（編集可能）</strong> の2つのモードを追加。画面右上のボタンでいつでも切り替えられます</li>
+      <li>ArchView360を開いたとき・ページを再読み込みしたときは、常にViewerモードから始まります</li>
+    </ul>
+    <p><strong>UI変更：</strong></p>
+    <ul>
+      <li>Viewerモードでは、シーンの追加・削除・並び替え・画像の反転・平面図編集・マーカー配置・プロジェクト情報編集・設定の書き出し／読み込みなど、内容を変更する操作のボタンが非表示になります</li>
+      <li>Editorモードに切り替えると、これらの編集用ボタンがすべて表示され、これまでどおり編集できます</li>
+      <li>パノラマの視点操作・ズーム・シーン切替・比較モード・VRモードなど、内容を変更しない「見る」操作はViewer・Editorのどちらでも利用できます</li>
+    </ul>
+    <p><strong>操作方法の変更：</strong></p>
+    <ul>
+      <li>Viewerモードのままでも、まだ何も読み込んでいない状態であれば、単一画像・設定JSON・プロジェクトZIPを開いて閲覧することはできます（「開く」は閲覧の一部として扱われます）</li>
+      <li>すでに読み込んでいるプロジェクトへ画像を追加したり、内容を編集したりするにはEditorモードへの切り替えが必要です</li>
+    </ul>
+    <p><strong>互換性に関する注意：</strong></p>
+    <ul>
+      <li>モードの選択はそのブラウザタブ内だけで保持され、設定JSON・プロジェクトZIPには一切保存されません。別の端末やブラウザで開いた場合も、常にViewerモードから始まります</li>
+      <li>既存のJSON・ZIPファイルの形式やVR・比較モードなどの閲覧機能に変更はありません</li>
+    </ul>
+
+    <div class="m-pager">
+      <a href="/docs/security.html">← セキュリティポリシー</a>
+      <a href="/docs/getting-started.html">はじめにへ戻る →</a>
+    </div>
+  </main>
+</div>
+<footer class="m-footer">ArchView360 User Manual — <a href="https://github.com/airesearchagl-art/ArchView360/blob/main/README.md" target="_blank" rel="noopener">README</a> も参照してください。</footer>
+<script src="/docs/manual.js"></script>
+<script>ArchViewManual.renderManualChrome('version-history');</script>
+</body>
+</html>

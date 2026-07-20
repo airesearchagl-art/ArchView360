@@ -11,6 +11,7 @@
     { id: 'security',         file: '/docs/security.html',          label: 'セキュリティポリシー' },
     { id: 'vr',               file: '/docs/vr.html',                 label: 'VRモード' },
     { id: 'observer',         file: '/docs/observer.html',          label: 'Observer Mode' },
+    { id: 'version-history',  file: '/docs/version-history.html',   label: '更新履歴' },
   ];
 
   function renderManualChrome(activeId) {
