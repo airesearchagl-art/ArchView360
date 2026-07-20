@@ -151,6 +151,10 @@ function init() {
   const quickHelpCloseBtn  = $('quick-help-close-btn');
   const quickHelpOkBtn     = $('quick-help-ok-btn');
 
+  // App Mode (Viewer / Editor) switch — foundation
+  const appModeLabel       = $('app-mode-label');
+  const appModeToggleBtn   = $('app-mode-toggle-btn');
+
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
   const viewerContainer    = $('viewer-container');
@@ -499,6 +503,94 @@ function init() {
   // ---- Viewer state ----
   let viewerActive = false;
 
+  // ============================================================
+  // App Mode (Viewer / Editor) — foundation (v2.21)
+  // ============================================================
+  // Application-wide mode, independent of View Type. Panorama / Compare /
+  // Slider / VR remain "what you're looking at" (View Type) and are
+  // unaffected by this; appMode instead governs whether project data
+  // (scenes/projectState/compareSets) can be mutated at all, and whether
+  // save/export can run. VR is not a separate mode here — VR's own
+  // read-only viewing (panorama, Minimap navigation, Scene Ring — the
+  // latter currently disabled via VR_SCENE_RING_ENABLED, unrelated to and
+  // unchanged by this feature) works the same in both Viewer and Editor;
+  // no VR-side editing UI exists or is added by this change.
+  //
+  // Session-local only: never read from or written to project JSON, ZIP,
+  // localStorage, or a URL parameter. Every page load/reload always starts
+  // in 'viewer' — there is no restore path for 'editor' at all, so this
+  // requirement can't regress by omission.
+  //
+  // UI code must never assign to `appMode` directly. All transitions go
+  // through enterViewerMode() / enterEditorMode() / requestEditorAccess()
+  // so there is exactly one place (`renderModeUi()`) that reacts to a
+  // mode change, and exactly one seam (`requestEditorAccess()`) where a
+  // future auth/license/permission check can be inserted without touching
+  // any button handler.
+  let appMode = 'viewer'; // 'viewer' | 'editor'
+
+  function getAppMode() { return appMode; }
+
+  // The single predicate every mutation guard below calls. Kept
+  // deliberately trivial today so future gating logic only needs to
+  // change requestEditorAccess() (how you GET to 'editor'), not this
+  // check (what 'editor' is allowed to do).
+  function canMutateProject() { return appMode === 'editor'; }
+
+  // Call at the top of any function that writes to scenes/projectState/
+  // compareSets, or starts a save/export. Returns false (and the caller
+  // must then return without acting) when not in Editor mode. Logs to
+  // console and shows one toast so hidden DOM, keyboard shortcuts,
+  // context-menu items, or a direct console call can never silently
+  // mutate project data while Viewing. `label` is a short user-facing
+  // description of the blocked action, not an internal function name.
+  function assertEditorMode(label) {
+    if (appMode === 'editor') return true;
+    console.warn(`[ArchView360] Viewer mode: blocked "${label}"`);
+    showToast('Viewerモードのため実行できません（Editorへ切り替えてください）');
+    return false;
+  }
+
+  function enterViewerMode() {
+    if (appMode === 'viewer') return;
+    appMode = 'viewer';
+    renderModeUi();
+  }
+
+  function enterEditorMode() {
+    if (appMode === 'editor') return;
+    appMode = 'editor';
+    renderModeUi();
+  }
+
+  // The only sanctioned entry point for switching INTO Editor — UI event
+  // handlers call this, never enterEditorMode() directly. Today it is a
+  // straight passthrough; this indirection exists so a future
+  // auth -> license -> permission check sequence can be inserted here
+  // without any call site (the toggle button, or anything else) changing.
+  function requestEditorAccess() {
+    enterEditorMode();
+  }
+
+  // Applies the current mode to the DOM: a body-level class pair that
+  // `.viewer-only` / `.editor-only` CSS rules key off, plus the mode
+  // switch UI's own label/button text. Called once at startup and on
+  // every mode transition. Pure class/text toggling — never rebuilds or
+  // reattaches listeners, never recreates a renderer/scene/VR object, so
+  // repeated toggling cannot duplicate events or objects.
+  function renderModeUi() {
+    const editing = appMode === 'editor';
+    document.body.classList.toggle('mode-editor', editing);
+    document.body.classList.toggle('mode-viewer', !editing);
+    if (appModeLabel) appModeLabel.textContent = editing ? 'Editor' : 'Viewer';
+    if (appModeToggleBtn) {
+      appModeToggleBtn.textContent = editing ? 'Viewerで確認' : 'Editorへ切替';
+      appModeToggleBtn.title = editing
+        ? 'Viewer表示に戻ります（表示のみ・編集はできません）'
+        : 'Editorに切り替えて編集機能を利用します';
+    }
+  }
+
   // ---- Project State ----
   const projectState = {
     projectName: 'Untitled Project',
@@ -541,6 +633,7 @@ function init() {
 
   // Set marker order and resolve duplicates (v2.8)
   function setMarkerOrder(markerId, newOrder) {
+    if (!assertEditorMode('マーカー番号変更')) return false;
     const v = parseInt(newOrder, 10);
     if (!Number.isInteger(v) || v < 1) return false;
     const mk = projectState.markers.find(m => m.id === markerId);
@@ -569,6 +662,7 @@ function init() {
   // Re-sequence to 1,2,3... in current order (v2.8)
   function resequenceMarkers() {
     if (!activeFloorplanId) return;
+    if (!assertEditorMode('マーカー番号整理')) return;
     projectState.markers
       .filter(m => m.floorplanId === activeFloorplanId)
       .sort((a, b) => (a.order || 0) - (b.order || 0))
@@ -752,6 +846,13 @@ function init() {
     const wasEmpty    = !scenes.length;
     const firstNewIdx = scenes.length;
 
+    // Opening files into an empty project ("view this") is allowed in
+    // Viewer mode; adding more to an already-loaded project is editing
+    // and requires Editor. Guarded here (not at each button handler)
+    // because add-img-btn / add-scene-btn / Ctrl+O / viewer drag&drop all
+    // funnel into this one function via the shared fileInput.
+    if (!wasEmpty && !assertEditorMode('画像追加')) return;
+
     valid.forEach(f => {
       const blobUrl = URL.createObjectURL(f);
       const scene = {
@@ -799,6 +900,7 @@ function init() {
   // ============================================================
   let _replaceTargetIdx = -1;
   function openReplaceScenePicker(idx) {
+    if (!assertEditorMode('シーン画像の更新')) return;
     _replaceTargetIdx = idx;
     replaceSceneInput.value = '';
     replaceSceneInput.click();
@@ -1023,6 +1125,7 @@ function init() {
 
   function deleteScene(idx) {
     if (idx < 0 || idx >= scenes.length) return;
+    if (!assertEditorMode('シーン削除')) return;
     URL.revokeObjectURL(scenes[idx].blobUrl);
     const wasCurrent = idx === currentIdx;
     if (wasCurrent) stopRender();
@@ -1062,6 +1165,7 @@ function init() {
   // ---- Drag-and-drop reorder ----
   function reorderScene(fromIdx, toIdx) {
     if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
+    if (!assertEditorMode('シーン並び替え')) return;
     const [moved] = scenes.splice(fromIdx, 1);
     scenes.splice(toIdx, 0, moved);
 
@@ -1199,7 +1303,7 @@ function init() {
 
       // Rename button
       const renameBtn = document.createElement('button');
-      renameBtn.className = 'scene-group-rename-btn';
+      renameBtn.className = 'scene-group-rename-btn editor-only';
       renameBtn.title = 'グループ名を変更';
       renameBtn.textContent = '✏';
       renameBtn.addEventListener('click', (e) => {
@@ -1209,11 +1313,12 @@ function init() {
 
       // Delete button
       const delBtn = document.createElement('button');
-      delBtn.className = 'scene-group-del-btn';
+      delBtn.className = 'scene-group-del-btn editor-only';
       delBtn.title = 'グループを削除';
       delBtn.textContent = '🗑';
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!assertEditorMode('グループ削除')) return;
         if (!confirm('グループを削除しますか？シーンは削除されません。未分類へ移動します。')) return;
         scenes.forEach(s => { if (s.groupId === gid) s.groupId = null; });
         projectState.groups = projectState.groups.filter(g => g.id !== gid);
@@ -1266,7 +1371,7 @@ function init() {
     const isActive = i === currentIdx;
     const li = document.createElement('li');
     li.className = 'scene-item' + (isActive ? ' active' : '');
-    li.draggable = true;
+    li.draggable = canMutateProject();
     li.dataset.idx = i;
 
     // ---- Left: meta block (number/name row + sub-info row) ----
@@ -1289,6 +1394,7 @@ function init() {
 
     nameEl.addEventListener('dblclick', (e) => {
       e.stopPropagation();
+      if (!canMutateProject()) return;
       nameEl.contentEditable = 'true';
       nameEl.classList.add('editing');
       const r = document.createRange();
@@ -1298,6 +1404,7 @@ function init() {
     nameEl.addEventListener('blur', () => {
       nameEl.contentEditable = 'false';
       nameEl.classList.remove('editing');
+      if (!canMutateProject()) return;
       const n = nameEl.textContent.trim();
       s.name = n || s.name;
       nameEl.textContent = s.name;
@@ -1382,21 +1489,21 @@ function init() {
     actions.className = 'scene-item-actions';
 
     const groupBtn = document.createElement('button');
-    groupBtn.className = 'scene-group-btn' + (curGroup ? ' has-group' : '');
+    groupBtn.className = 'scene-group-btn editor-only' + (curGroup ? ' has-group' : '');
     groupBtn.title = curGroup ? `グループ: ${curGroup.name}（クリックで変更）` : 'グループを設定';
     groupBtn.textContent = '📁';
     groupBtn.addEventListener('click', (e) => { e.stopPropagation(); openGroupPicker(i, groupBtn); });
     actions.appendChild(groupBtn);
 
     const replaceBtn = document.createElement('button');
-    replaceBtn.className = 'scene-replace-btn';
+    replaceBtn.className = 'scene-replace-btn editor-only';
     replaceBtn.title = '画像を差し替え（markers/比較セット/グループ/平面図紐付けは維持）';
     replaceBtn.textContent = '🖼';
     replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); openReplaceScenePicker(i); });
     actions.appendChild(replaceBtn);
 
     const delBtn = document.createElement('button');
-    delBtn.className = 'scene-delete-btn';
+    delBtn.className = 'scene-delete-btn editor-only';
     delBtn.title = 'このシーンを削除';
     delBtn.textContent = '×';
     delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteScene(i); });
@@ -1543,6 +1650,7 @@ function init() {
   // Group picker (v2.5)
   // ============================================================
   function openGroupPicker(sceneIdx, anchorEl) {
+    if (!assertEditorMode('グループ編集')) return;
     _groupPickerSceneIdx = sceneIdx;
     const picker = $('group-picker');
     _renderGroupPickerList();
@@ -1578,6 +1686,7 @@ function init() {
     noneItem.textContent = '未分類';
     noneItem.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (!assertEditorMode('グループ割り当て')) return;
       if (s) s.groupId = null;
       closeGroupPicker(); renderSceneList();
     });
@@ -1596,6 +1705,7 @@ function init() {
       delBtn.title = 'グループを削除';
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!assertEditorMode('グループ削除')) return;
         scenes.forEach(sc => { if (sc.groupId === g.id) sc.groupId = null; });
         projectState.groups = projectState.groups.filter(x => x.id !== g.id);
         collapsedGroups.delete(g.id);
@@ -1606,6 +1716,7 @@ function init() {
       item.addEventListener('click', (e) => {
         if (e.target === delBtn) return;
         e.stopPropagation();
+        if (!assertEditorMode('グループ割り当て')) return;
         if (s) s.groupId = g.id;
         closeGroupPicker(); renderSceneList();
       });
@@ -1617,6 +1728,7 @@ function init() {
   // Group rename (v2.6)
   // ============================================================
   function _startGroupRename(hdr, group, nameSpan, renameBtn) {
+    if (!assertEditorMode('グループ名変更')) return;
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'scene-group-name-input';
@@ -2159,6 +2271,18 @@ function init() {
     if (e.key === 'Escape') { e.preventDefault(); _closeSetNameModal(false); }
   });
 
+  // ---- App Mode switch UI (v2.21) ----
+  // The single click handler that can move the app INTO Editor —
+  // requestEditorAccess() is the only function it calls, never
+  // appMode = 'editor' or enterEditorMode() directly.
+  if (appModeToggleBtn) {
+    appModeToggleBtn.addEventListener('click', () => {
+      if (appMode === 'editor') enterViewerMode();
+      else requestEditorAccess();
+    });
+  }
+  renderModeUi(); // apply the initial 'viewer' state to the DOM immediately
+
   // ---- Quick help modal (v2.9.4) ----
   function openQuickHelp() { showEl(quickHelpModal); }
   function closeQuickHelp() { hideEl(quickHelpModal); }
@@ -2172,6 +2296,7 @@ function init() {
 
   // ---- Save / Restore / Delete / Rename ----
   function saveCurrentCompareSet() {
+    if (!assertEditorMode('比較セット保存')) return;
     if (compareState.mode === 'single') { showToast('比較モード中のみ保存できます'); return; }
     const sa = scenes[compareState.sceneAIndex];
     const sb = scenes[compareState.sceneBIndex];
@@ -2239,6 +2364,7 @@ function init() {
   }
 
   function deleteCompareSet(setId) {
+    if (!assertEditorMode('比較セット削除')) return;
     const sets = _loadCompareSets().filter(s => s.id !== setId);
     _saveCompareSetsToStorage(sets);
     if (compareState.activeSetId === setId) compareState.activeSetId = null;
@@ -2247,6 +2373,7 @@ function init() {
   }
 
   function renameCompareSet(setId) {
+    if (!assertEditorMode('比較セット名変更')) return;
     const sets = _loadCompareSets();
     const set = sets.find(s => s.id === setId);
     if (!set) return;
@@ -2321,13 +2448,13 @@ function init() {
       });
 
       const renameBtn = document.createElement('button');
-      renameBtn.className = 'cset-btn';
+      renameBtn.className = 'cset-btn editor-only';
       renameBtn.title = '名前を変更';
       renameBtn.textContent = '✏';
       renameBtn.addEventListener('click', (e) => { e.stopPropagation(); renameCompareSet(set.id); });
 
       const delBtn = document.createElement('button');
-      delBtn.className = 'cset-btn cset-btn-del';
+      delBtn.className = 'cset-btn cset-btn-del editor-only';
       delBtn.title = 'このセットを削除';
       delBtn.textContent = '×';
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCompareSet(set.id); });
@@ -2444,6 +2571,7 @@ function init() {
   // ============================================================
   function toggleFlipSingle() {
     if (currentIdx < 0) return;
+    if (!assertEditorMode('左右反転')) return;
     scenes[currentIdx].flipH = !scenes[currentIdx].flipH;
     flipBtn.classList.toggle('active', scenes[currentIdx].flipH);
     applyFlip(sphere, scenes[currentIdx].flipH);
@@ -2452,6 +2580,7 @@ function init() {
   function toggleFlipCompare(side) {
     const idx = side === 'a' ? compareState.sceneAIndex : compareState.sceneBIndex;
     if (idx < 0 || idx >= scenes.length) return;
+    if (!assertEditorMode('左右反転')) return;
     scenes[idx].flipH = !scenes[idx].flipH;
     (side === 'a' ? flipABtn : flipBBtn).classList.toggle('active', scenes[idx].flipH);
     applyFlip(side === 'a' ? sphereA : sphereB, scenes[idx].flipH);
@@ -4925,6 +5054,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // Floor Plan Management
   // ============================================================
   function handleFloorplanFiles(fileList) {
+    if (!assertEditorMode('平面図追加')) return;
     const allowed = new Set(['image/jpeg','image/png','image/webp']);
     const valid   = Array.from(fileList).filter(f => allowed.has(f.type) && f.size <= 50*1024*1024);
     if (!valid.length) return;
@@ -4945,6 +5075,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   }
 
   function deleteFloorplan(id) {
+    if (!assertEditorMode('平面図削除')) return;
     const fp = projectState.floorplans.find(f => f.id === id);
     if (fp) URL.revokeObjectURL(fp.blobUrl);
     projectState.floorplans = projectState.floorplans.filter(f => f.id !== id);
@@ -4995,6 +5126,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
       nameEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
+        if (!canMutateProject()) return;
         nameEl.contentEditable = 'true';
         nameEl.classList.add('editing');
         const r = document.createRange(); r.selectNodeContents(nameEl);
@@ -5002,6 +5134,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       });
       nameEl.addEventListener('blur', () => {
         nameEl.contentEditable = 'false'; nameEl.classList.remove('editing');
+        if (!canMutateProject()) { nameEl.textContent = fp.name; return; }
         fp.name = nameEl.textContent.trim() || fp.name;
         nameEl.textContent = fp.name;
         // Update select if this is active
@@ -5013,7 +5146,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       });
 
       const delBtn = document.createElement('button');
-      delBtn.className = 'floorplan-del-btn';
+      delBtn.className = 'floorplan-del-btn editor-only';
       delBtn.textContent = '×'; delBtn.title = 'この平面図を削除';
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFloorplan(fp.id); });
 
@@ -5288,6 +5421,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   }
 
   function _startInfoOrderEdit(mk, orderEl) {
+    if (!canMutateProject()) return;
     if (orderEl.querySelector('input')) return; // already editing
     const prev = mk.order || 1;
     orderEl.textContent = '';
@@ -5337,7 +5471,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       li.className = 'floormap-mk-list-item'
         + (isCur ? ' current-scene' : '')
         + (isSel ? ' active' : '');
-      li.draggable = true;
+      li.draggable = canMutateProject();
       li.dataset.mkid = mk.id;
 
       // Drag handle (v2.9)
@@ -5353,6 +5487,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       numEl.title = 'クリックして番号を変更';
       numEl.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!canMutateProject()) return;
         if (numEl.querySelector('input')) return;
         const prev = mk.order || (listIdx + 1);
         numEl.textContent = '';
@@ -5434,6 +5569,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         e.preventDefault();
         li.classList.remove('mk-drop-before', 'mk-drop-after');
         if (_mkDragSrcIdx < 0 || _mkDragSrcIdx === listIdx) return;
+        if (!assertEditorMode('マーカー並び替え')) return;
         const isBefore = e.clientY < li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2;
         let insertAt = isBefore ? listIdx : listIdx + 1;
         if (_mkDragSrcIdx < insertAt) insertAt--;
@@ -5465,6 +5601,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   floormapCanvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     _closeCtxMenu();
+    if (!canMutateProject()) return; // every item in this menu mutates markers
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp?._renderArea) return;
     const rect = floormapCanvas.getBoundingClientRect();
@@ -5588,10 +5725,15 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         }
       }
     }
-    // Drag marker
+    // Drag marker — position mutation only; click-to-select/navigate
+    // (mousedown/mouseup below) stays available in Viewer mode, it just
+    // never moves anything: no early return here on purpose, so a Viewer
+    // dragging a marker still sees normal cursor/select feedback with no
+    // visible "broken" drag, it simply doesn't move the marker.
     if (!isDraggingMarker || !_dragMarkerId) return;
     const fp2 = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp2?._renderArea) return;
+    if (!canMutateProject()) return;
     const coords = _canvasToImage(e);
     if (!coords) return;
     const mk = projectState.markers.find(m => m.id === _dragMarkerId);
@@ -5625,6 +5767,10 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       // clicked on empty area to deselect — already handled in mousedown.
       return;
     }
+    // Defense-in-depth: isPlacementMode can normally only become true via
+    // the already-guarded togglePlacementMode(), but this is the actual
+    // marker-creation entry point, so it gets its own check too.
+    if (!canMutateProject()) return;
     if (currentIdx < 0 || !scenes.length) { showToast('シーンを選択してください'); return; }
 
     // Check if clicked on an existing marker → navigate to that scene
@@ -5671,6 +5817,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   });
 
   function togglePlacementMode() {
+    if (!assertEditorMode('マーカー配置モード')) return;
     isPlacementMode = !isPlacementMode;
     floormapPlaceBtn.classList.toggle('active', isPlacementMode);
     floormapCanvas.classList.toggle('placement-mode', isPlacementMode);
@@ -5699,12 +5846,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   function rotateSelectedMarker(delta) {
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (!mk) return;
+    if (!assertEditorMode('マーカー回転')) return;
     mk.rotation = ((mk.rotation || 0) + delta + 360) % 360;
     renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
   }
 
   function deleteSelectedMarker() {
     if (!selectedMarkerId) return;
+    if (!assertEditorMode('マーカー削除')) return;
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
       const sceneId = mk.sceneId;
@@ -5813,6 +5962,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   floormapOrientL.addEventListener('click', () => _adjustOrientOffset(-15));
   floormapOrientR.addEventListener('click', () => _adjustOrientOffset(+15));
   floormapOrientPreset.addEventListener('change', () => {
+    if (!assertEditorMode('平面図の方位補正')) return;
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
     fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
@@ -5820,6 +5970,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     renderFloormapCanvas();
   });
   function _adjustOrientOffset(delta) {
+    if (!assertEditorMode('平面図の方位補正')) return;
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
     fp.rotationOffset = ((fp.rotationOffset || 0) + delta + 360) % 360;
@@ -5844,6 +5995,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     sel.removeAllRanges(); sel.addRange(r);
   });
   floormapInfoName.addEventListener('dblclick', () => {
+    if (!canMutateProject()) return;
     floormapInfoName.contentEditable = 'true';
     floormapInfoName.focus();
     const r = document.createRange();
@@ -5853,6 +6005,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   });
   floormapInfoName.addEventListener('blur', () => {
     floormapInfoName.contentEditable = 'false';
+    if (!canMutateProject()) return;
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
       const trimmed = floormapInfoName.textContent.trim();
@@ -5879,6 +6032,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   const groupPickerAddBtn = $('group-picker-add-btn');
   groupPickerAddBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (!assertEditorMode('グループ作成')) return;
     const name = groupPickerInput.value.trim();
     if (!name) return;
     const group = { id: genId(), name };
@@ -5913,6 +6067,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   function closeProjectInfoModal() { hideEl($('project-info-modal')); }
 
   function saveProjectInfo() {
+    if (!assertEditorMode('プロジェクト情報保存')) return;
     const name = $('pi-name').value.trim();
     if (name) projectState.projectName = name;
     projectState.projectInfo.client = $('pi-client').value.trim();
@@ -5936,7 +6091,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.20.0',
+      appVersion:  '2.21.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
@@ -5961,6 +6116,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   }
 
   function exportProjectJSON() {
+    if (!assertEditorMode('JSON書き出し')) return;
     const data = _buildProjectData();
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -5981,6 +6137,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   function _pad2(n) { return String(n).padStart(2, '0'); }
 
   async function exportProjectPackage() {
+    if (!assertEditorMode('ZIPパッケージ書き出し')) return;
     if (typeof JSZip === 'undefined') { showGlobalError('JSZipの読み込みに失敗しました。'); return; }
     if (!scenes.length) { showToast('書き出すシーンがありません'); return; }
     showToast('パッケージを作成中…');
@@ -6109,6 +6266,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   function _doImportWithFiles(fileList) {
     if (!_importData) return;
+    // Same "open into empty project" exception as handleFiles(): restoring
+    // a JSON/ZIP into an empty viewer is viewing a file, not editing one.
+    // Importing into an already-loaded project merges/overwrites existing
+    // scenes/floorplans/markers, which is editing and requires Editor.
+    // Covers both the JSON-only path and the ZIP path (_doImportZipPackage
+    // delegates to this same function).
+    const projectWasEmpty = !scenes.length && !projectState.floorplans.length;
+    if (!projectWasEmpty && !assertEditorMode('JSON/ZIP読み込み')) return;
     const fileMap = {};
     Array.from(fileList).forEach(f => { fileMap[f.name] = f; });
 

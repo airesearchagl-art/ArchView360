@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ArchView360 - 360°パノラマビューワー</title>
-  <link rel="stylesheet" href="style.css?v=20260621a" />
+  <link rel="stylesheet" href="style.css?v=20260720a" />
 </head>
 <body>
   <header class="header">
@@ -12,11 +12,15 @@
       <div class="logo">
         <span class="logo-icon">⬡</span>
         <span class="logo-text">ArchView360</span>
-        <span id="app-version-badge" class="app-version-badge">v2.20.0</span>
+        <span id="app-version-badge" class="app-version-badge">v2.21.0</span>
       </div>
       <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
       <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
       <div class="header-actions">
+        <div id="app-mode-switch" class="app-mode-switch" title="Viewer: 閲覧専用。Editor: シーン追加・平面図編集・保存/書き出しなどの編集機能を利用できます。">
+          <span id="app-mode-label" class="app-mode-label">Viewer</span>
+          <button id="app-mode-toggle-btn" type="button" class="header-link-btn app-mode-toggle-btn">Editorへ切替</button>
+        </div>
         <button id="quick-help-btn" class="header-link-btn" title="クイックヘルプを開く">❔ クイックヘルプ</button>
         <a id="manual-link-btn" class="header-link-btn" href="/docs/index.html" target="_blank" rel="noopener" title="ユーザーマニュアルを開く">📖 マニュアル</a>
         <a id="security-link-btn" class="header-link-btn" href="/docs/security.html" target="_blank" rel="noopener" title="セキュリティポリシーを開く">🔒 セキュリティ</a>
@@ -105,7 +109,7 @@
         <div class="scene-panel-hd">
           <span id="scene-counter" class="scene-counter">0 / 0</span>
           <div class="scene-panel-actions">
-            <button id="add-scene-btn" class="sidebar-btn" title="画像を追加">＋ 追加</button>
+            <button id="add-scene-btn" class="sidebar-btn editor-only" title="画像を追加">＋ 追加</button>
             <button id="clear-all-btn" class="sidebar-btn sidebar-btn-danger" title="すべてクリア">🗑</button>
           </div>
         </div>
@@ -166,10 +170,10 @@
         <!-- ===== ツールバー：通常表示時 ===== -->
         <div id="toolbar-single" class="toolbar">
           <!-- 【画像】グループ -->
-          <button id="add-img-btn" class="toolbar-btn" data-action="add">
+          <button id="add-img-btn" class="toolbar-btn editor-only" data-action="add">
             <span class="btn-icon">＋</span><span class="btn-label">画像追加</span>
           </button>
-          <button id="update-scene-btn" class="toolbar-btn" data-action="update-scene" title="現在のシーンの画像を更新（scene.id・marker・比較セット等は維持）">
+          <button id="update-scene-btn" class="toolbar-btn editor-only" data-action="update-scene" title="現在のシーンの画像を更新（scene.id・marker・比較セット等は維持）">
             <span class="btn-icon">🔄</span><span class="btn-label">シーン更新</span>
           </button>
           <button id="back-btn" class="toolbar-btn toolbar-btn-muted" data-action="back">
@@ -179,7 +183,7 @@
           <div class="tb-sep"></div>
 
           <!-- 【表示】グループ -->
-          <button id="flip-btn" class="toolbar-btn" data-action="flip">
+          <button id="flip-btn" class="toolbar-btn editor-only" data-action="flip">
             <span class="btn-icon">↔</span><span class="btn-label">左右反転</span>
           </button>
           <button id="autorotate-btn" class="toolbar-btn" data-action="autorotate">
@@ -212,22 +216,22 @@
           <div class="tb-sep"></div>
 
           <!-- 【プロジェクト】グループ -->
-          <button id="add-floorplan-btn" class="toolbar-btn" title="平面図を追加">
+          <button id="add-floorplan-btn" class="toolbar-btn editor-only" title="平面図を追加">
             <span class="btn-icon">🗺</span><span class="btn-label">平面図</span>
           </button>
-          <button id="project-info-btn" class="toolbar-btn" title="案件名・施主名・作成者などのプロジェクト情報を編集">
+          <button id="project-info-btn" class="toolbar-btn editor-only" title="案件名・施主名・作成者などのプロジェクト情報を編集">
             <span class="btn-icon">📋</span><span class="btn-label">案件情報</span>
           </button>
-          <button id="export-json-btn" class="toolbar-btn" title="JSON設定ファイルを書き出します">
+          <button id="export-json-btn" class="toolbar-btn editor-only" title="JSON設定ファイルを書き出します">
             <span class="btn-icon">⬇</span><span class="btn-label">設定を書き出し</span>
           </button>
-          <button id="import-json-btn" class="toolbar-btn" title="JSON設定ファイルを読み込みます">
+          <button id="import-json-btn" class="toolbar-btn editor-only" title="JSON設定ファイルを読み込みます">
             <span class="btn-icon">⬆</span><span class="btn-label">設定を読み込み</span>
           </button>
-          <button id="export-package-btn" class="toolbar-btn" title="画像・平面図・設定をまとめてZIPパッケージとして書き出します">
+          <button id="export-package-btn" class="toolbar-btn editor-only" title="画像・平面図・設定をまとめてZIPパッケージとして書き出します">
             <span class="btn-icon">📦</span><span class="btn-label">パッケージ書き出し</span>
           </button>
-          <button id="import-package-btn" class="toolbar-btn" title="ZIPパッケージから画像・平面図・設定をまとめて読み込みます">
+          <button id="import-package-btn" class="toolbar-btn editor-only" title="ZIPパッケージから画像・平面図・設定をまとめて読み込みます">
             <span class="btn-icon">📦</span><span class="btn-label">パッケージ読み込み</span>
           </button>
         </div>
@@ -269,17 +273,17 @@
           <div class="tb-sep"></div>
 
           <!-- 【セット保存】グループ -->
-          <button id="save-set-btn" class="toolbar-btn toolbar-btn-sm" data-action="save-set" title="現在の比較をセットとして保存">
+          <button id="save-set-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="save-set" title="現在の比較をセットとして保存">
             <span class="btn-icon">💾</span><span class="btn-label">セット保存</span>
           </button>
 
           <div class="tb-sep"></div>
 
           <!-- 【補正】グループ -->
-          <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-a">
+          <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-a">
             <span class="btn-icon">↔</span><span class="btn-label">A反転</span>
           </button>
-          <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm" data-action="flip-b">
+          <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-b">
             <span class="btn-icon">↔</span><span class="btn-label">B反転</span>
           </button>
           <button id="sync-btn" class="toolbar-btn toolbar-btn-sm active" data-action="sync" title="視点同期 ON/OFF (L)">
@@ -372,11 +376,11 @@
               <button class="floormap-icon-btn floormap-size-btn" data-size="360" title="M">M</button>
               <button class="floormap-icon-btn floormap-size-btn" data-size="520" title="L">L</button>
               <button class="floormap-icon-btn floormap-size-btn" data-size="700" title="XL">XL</button>
-              <button id="floormap-place-btn" class="floormap-icon-btn" title="マーカー配置モード">📍</button>
+              <button id="floormap-place-btn" class="floormap-icon-btn editor-only" title="マーカー配置モード">📍</button>
               <button id="floormap-toggle-btn" class="floormap-icon-btn" title="折りたたむ">−</button>
             </div>
           </div>
-          <div id="floormap-orient-bar" class="floormap-orient-bar" style="display:none">
+          <div id="floormap-orient-bar" class="floormap-orient-bar editor-only" style="display:none">
             <span class="floormap-orient-label">方位補正</span>
             <button id="floormap-orient-l" class="floormap-icon-btn" title="反時計回り15°">↺</button>
             <span id="floormap-orient-val" class="floormap-orient-val">0°</span>
@@ -413,7 +417,7 @@
                 <div id="floormap-info-dir" class="floormap-info-dir">0°</div>
               </div>
             </div>
-            <div class="floormap-info-actions">
+            <div class="floormap-info-actions editor-only">
               <button id="floormap-rename-btn" class="floormap-icon-btn" title="名称変更">✏</button>
               <button id="floormap-rot-l" class="floormap-icon-btn" title="左15°回転">↺</button>
               <button id="floormap-rot-r" class="floormap-icon-btn" title="右15°回転">↻</button>
@@ -424,7 +428,7 @@
           <div id="floormap-mk-list" class="floormap-mk-list">
             <div class="floormap-mk-list-hd">
               <span class="floormap-mk-list-hd-label">マーカー一覧</span>
-              <button id="floormap-reseq-btn" class="floormap-icon-btn" title="番号を1,2,3...に整理">番号を整理</button>
+              <button id="floormap-reseq-btn" class="floormap-icon-btn editor-only" title="番号を1,2,3...に整理">番号を整理</button>
             </div>
             <ul id="floormap-mk-list-ul" class="floormap-mk-list-ul"></ul>
             <div id="floormap-mk-list-empty" class="floormap-mk-list-empty" style="display:none">マーカーなし</div>
@@ -451,7 +455,7 @@
   </main>
 
   <footer class="footer">
-    <p>ArchView360 v2.20.0 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
+    <p>ArchView360 v2.21.0 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
   </footer>
 
   <script type="module" src="vendor/three-global.js"></script>
@@ -619,6 +623,6 @@
   <!-- VR Debug Log: on-screen input state (v2.15). Local-only, never persisted. -->
   <pre id="vr-debug-log" class="vr-debug-log" style="display:none" aria-label="VR Debug Log"></pre>
 
-  <script src="script.js?v=20260719c" defer></script>
+  <script src="script.js?v=20260720a" defer></script>
 </body>
 </html>
