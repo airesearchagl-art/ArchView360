@@ -19,7 +19,11 @@ module.exports = defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [['list']],
+  // 'list' for readable console output everywhere; 'html' so CI has a
+  // report to attach as a failure artifact (never opened automatically —
+  // playwright-report/ and test-results/ are both gitignored, generated
+  // fresh on every run, and never committed).
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     viewport: { width: 1280, height: 900 },
