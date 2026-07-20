@@ -72,6 +72,81 @@
     </ol>
     <p>詳しくは「<a href="/docs/project-json.html">プロジェクトJSON / プロジェクトZIP</a>」を参照してください。</p>
 
+    <h2>画面構成</h2>
+    <p>ツールバー（画面上部）とシーン一覧（画面左のサイドバー）、中央の360°ビューワーで構成されます。ツールバーには「見るための操作」（自動回転・リセット・全画面・比較・VRなど）と「編集するための操作」（画像追加・シーン更新・左右反転・平面図・案件情報・書き出し／読み込みなど）が並びますが、後者は次に説明する<strong>Editorモード</strong>のときだけ表示されます。</p>
+
+    <h2>Viewerモード / Editorモード（v2.21〜）</h2>
+    <p>ArchView360には、画面右上のボタンで切り替えられる2つのモードがあります。ArchView360を開いたとき・ページを再読み込みしたときは、常に<strong>Viewerモード</strong>から始まります。</p>
+
+    <figure class="m-illustration">
+      <svg width="560" height="150" viewBox="0 0 560 150" role="img" aria-label="ViewerモードとEditorモードの切替ボタンの図">
+        <rect x="0" y="0" width="560" height="150" rx="10" fill="#1d212c" stroke="#2a2f3d"/>
+        <rect x="30" y="45" width="200" height="60" rx="8" fill="rgba(79,124,255,.14)" stroke="#4f7cff"/>
+        <text x="130" y="70" fill="#e8eaf0" font-size="12" text-anchor="middle" font-family="sans-serif">Viewer</text>
+        <text x="130" y="88" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">閲覧専用・編集ボタン非表示</text>
+        <path d="M240 75 L320 75" stroke="#4f7cff" stroke-width="2" marker-end="url(#vh1)"/>
+        <path d="M320 95 L240 95" stroke="#9aa0b0" stroke-width="2" marker-end="url(#vh2)"/>
+        <text x="280" y="68" fill="#7fa0ff" font-size="9" text-anchor="middle" font-family="sans-serif">Editorへ切替</text>
+        <text x="280" y="112" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">Viewerで確認</text>
+        <defs>
+          <marker id="vh1" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4f7cff"/></marker>
+          <marker id="vh2" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#9aa0b0"/></marker>
+        </defs>
+        <rect x="330" y="45" width="200" height="60" rx="8" fill="rgba(255,255,255,.05)" stroke="#3a4050"/>
+        <text x="430" y="70" fill="#e8eaf0" font-size="12" text-anchor="middle" font-family="sans-serif">Editor</text>
+        <text x="430" y="88" fill="#9aa0b0" font-size="9" text-anchor="middle" font-family="sans-serif">編集可能・編集ボタン表示</text>
+      </svg>
+      <figcaption>図3：画面右上のボタンでViewer ⇔ Editorを切り替えます</figcaption>
+    </figure>
+
+    <h3>Viewerモード（閲覧専用）</h3>
+    <ul>
+      <li>視点の操作・ズーム・シーン切替・自動回転・全画面・分割比較／スライダー比較・VRモードなど、「見る」ための操作はすべて利用できます。</li>
+      <li>シーンの追加・削除・並び替え・画像の反転、平面図の追加・編集、マーカーの配置、案件情報の編集、設定の書き出し・読み込みなど、内容を変更する操作のボタンは表示されません。</li>
+      <li>まだ何も読み込んでいない状態であれば、Viewerモードのままでも単一画像・設定JSON・プロジェクトZIPを開いて閲覧できます（新しく開く操作は「見る」ことの一部として扱われます）。</li>
+    </ul>
+
+    <h3>Editorモード（編集可能）</h3>
+    <ul>
+      <li>画面右上の「Editorへ切替」ボタンを押すと、Editorモードに入り、編集用のボタンがすべて表示されます。</li>
+      <li>シーンの追加・削除・並び替え・画像の反転・更新、平面図の追加・編集、マーカーの配置・移動、案件情報の編集、設定JSON・プロジェクトZIPの書き出し／読み込みなど、内容を変更する操作はEditorモードで行います。</li>
+      <li>Editorモードから「Viewerで確認」ボタンを押すと、Viewerモードへ戻ります。編集中の内容がまだ保存されていない場合の挙動は、次の「未保存変更について」を参照してください。</li>
+    </ul>
+
+    <h2>プロジェクトへ追加・インポートする</h2>
+    <p>すでにシーンを読み込んでいる状態（プロジェクトが空でない状態）へ、さらに画像を追加したり、別の設定JSON・プロジェクトZIPを読み込んだりする場合は、Editorモードに切り替えてから行います。</p>
+    <ul>
+      <li><strong>画像の追加：</strong> ツールバーの「画像追加」から、既存のシーンに新しい画像を追加できます。既存のシーンや設定は変更されません。</li>
+      <li><strong>設定JSON・プロジェクトZIPの読み込み（置き換え）：</strong> すでに何か読み込んでいる状態で別の設定JSON・プロジェクトZIPを読み込もうとすると、「このまま続行すると、保存していない変更が失われます」という確認が表示されます。保存していない変更がない場合は、そのまま置き換えが行われます。</li>
+    </ul>
+
+    <h2>編集する</h2>
+    <p>Editorモードでは、これまでどおりシーンの並び替え・画像差し替え・平面図へのマーカー配置・比較セットの保存などが行えます。詳しい操作方法は「<a href="/docs/scene-management.html">シーン管理</a>」「<a href="/docs/floormap.html">FloorMap</a>」「<a href="/docs/compare.html">比較モード</a>」を参照してください。</p>
+
+    <h2>保存する</h2>
+    <p>編集した内容は自動保存されません。ツールバーの「設定を書き出し」（JSON）または「パッケージ書き出し」（ZIP、画像も含む）から、その都度明示的に保存してください。書き出しが完了すると、次に説明する未保存インジケーターは消えます。詳しくは「<a href="/docs/project-json.html">プロジェクトJSON / プロジェクトZIP</a>」を参照してください。</p>
+
+    <h2>未保存変更について（v2.22〜）</h2>
+    <p>Editorで何か変更を行うと、画面右上のApp Mode切替ボタンの隣に「<strong>● 未保存</strong>」という表示が現れ、ブラウザタブのタイトルの先頭にも <code>*</code> が付きます。これは、まだファイルとして保存していない変更があることを示します。</p>
+    <ul>
+      <li><strong>Viewerへ移動しても消えません：</strong> 未保存の変更がある状態で「Editorへ切替」の隣のボタンを押してViewerへ移動しようとすると、「保存せずViewerへ移動しますか」という確認が表示されます。「保存せずViewerへ移動」を選んでも、編集した内容が削除されるわけではありません。Viewerで閲覧を続けている間も未保存インジケーターは表示されたままで、Editorへ戻れば続きから編集できます。</li>
+      <li><strong>保存すると消えます：</strong> 「設定を書き出し」または「パッケージ書き出し」が完了すると、未保存インジケーターは消えます。</li>
+      <li><strong>プロジェクトを置き換えると失われる可能性があります：</strong> 未保存の変更がある状態で、別のプロジェクトを開く・読み込む・「すべてクリア」を行おうとすると、「このまま続行すると、保存していない変更が失われます」という確認が表示されます。保存する場合は先にキャンセルし、書き出してから改めて操作してください。</li>
+      <li>未保存の状態はそのブラウザタブの中だけで保持されます。タブを閉じたり、ページを再読み込みしたりすると失われるため、重要な変更は都度保存することをおすすめします。</li>
+    </ul>
+
+    <h2>エラー・復旧時の注意</h2>
+    <p>表示中に何らかの理由で画面が正しく描画されなくなった場合（グラフィック処理の一時的な問題など）、ArchView360は自動的に画面をリセットして復旧を試みます。この自動復旧では、未保存の変更が誤って「保存済み」として扱われることはありません。復旧後に未保存インジケーターが表示されている場合は、引き続き保存されていない状態ですので、必要に応じて保存してください。</p>
+
+    <h2>よくある操作上の注意</h2>
+    <ul>
+      <li>編集用のボタンが見当たらない場合は、Viewerモードのままになっていないか画面右上を確認してください。</li>
+      <li>未保存インジケーター（● 未保存）が表示されている間は、保存してから次の操作（プロジェクトを開く・切り替えるなど）に進むことをおすすめします。</li>
+      <li>比較セットの保存・平面図へのマーカー配置など、Editorモード限定の操作は、ボタン自体がViewerモードでは表示されません。</li>
+    </ul>
+
+    <p>バージョンごとの変更点は「<a href="/docs/version-history.html">🕘 更新履歴</a>」にまとめています。</p>
+
     <div class="m-pager">
       <span></span>
       <a href="/docs/scene-management.html">次へ：シーン管理 →</a>
