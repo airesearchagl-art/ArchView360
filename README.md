@@ -568,7 +568,7 @@ npm run test:debug    # Playwright Inspectorでデバッグ
 
 **対象範囲:** 初期表示、Viewer/Editorモード切替、Viewerでのmutation guard（隠しDOM要素経由の回帰確認）、Dirty Stateの基本遷移、JSON保存後のclean化、ローカルテスト用静的サーバー（`tests/server.js`）のパストラバーサル対策。テストは`tests/fixtures/`内の自作の最小画像のみを使用し、実案件データは一切参照しません。
 
-**CI:** 現時点ではGitHub Actions等のCIは未追加です（詳細は該当PR参照）。ローカルでの`npm test`実行が現在の唯一の自動検証手段です。
+**CI:** GitHub Actions（`.github/workflows/playwright.yml`）が、pull requestとmainへのpushのたびに`npm ci` → `npx playwright install --with-deps chromium` → `npm test`を実行します。対象ブラウザはChromiumのみです。実案件データ・外部API・Vercel Previewには一切依存しません。ローカルでの実行方法は上記のとおり変わりません。
 
 ---
 
