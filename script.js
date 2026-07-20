@@ -155,6 +155,13 @@ function init() {
   const appModeLabel       = $('app-mode-label');
   const appModeToggleBtn   = $('app-mode-toggle-btn');
 
+  // Dirty State (unsaved changes) — foundation
+  const dirtyIndicator         = $('dirty-indicator');
+  const dirtyConfirmModal      = $('dirty-confirm-modal');
+  const dirtyConfirmCloseBtn   = $('dirty-confirm-close-btn');
+  const dirtyConfirmCancelBtn  = $('dirty-confirm-cancel-btn');
+  const dirtyConfirmDiscardBtn = $('dirty-confirm-discard-btn');
+
   // Viewer
   const viewerCanvas       = $('viewer-canvas');
   const viewerContainer    = $('viewer-container');
@@ -591,6 +598,110 @@ function init() {
     }
   }
 
+  // ============================================================
+  // Dirty State (unsaved changes) — foundation (v2.21.x)
+  // ============================================================
+  // Tracks whether project data has unsaved changes. Independent of
+  // appMode, but only ever reachable through it: every function that
+  // writes to scenes/projectState/compareSets is already gated by
+  // assertEditorMode()/canMutateProject() (see App Mode above), so
+  // markProjectDirty() is only ever called after a real Editor-mode
+  // mutation actually succeeds — Viewer itself can never become dirty.
+  //
+  // Session-local only: never read from or written to project JSON, ZIP,
+  // localStorage, or a URL parameter, and never restored after reload —
+  // matches appMode's non-persistence contract exactly. Every page
+  // load/reload always starts clean.
+  //
+  // UI code must never assign to `projectDirty` directly. All transitions
+  // go through markProjectDirty()/markProjectClean() so there is exactly
+  // one place (renderDirtyUi()) that reacts to a change.
+  let projectDirty = false;
+  let _lastDirtyReason = null; // last transition's reason, for debugging only — never displayed or persisted
+  const _baseDocumentTitle = document.title;
+
+  function isProjectDirty() { return projectDirty; }
+
+  // Call immediately after a mutation has actually been applied to
+  // scenes/projectState/compareSets — never at the start of a handler, and
+  // never before a guard/validation/cancel check. `reason` is a short
+  // internal label (mirrors assertEditorMode()'s `label`), not shown to
+  // the user.
+  function markProjectDirty(reason) {
+    if (projectDirty) return; // no-op if already dirty; avoids redundant renders
+    projectDirty = true;
+    _lastDirtyReason = reason || null;
+    renderDirtyUi();
+  }
+
+  // Call after a save/export actually completes, or after a load/import
+  // fully replaces the working state with content that has no unsaved
+  // edits of its own (fresh open, successful restore, or an explicit
+  // discard). Never call this before an async save's success is known.
+  function markProjectClean(reason) {
+    if (!projectDirty) return;
+    projectDirty = false;
+    _lastDirtyReason = reason || null;
+    renderDirtyUi();
+  }
+
+  function renderDirtyUi() {
+    if (dirtyIndicator) dirtyIndicator.style.display = projectDirty ? '' : 'none';
+    document.title = projectDirty ? `* ${_baseDocumentTitle}` : _baseDocumentTitle;
+  }
+
+  // ============================================================
+  // Unsaved-changes confirmation (Dirty State) — foundation (v2.21.x)
+  // ============================================================
+  // The single shared gate in front of any operation that would discard
+  // unsaved Editor changes. Resolves to 'proceed' immediately (no dialog)
+  // when clean; when dirty, shows one shared modal and resolves to
+  // 'proceed' (user chose to discard) or 'cancel' (user backed out).
+  //
+  // This PR intentionally offers only Discard/Cancel from the dialog
+  // itself, not a third "save and continue" option — see PR body for the
+  // reasoning (no single canonical save action exists: JSON export and
+  // ZIP export are two separate, format-choosing actions, and guessing
+  // one on the user's behalf risks silently saving the wrong artifact).
+  // Saving remains an explicit, separate action via the existing export
+  // buttons, done before triggering the operation that needs this gate.
+  let _dirtyConfirmResolve = null;
+
+  function confirmDiscardUnsavedChanges() {
+    if (!projectDirty) return Promise.resolve('proceed');
+    if (_dirtyConfirmResolve) return Promise.resolve('cancel'); // already open — never stack a second dialog
+    showEl(dirtyConfirmModal);
+    return new Promise((resolve) => { _dirtyConfirmResolve = resolve; });
+  }
+
+  function _closeDirtyConfirmModal(result) {
+    hideEl(dirtyConfirmModal);
+    const resolve = _dirtyConfirmResolve;
+    _dirtyConfirmResolve = null;
+    if (resolve) resolve(result);
+  }
+
+  if (dirtyConfirmDiscardBtn) dirtyConfirmDiscardBtn.addEventListener('click', () => _closeDirtyConfirmModal('proceed'));
+  if (dirtyConfirmCancelBtn)  dirtyConfirmCancelBtn.addEventListener('click',  () => _closeDirtyConfirmModal('cancel'));
+  if (dirtyConfirmCloseBtn)   dirtyConfirmCloseBtn.addEventListener('click',   () => _closeDirtyConfirmModal('cancel'));
+  if (dirtyConfirmModal) {
+    dirtyConfirmModal.addEventListener('click', (e) => {
+      if (e.target === dirtyConfirmModal) _closeDirtyConfirmModal('cancel');
+    });
+  }
+
+  // beforeunload: always attached, but only actually warns while dirty —
+  // never added/removed dynamically, so it can't fall out of sync with
+  // projectDirty. Viewer can never be dirty (see above), so browsing-only
+  // sessions never see this warning; it fires only for unsaved Editor
+  // changes, matching the browser's own generic warning text (custom
+  // messages are ignored by modern browsers regardless).
+  window.addEventListener('beforeunload', (e) => {
+    if (!projectDirty) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
   // ---- Project State ----
   const projectState = {
     projectName: 'Untitled Project',
@@ -640,6 +751,7 @@ function init() {
     if (!mk) return false;
     mk.order = v;
     _resolveOrderConflicts(mk.floorplanId, markerId);
+    markProjectDirty('マーカー番号変更');
     return true;
   }
 
@@ -663,10 +775,12 @@ function init() {
   function resequenceMarkers() {
     if (!activeFloorplanId) return;
     if (!assertEditorMode('マーカー番号整理')) return;
-    projectState.markers
+    const targets = projectState.markers
       .filter(m => m.floorplanId === activeFloorplanId)
-      .sort((a, b) => (a.order || 0) - (b.order || 0))
-      .forEach((m, i) => { m.order = i + 1; });
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    if (!targets.length) return; // nothing to renumber — not a mutation
+    targets.forEach((m, i) => { m.order = i + 1; });
+    markProjectDirty('マーカー番号整理');
     renderMarkerList(); renderFloormapCanvas();
     showToast('番号を整理しました');
   }
@@ -874,6 +988,9 @@ function init() {
     });
 
     if (wasEmpty) {
+      // Opening files as a fresh project is a load, not an edit — always
+      // ends clean, regardless of which mode opened it in.
+      markProjectClean('新規プロジェクトを開く');
       showViewerLayout();
       initThree();
       requestAnimationFrame(() => {
@@ -882,6 +999,7 @@ function init() {
       });
       renderCompareSets();
     } else {
+      markProjectDirty('画像追加');
       renderSceneList();
       if (compareState.mode !== 'single') updateCompareSelects();
       updateCompareBtns();
@@ -932,6 +1050,7 @@ function init() {
     s.fileName = f.name;
     s.thumbUrl = null;
     // scene.id, markers, compareSets, groups, floorplanId, projectInfo references all untouched
+    markProjectDirty('シーン画像の更新');
 
     generateThumb(newBlobUrl, (dataUrl) => {
       s.thumbUrl = dataUrl;
@@ -1137,7 +1256,11 @@ function init() {
     if (compareState.mode !== 'single') exitCompareMode(true);
     scenes.splice(idx, 1);
 
+    // Deleting the last scene resets to the pristine empty project —
+    // clearAllAndShowUpload() itself marks that state clean, so it takes
+    // over the dirty transition here rather than marking dirty first.
     if (!scenes.length) { disposeCurrentSphere(); clearAllAndShowUpload(); return; }
+    markProjectDirty('シーン削除');
     // Remove markers referencing deleted scene
     const deletedId = scenes[idx]?.id; // scenes[idx] was already spliced? No, we spliced before this line
     // Actually: idx was already removed by splice above; use the blobUrl approach
@@ -1173,6 +1296,7 @@ function init() {
     if (!assertEditorMode('シーン並び替え')) return;
     const [moved] = scenes.splice(fromIdx, 1);
     scenes.splice(toIdx, 0, moved);
+    markProjectDirty('シーン並び替え');
 
     // Adjust currentIdx
     if (currentIdx === fromIdx) {
@@ -1247,6 +1371,12 @@ function init() {
 
     hideEl(viewerLayout);
     showEl(uploadSection);
+    // The project genuinely is empty/pristine after this point in every
+    // caller (explicit clear, cascading last-scene delete, WebGL-context
+    // recovery, error recovery) — always clean, never gated here. The
+    // discard *confirmation* before an intentional clear lives at the
+    // clear-all-btn/back-btn handlers, not in this shared reset function.
+    markProjectClean('プロジェクトをクリア');
   }
 
   // ============================================================
@@ -1328,6 +1458,7 @@ function init() {
         scenes.forEach(s => { if (s.groupId === gid) s.groupId = null; });
         projectState.groups = projectState.groups.filter(g => g.id !== gid);
         collapsedGroups.delete(gid);
+        markProjectDirty('グループ削除');
         renderSceneList();
       });
 
@@ -1411,7 +1542,7 @@ function init() {
       nameEl.classList.remove('editing');
       if (!canMutateProject()) return;
       const n = nameEl.textContent.trim();
-      s.name = n || s.name;
+      if (n && n !== s.name) { s.name = n; markProjectDirty('シーン名称変更'); }
       nameEl.textContent = s.name;
       nameEl.title = s.name;
       if (i === currentIdx) currentSceneNameEl.textContent = s.name;
@@ -1692,7 +1823,7 @@ function init() {
     noneItem.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!assertEditorMode('グループ割り当て')) return;
-      if (s) s.groupId = null;
+      if (s && s.groupId !== null) { s.groupId = null; markProjectDirty('グループ割り当て'); }
       closeGroupPicker(); renderSceneList();
     });
     list.appendChild(noneItem);
@@ -1714,6 +1845,7 @@ function init() {
         scenes.forEach(sc => { if (sc.groupId === g.id) sc.groupId = null; });
         projectState.groups = projectState.groups.filter(x => x.id !== g.id);
         collapsedGroups.delete(g.id);
+        markProjectDirty('グループ削除');
         _renderGroupPickerList(); renderSceneList();
       });
 
@@ -1722,7 +1854,7 @@ function init() {
         if (e.target === delBtn) return;
         e.stopPropagation();
         if (!assertEditorMode('グループ割り当て')) return;
-        if (s) s.groupId = g.id;
+        if (s && s.groupId !== g.id) { s.groupId = g.id; markProjectDirty('グループ割り当て'); }
         closeGroupPicker(); renderSceneList();
       });
       list.appendChild(item);
@@ -1745,7 +1877,7 @@ function init() {
     input.select();
     const commit = () => {
       const v = input.value.trim();
-      if (v) group.name = v;
+      if (v && v !== group.name) { group.name = v; markProjectDirty('グループ名変更'); }
       renderSceneList();
     };
     const cancel = () => renderSceneList();
@@ -2281,9 +2413,21 @@ function init() {
   // requestEditorAccess() is the only function it calls, never
   // appMode = 'editor' or enterEditorMode() directly.
   if (appModeToggleBtn) {
-    appModeToggleBtn.addEventListener('click', () => {
-      if (getAppMode() === 'editor') enterViewerMode();
-      else requestEditorAccess();
+    appModeToggleBtn.addEventListener('click', async () => {
+      if (getAppMode() === 'editor') {
+        // Editor -> Viewer never destroys data (Viewer keeps browsing the
+        // same in-memory project), so "discard" here only clears the dirty
+        // flag, not the data itself.
+        const result = await confirmDiscardUnsavedChanges();
+        if (result === 'cancel') return;
+        markProjectClean('Editor → Viewer 切替（破棄）');
+        enterViewerMode();
+      } else {
+        // Viewer -> Editor never needs a discard confirmation: Viewer can
+        // never be dirty (every mutation path is guarded), so this is
+        // always a no-op fast path via confirmDiscardUnsavedChanges().
+        requestEditorAccess();
+      }
     });
   }
   renderModeUi(); // apply the initial 'viewer' state to the DOM immediately
@@ -2343,6 +2487,7 @@ function init() {
         if (existingIdx >= 0) sets[existingIdx] = newSet;
         else sets.push(newSet);
         _saveCompareSetsToStorage(sets);
+        markProjectDirty('比較セット保存');
         compareState.activeSetId = newSet.id;
         showToast(`比較セット「${setName}」を保存しました — サイドバーから再表示できます`);
         // Defer DOM rebuild to avoid INP on the save button click
@@ -2372,6 +2517,7 @@ function init() {
     if (!assertEditorMode('比較セット削除')) return;
     const sets = _loadCompareSets().filter(s => s.id !== setId);
     _saveCompareSetsToStorage(sets);
+    markProjectDirty('比較セット削除');
     if (compareState.activeSetId === setId) compareState.activeSetId = null;
     showToast('比較セットを削除しました');
     setTimeout(() => renderCompareSets(), 0);
@@ -2385,9 +2531,10 @@ function init() {
     openSetNameModal(
       { title: 'セット名を変更', defaultName: set.name, okLabel: '変更' },
       (name) => {
-        if (!name) return;
+        if (!name || name === set.name) return;
         set.name = name;
         _saveCompareSetsToStorage(sets);
+        markProjectDirty('比較セット名変更');
         setTimeout(() => renderCompareSets(), 0);
       }
     );
@@ -2580,6 +2727,7 @@ function init() {
     scenes[currentIdx].flipH = !scenes[currentIdx].flipH;
     flipBtn.classList.toggle('active', scenes[currentIdx].flipH);
     applyFlip(sphere, scenes[currentIdx].flipH);
+    markProjectDirty('左右反転');
   }
 
   function toggleFlipCompare(side) {
@@ -2589,6 +2737,7 @@ function init() {
     scenes[idx].flipH = !scenes[idx].flipH;
     (side === 'a' ? flipABtn : flipBBtn).classList.toggle('active', scenes[idx].flipH);
     applyFlip(side === 'a' ? sphereA : sphereB, scenes[idx].flipH);
+    markProjectDirty('左右反転');
   }
 
   // ============================================================
@@ -2891,8 +3040,19 @@ function init() {
     if (currentIdx < 0 || !scenes.length) { showToast('シーンがありません'); return; }
     openReplaceScenePicker(currentIdx);
   });
-  clearAllBtn.addEventListener('click',  clearAllAndShowUpload);
-  backBtn.addEventListener('click',      clearAllAndShowUpload);
+  // These are the only two user-initiated entry points to
+  // clearAllAndShowUpload() — the confirm gate lives here, not inside the
+  // shared reset function itself, because that function is also called
+  // from forced/automatic recovery paths (WebGL context restore, error
+  // recovery, the last-scene-deleted cascade) that must never block on a
+  // dialog. See clearAllAndShowUpload()'s own comment.
+  async function _confirmedClearAll() {
+    const result = await confirmDiscardUnsavedChanges();
+    if (result === 'cancel') return;
+    clearAllAndShowUpload();
+  }
+  clearAllBtn.addEventListener('click',  _confirmedClearAll);
+  backBtn.addEventListener('click',      _confirmedClearAll);
 
   splitCompareBtn.addEventListener('click',   () => enterSplitMode());
   sliderCompareBtn.addEventListener('click',  () => enterSliderMode());
@@ -5073,6 +5233,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     });
     if (!activeFloorplanId && projectState.floorplans.length)
       activeFloorplanId = projectState.floorplans[0].id;
+    markProjectDirty('平面図追加');
     renderFloorplanList();
     renderSceneFilterBar();
     renderDashboard();
@@ -5090,6 +5251,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (activeFloorplanId === id)
       activeFloorplanId = projectState.floorplans[0]?.id || null;
     if (sceneFilterFloorplanId === id) sceneFilterFloorplanId = null;
+    markProjectDirty('平面図削除');
     renderFloorplanList();
     renderFloormap();
     renderSceneFilterBar();
@@ -5140,7 +5302,8 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       nameEl.addEventListener('blur', () => {
         nameEl.contentEditable = 'false'; nameEl.classList.remove('editing');
         if (!canMutateProject()) { nameEl.textContent = fp.name; return; }
-        fp.name = nameEl.textContent.trim() || fp.name;
+        const newName = nameEl.textContent.trim() || fp.name;
+        if (newName !== fp.name) { fp.name = newName; markProjectDirty('平面図名称変更'); }
         nameEl.textContent = fp.name;
         // Update select if this is active
         if (fp.id === activeFloorplanId) _updateFloormapSelect();
@@ -5583,6 +5746,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         markers.splice(insertAt, 0, moved);
         // Re-sequence orders 1,2,3...
         markers.forEach((m, i) => { m.order = i + 1; });
+        markProjectDirty('マーカー並び替え');
         renderMarkerList(); renderFloormapCanvas();
         showToast('マーカーを並び替えました');
       });
@@ -5629,11 +5793,13 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       { label: '↑ 番号を前へ', disabled: mkPos <= 0, action: () => {
         const prev = fpMarkers[mkPos - 1];
         [mk.order, prev.order] = [prev.order, mk.order];
+        markProjectDirty('マーカー番号変更');
         renderMarkerList(); renderFloormapCanvas();
       }},
       { label: '↓ 番号を後ろへ', disabled: mkPos >= fpMarkers.length - 1, action: () => {
         const next = fpMarkers[mkPos + 1];
         [mk.order, next.order] = [next.order, mk.order];
+        markProjectDirty('マーカー番号変更');
         renderMarkerList(); renderFloormapCanvas();
       }},
       { label: '🔢 番号を変更', action: () => {
@@ -5742,7 +5908,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const coords = _canvasToImage(e);
     if (!coords) return;
     const mk = projectState.markers.find(m => m.id === _dragMarkerId);
-    if (mk) { mk.x = coords.x; mk.y = coords.y; renderFloormapCanvas(); }
+    if (mk) { mk.x = coords.x; mk.y = coords.y; markProjectDirty('マーカー移動'); renderFloormapCanvas(); }
   });
 
   floormapCanvas.addEventListener('mouseleave', () => {
@@ -5812,6 +5978,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     // Auto-associate scene with current floor plan
     curScene.floorplanId = activeFloorplanId;
     selectedMarkerId = mk.id;
+    markProjectDirty('マーカー配置');
     renderFloormapCanvas();
     _updateInfoPanel();
     renderMarkerList();
@@ -5853,6 +6020,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!mk) return;
     if (!assertEditorMode('マーカー回転')) return;
     mk.rotation = ((mk.rotation || 0) + delta + 360) % 360;
+    markProjectDirty('マーカー回転');
     renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
   }
 
@@ -5866,6 +6034,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       // If scene has no more markers, clear its floorplanId
       const scene = scenes.find(s => s.id === sceneId);
       if (scene && !isScenePlaced(scene)) scene.floorplanId = null;
+      markProjectDirty('マーカー削除');
     }
     selectedMarkerId = null;
     renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
@@ -5972,6 +6141,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!fp) return;
     fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
     floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+    markProjectDirty('平面図の方位補正');
     renderFloormapCanvas();
   });
   function _adjustOrientOffset(delta) {
@@ -5981,6 +6151,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     fp.rotationOffset = ((fp.rotationOffset || 0) + delta + 360) % 360;
     floormapOrientVal.textContent = `${fp.rotationOffset}°`;
     floormapOrientPreset.value = String(fp.rotationOffset);
+    markProjectDirty('平面図の方位補正');
     renderFloormapCanvas();
   }
   floormapPlaceBtn.addEventListener('click', togglePlacementMode);
@@ -6019,7 +6190,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
       const trimmed = floormapInfoName.textContent.trim();
-      if (trimmed) mk.name = trimmed;
+      if (trimmed && trimmed !== mk.name) { mk.name = trimmed; markProjectDirty('マーカー名称変更'); }
       floormapInfoName.textContent = mk.name || '';
       renderMarkerList();
     }
@@ -6050,6 +6221,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (_groupPickerSceneIdx >= 0 && scenes[_groupPickerSceneIdx]) {
       scenes[_groupPickerSceneIdx].groupId = group.id;
     }
+    markProjectDirty('グループ作成');
     groupPickerInput.value = '';
     closeGroupPicker();
     renderSceneList();
@@ -6089,6 +6261,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     projectState.projectInfo.author = $('pi-author').value.trim();
     projectState.projectInfo.date   = $('pi-date').value;
     projectState.projectInfo.notes  = $('pi-notes').value.trim();
+    markProjectDirty('プロジェクト情報保存');
     closeProjectInfoModal();
     showToast('プロジェクト情報を保存しました');
   }
@@ -6106,7 +6279,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.21.0',
+      appVersion:  '2.22.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
@@ -6143,6 +6316,10 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    // Browsers give no reliable "saved to disk" signal for a download; per
+    // this app's existing save UX, reaching this point (blob built, download
+    // triggered without throwing) is treated as save success — see PR body.
+    markProjectClean('JSON書き出し');
     showToast('プロジェクトをJSONとして書き出しました（画像データは含まれません）');
   }
 
@@ -6212,6 +6389,9 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      // Same "no reliable disk-save signal" constraint as JSON export — see
+      // exportProjectJSON() and PR body.
+      markProjectClean('ZIPパッケージ書き出し');
 
       if (missing.length) {
         showToast(`パッケージを書き出しました（一部画像が取得できませんでした: ${missing.join(', ')}）`);
@@ -6279,7 +6459,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     showEl(importModal);
   }
 
-  function _doImportWithFiles(fileList) {
+  async function _doImportWithFiles(fileList) {
     if (!_importData) return;
     // Same "open into empty project" exception as handleFiles(): restoring
     // a JSON/ZIP into an empty viewer is viewing a file, not editing one.
@@ -6289,6 +6469,15 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     // delegates to this same function).
     const projectWasEmpty = !scenes.length && !projectState.floorplans.length;
     if (!projectWasEmpty && !assertEditorMode('JSON/ZIP読み込み')) return;
+    // Importing into a non-empty project can overwrite projectInfo/
+    // projectName and any marker sharing an id with the imported data, so
+    // it goes through the same discard confirmation as any other
+    // project-replacing operation. Opening into an empty project never
+    // reaches here (nothing to lose), so it's never gated.
+    if (!projectWasEmpty) {
+      const result = await confirmDiscardUnsavedChanges();
+      if (result === 'cancel') return;
+    }
     const fileMap = {};
     Array.from(fileList).forEach(f => { fileMap[f.name] = f; });
 
@@ -6398,6 +6587,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     renderDashboard();
     hideEl(importModal);
     _importData = null;
+    // Opening into an empty project is a load (clean); merging into an
+    // already-loaded one is an edit (dirty) — same "open vs add" split as
+    // handleFiles().
+    if (projectWasEmpty) markProjectClean('プロジェクトを開く');
+    else markProjectDirty('JSON/ZIP読み込み');
     showToast(`復元完了: シーン ${restoredScenes} / 平面図 ${restoredFPs} / マーカー ${restoredMk} / 比較セット ${restoredCs}`);
   }
 

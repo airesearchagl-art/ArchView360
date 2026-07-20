@@ -153,6 +153,16 @@ body {
 .mode-viewer .editor-only { display: none !important; }
 .mode-editor .viewer-only { display: none !important; }
 
+/* ===== v2.21.x: Dirty State (unsaved changes) indicator ===== */
+.dirty-indicator {
+  font-size: .68rem;
+  font-weight: 700;
+  color: var(--error);
+  white-space: nowrap;
+}
+.btn-danger  { background: var(--error); color: #fff; }
+.btn-danger:hover { filter: brightness(0.92); }
+
 /* ===== v2.9.4: Quick help modal ===== */
 .quick-help-box { max-width: 480px; width: 100%; }
 .quick-help-body { max-height: 60vh; overflow-y: auto; }
