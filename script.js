@@ -911,6 +911,11 @@ function init() {
     const idx = _replaceTargetIdx;
     _replaceTargetIdx = -1;
     if (!f || idx < 0 || idx >= scenes.length) return;
+    // Defense-in-depth: openReplaceScenePicker() already guards entry, but
+    // this is the actual mutation point (native file picker 'change' can
+    // fire after a mode switch race, or via a direct programmatic call on
+    // the hidden input), so it gets its own check too.
+    if (!assertEditorMode('シーン画像の更新')) return;
 
     const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
     const maxBytes = 100 * 1024 * 1024;
@@ -2277,7 +2282,7 @@ function init() {
   // appMode = 'editor' or enterEditorMode() directly.
   if (appModeToggleBtn) {
     appModeToggleBtn.addEventListener('click', () => {
-      if (appMode === 'editor') enterViewerMode();
+      if (getAppMode() === 'editor') enterViewerMode();
       else requestEditorAccess();
     });
   }
@@ -5987,6 +5992,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   // Rename button: make info-name div editable
   floormapRenameBtn.addEventListener('click', () => {
+    // Defense-in-depth: this button lives inside .floormap-info-actions
+    // (editor-only in CSS) and the context-menu path to it is already
+    // gated, but the handler itself had no independent check — add one so
+    // a hidden-element/programmatic click can't enable editing in Viewer.
+    if (!canMutateProject()) return;
     floormapInfoName.contentEditable = 'true';
     floormapInfoName.focus();
     const r = document.createRange();
@@ -6056,6 +6066,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // Project Info Modal (v2.5)
   // ============================================================
   function openProjectInfoModal() {
+    // project-info-btn (the only caller) is already editor-only in the DOM;
+    // guard here too so a hidden-element/programmatic call can't surface
+    // this editing-oriented modal in Viewer (saveProjectInfo() is guarded
+    // independently, but the dialog itself should never appear either).
+    if (!assertEditorMode('プロジェクト情報編集')) return;
     $('pi-name').value   = projectState.projectName || '';
     $('pi-client').value = projectState.projectInfo.client || '';
     $('pi-author').value = projectState.projectInfo.author || '';
