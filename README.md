@@ -545,6 +545,31 @@ Settings → Pages → Source を `main` ブランチの `/(root)` に設定
 
 ---
 
+## 🧪 自動テスト
+
+既存機能を壊さずに再実行できる最小の自動回帰テスト基盤です。手動確認を置き換えるものではなく、代表的な操作の回帰を検知するための最小限のsmoke testです。
+
+**セットアップ:**
+
+```bash
+npm install
+npm run playwright:install   # 初回のみ、Chromiumをローカルへ取得
+```
+
+**実行:**
+
+```bash
+npm test              # 全件をheadlessで実行
+npm run test:headed   # ブラウザを表示して実行
+npm run test:debug    # Playwright Inspectorでデバッグ
+```
+
+**対象範囲:** 初期表示、Viewer/Editorモード切替、Viewerでのmutation guard（隠しDOM要素経由の回帰確認）、Dirty Stateの基本遷移、JSON保存後のclean化。テストは`tests/fixtures/`内の自作の最小画像のみを使用し、実案件データは一切参照しません。
+
+**CI:** 現時点ではGitHub Actions等のCIは未追加です（詳細は該当PR参照）。ローカルでの`npm test`実行が現在の唯一の自動検証手段です。
+
+---
+
 ## 注意点
 
 - 非常に高解像度（8K以上）の画像はブラウザのメモリを大量に消費します

@@ -1,0 +1,15 @@
+{
+  "name": "archview360",
+  "private": true,
+  "version": "2.22.0",
+  "description": "Automated smoke test baseline for ArchView360 (static site, no build step).",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "playwright:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
