@@ -183,6 +183,16 @@
 
           <div class="tb-sep"></div>
 
+          <!-- 【編集履歴】グループ -->
+          <button id="undo-btn" class="toolbar-btn editor-only" data-action="undo" disabled title="元に戻す (Ctrl+Z / Cmd+Z)" aria-label="元に戻す (Ctrl+Z または Cmd+Z)">
+            <span class="btn-icon">↶</span><span class="btn-label">元に戻す</span>
+          </button>
+          <button id="redo-btn" class="toolbar-btn editor-only" data-action="redo" disabled title="やり直す (Ctrl+Shift+Z / Cmd+Shift+Z)" aria-label="やり直す (Ctrl+Shift+Z または Cmd+Shift+Z)">
+            <span class="btn-icon">↷</span><span class="btn-label">やり直す</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
           <!-- 【表示】グループ -->
           <button id="flip-btn" class="toolbar-btn editor-only" data-action="flip">
             <span class="btn-icon">↔</span><span class="btn-label">左右反転</span>
