@@ -6746,8 +6746,16 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   importCancelBtn.addEventListener('click', () => { hideEl(importModal); _importData = null; });
   importUploadBtn.addEventListener('click', () => importImagesInput.click());
   importImagesInput.addEventListener('change', () => {
-    if (importImagesInput.files.length) _doImportWithFiles(importImagesInput.files);
+    // Snapshot into a plain array before resetting .value: _doImportWithFiles()
+    // is async and, for a non-empty project, suspends at its own
+    // `await confirmUnsavedChanges()` before ever reading this list — by
+    // which time a live FileList reference from importImagesInput.files would
+    // already have been emptied by the reset below. _doImportWithFiles()
+    // already treats its argument as an iterable (Array.from(fileList)), so
+    // an Array works exactly like the FileList did.
+    const files = Array.from(importImagesInput.files || []);
     importImagesInput.value = '';
+    if (files.length) _doImportWithFiles(files);
   });
   importModal.addEventListener('click', (e) => {
     if (e.target === importModal) { hideEl(importModal); _importData = null; }
