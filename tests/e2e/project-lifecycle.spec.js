@@ -1,7 +1,6 @@
 // Regression coverage for the save/load lifecycle: JSON export, ZIP export,
 // JSON/ZIP Open+Import (both funnel into the same _doImportWithFiles()), and
-// the 'replace-project' unsaved-changes confirmation. Freezes current
-// behavior; does not change production code.
+// the 'replace-project' unsaved-changes confirmation.
 //
 // Fixtures are tiny, self-generated, fictional PNGs/JSON (tests/fixtures/) —
 // no real project data. fixture-a/b.png are reused from smoke.spec.js's set
@@ -9,22 +8,18 @@
 // json are new, used specifically for import/merge scenarios so the merged
 // content is visibly distinct from whatever was already loaded.
 //
-// KNOWN PRODUCTION BUG (not fixed here — see PR body): importing a JSON file
-// into an already-loaded (non-empty) project silently restores nothing —
-// scenes/floorplans/markers/compareSets all stay at 0 — while still showing
-// a "復元完了" success toast. Root cause: importImagesInput's change handler
-// calls the async _doImportWithFiles(importImagesInput.files) and then
-// immediately resets importImagesInput.value = ''; when the project is
-// non-empty, _doImportWithFiles awaits confirmUnsavedChanges() before ever
-// reading that fileList parameter, and the value reset empties the same
-// live FileList object out from under it. zipImportInput's handler resets
-// .value before calling its (differently-shaped) import path, so ZIP import
-// is unaffected. Two scenarios that would exercise the broken JSON path are
-// intentionally NOT covered below (freezing a known malfunction as a "pass"
-// would misrepresent it as correct): merging into a non-empty CLEAN project,
-// and completing (not cancelling) the unsaved-changes confirmation for a
-// non-empty DIRTY project. Only the cancel path is covered for the DIRTY
-// case, since cancelling returns before the buggy code ever runs.
+// FIXED PRODUCTION BUG: importing a JSON file into an already-loaded
+// (non-empty) project used to silently restore nothing while still showing
+// a "復元完了" success toast, because importImagesInput's change handler
+// reset its own .value right after handing the live FileList to the async
+// _doImportWithFiles(), which suspends at its own await confirmUnsavedChanges()
+// for a non-empty project — by the time it resumed, the reset had already
+// emptied that same FileList. Fixed by snapshotting the files into a plain
+// array before resetting .value (see importImagesInput's change handler in
+// script.js). The 'Import into a non-empty CLEAN/DIRTY project ... actually
+// merges' and 'the same JSON file ... can be re-selected' tests below
+// reproduce and cover this fix. zipImportInput's handler was never affected
+// (it resets .value before calling its differently-shaped import path).
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
@@ -181,6 +176,92 @@ test.describe('JSON Open / Import', () => {
     await expect(page.locator('#dirty-confirm-modal')).toBeHidden();
     await expect.poll(() => sceneNames(page)).toHaveLength(2); // unchanged — nothing merged
     await expect(dirtyIndicator(page)).toBeVisible(); // still dirty, from the original edit
+
+    expectNoErrors(errors);
+  });
+
+  test('Import into a non-empty CLEAN project actually merges the new scenes', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await enterEditor(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE_A); // empty -> clean, 1 existing scene
+    await expect(dirtyIndicator(page)).toBeHidden();
+    const existingCount = (await sceneNames(page)).length;
+    expect(existingCount).toBe(1);
+
+    await page.locator('#json-import-input').setInputFiles(LIFECYCLE_JSON);
+    await page.locator('#import-images-input').setInputFiles([LIFECYCLE_SCENE_A, LIFECYCLE_SCENE_B]);
+
+    await expect(page.locator('#dirty-confirm-modal')).toBeHidden(); // clean -> no confirmation needed
+    await expect(page.locator('#toast')).toContainText('復元完了: シーン 2 / 平面図 0 / マーカー 0 / 比較セット 0');
+    await expect.poll(() => sceneNames(page)).toHaveLength(3); // 1 existing + 2 merged, not replaced
+    const names = await sceneNames(page);
+    expect(names).toContain('fixture-a'); // existing scene preserved
+    expect(names).toContain('架空シーンA');
+    expect(names).toContain('架空シーンB');
+    await expect(dirtyIndicator(page)).toBeVisible(); // merging into a loaded project is an edit
+
+    expectNoErrors(errors);
+  });
+
+  test('Import into a non-empty DIRTY project — continuing actually merges (not a full replace)', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await enterEditor(page);
+    const fileInput = page.locator('#file-input');
+    await fileInput.setInputFiles(FIXTURE_A);
+    await fileInput.setInputFiles(FIXTURE_B); // additive -> dirty, 2 existing scenes
+    await expect(dirtyIndicator(page)).toBeVisible();
+    const existingCount = (await sceneNames(page)).length;
+    expect(existingCount).toBe(2);
+
+    await page.locator('#json-import-input').setInputFiles(LIFECYCLE_JSON);
+    await page.locator('#import-images-input').setInputFiles([LIFECYCLE_SCENE_A, LIFECYCLE_SCENE_B]);
+    await expect(page.locator('#dirty-confirm-modal')).toBeVisible();
+
+    await page.click('#dirty-confirm-discard-btn', { force: true }); // "破棄して続行"
+    await expect(page.locator('#dirty-confirm-modal')).toBeHidden();
+    await expect(page.locator('#import-modal')).toBeHidden();
+    await expect(page.locator('#toast')).toContainText('復元完了: シーン 2 / 平面図 0 / マーカー 0 / 比較セット 0');
+    // The confirm's "discard" label describes acknowledging the unsaved-changes
+    // risk, not an actual wipe: current behavior pushes the imported scenes
+    // onto the existing array, so the original 2 scenes survive alongside
+    // the 2 newly merged ones.
+    await expect.poll(() => sceneNames(page)).toHaveLength(4);
+    const names = await sceneNames(page);
+    expect(names).toContain('fixture-a');
+    expect(names).toContain('fixture-b');
+    expect(names).toContain('架空シーンA');
+    expect(names).toContain('架空シーンB');
+    await expect(dirtyIndicator(page)).toBeVisible();
+
+    expectNoErrors(errors);
+  });
+
+  test('the same JSON file and the same image files can be re-selected for a second import', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await enterEditor(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE_A); // empty -> clean, 1 existing scene
+    await expect(dirtyIndicator(page)).toBeHidden();
+
+    // First import cycle.
+    await page.locator('#json-import-input').setInputFiles(LIFECYCLE_JSON);
+    await expect(page.locator('#import-modal')).toBeVisible();
+    await page.locator('#import-images-input').setInputFiles([LIFECYCLE_SCENE_A, LIFECYCLE_SCENE_B]);
+    await expect(page.locator('#import-modal')).toBeHidden();
+    await expect.poll(() => sceneNames(page)).toHaveLength(3);
+
+    // Second import cycle re-selecting the exact same JSON and image files —
+    // proves the input .value reset (which browsers require to refire
+    // 'change' for an identical file) still happens, just moved to after the
+    // FileList has been safely snapshotted. The first merge left the project
+    // dirty, so this second cycle also exercises the confirm dialog.
+    await page.locator('#json-import-input').setInputFiles(LIFECYCLE_JSON);
+    await expect(page.locator('#import-modal')).toBeVisible();
+    await page.locator('#import-images-input').setInputFiles([LIFECYCLE_SCENE_A, LIFECYCLE_SCENE_B]);
+    await expect(page.locator('#dirty-confirm-modal')).toBeVisible();
+    await page.click('#dirty-confirm-discard-btn', { force: true });
+    await expect(page.locator('#dirty-confirm-modal')).toBeHidden();
+    await expect(page.locator('#import-modal')).toBeHidden();
+    await expect.poll(() => sceneNames(page)).toHaveLength(5); // 3 + 2 more merged
 
     expectNoErrors(errors);
   });
