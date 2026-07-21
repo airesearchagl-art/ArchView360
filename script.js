@@ -852,10 +852,18 @@ function init() {
     groups:     [], // { id, name } — scene groupings
   };
 
-  // Undo/Redo foundation (see HistoryManager above) — instantiated so
-  // it's part of the app's lifecycle, but not yet called from any
-  // mutation. No editing operation pushes to it in this commit.
+  // Undo/Redo foundation (see HistoryManager above). Scene renaming (see
+  // applySceneName()/the rename blur handler below) is the first, and so
+  // far only, editing operation wired into it — every other mutation
+  // (scenes add/delete/reorder, markers, floorplans, groups, compare
+  // sets, project info, Import/Export) is still unconnected.
   const historyManager = new HistoryManager({ maxSize: 100 });
+  // Test-only hook: there is no Undo/Redo UI or shortcut in this app yet,
+  // so Playwright has no production-facing way to trigger undo()/redo().
+  // Deliberately named differently from window.HistoryManager (the class,
+  // exposed for the same reason) since this is a specific instance, not
+  // the constructor. Never read by any production/UI code path.
+  window.__historyManagerForTests = historyManager;
 
   // ---- FloorMap Navigator state ----
   let activeFloorplanId   = null;
@@ -1542,6 +1550,39 @@ function init() {
   }
 
   // ============================================================
+  // Scene renaming — first operation wired into HistoryManager (v2.22.x+)
+  // ============================================================
+  // Single point that actually applies a scene's name and refreshes every
+  // place that currently displays it (sidebar list, current-scene label,
+  // and — matching the rename handler's pre-existing behavior — the
+  // compare-mode select labels when compare mode is active). Used both
+  // for a live user rename and for undo/redo replaying a past rename, so
+  // there is exactly one place that needs to stay in sync with whatever
+  // the sidebar/labels actually show.
+  //
+  // Always marks the project dirty, including when called from undo/redo:
+  // those are real changes to the working state relative to whatever was
+  // last saved, matching Dirty State's existing "never auto-clean" rule —
+  // undoing back to a previously-saved name does not by itself mean the
+  // project is saved again.
+  //
+  // Never calls historyManager.push() itself — only the rename commit
+  // handler below does, at the single point a user actually confirms a
+  // new name. That keeps undo()/redo() (which call this function) from
+  // ever recording a new history entry while replaying one.
+  function applySceneName(sceneId, name) {
+    const s = scenes.find(sc => sc.id === sceneId);
+    if (!s) return;
+    s.name = name;
+    renderSceneList();
+    if (currentIdx >= 0 && scenes[currentIdx] && scenes[currentIdx].id === sceneId) {
+      currentSceneNameEl.textContent = name;
+    }
+    if (compareState.mode !== 'single') updateCompareSelects();
+    markProjectDirty('シーン名称変更');
+  }
+
+  // ============================================================
   // Render scene list — v2.5: filtered + grouped
   // ============================================================
   function renderSceneList() {
@@ -1704,11 +1745,24 @@ function init() {
       nameEl.classList.remove('editing');
       if (!canMutateProject()) return;
       const n = nameEl.textContent.trim();
-      if (n && n !== s.name) { s.name = n; markProjectDirty('シーン名称変更'); }
-      nameEl.textContent = s.name;
-      nameEl.title = s.name;
-      if (i === currentIdx) currentSceneNameEl.textContent = s.name;
-      if (compareState.mode !== 'single') updateCompareSelects();
+      if (n && n !== s.name) {
+        // Capture before/after now — s.id never changes, but s.name is
+        // about to; renderSceneList() inside applySceneName() also
+        // recreates this exact DOM node, so nothing here is touched again
+        // after the branch below.
+        const sceneId = s.id, oldName = s.name, newName = n;
+        applySceneName(sceneId, newName);
+        historyManager.push({
+          label: 'Rename scene',
+          undo: () => applySceneName(sceneId, oldName),
+          redo: () => applySceneName(sceneId, newName),
+        });
+      } else {
+        nameEl.textContent = s.name;
+        nameEl.title = s.name;
+        if (i === currentIdx) currentSceneNameEl.textContent = s.name;
+        if (compareState.mode !== 'single') updateCompareSelects();
+      }
     });
     nameEl.addEventListener('keydown', (e) => {
       e.stopPropagation();
