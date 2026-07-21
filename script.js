@@ -887,10 +887,11 @@ function init() {
   }
 
   // Undo/Redo foundation (see HistoryManager above). Scene renaming (see
-  // applySceneName()/the rename blur handler below) is the first, and so
-  // far only, editing operation wired into it — every other mutation
-  // (scenes add/delete/reorder, markers, floorplans, groups, compare
-  // sets, project info, Import/Export) is still unconnected.
+  // applySceneName()) and single-view scene flip (see applySceneFlip() /
+  // toggleFlipSingle()) are the only editing operations wired into it so
+  // far — every other mutation (scenes add/delete/reorder, markers,
+  // floorplans, groups, compare-mode flip/compare sets, project info,
+  // Import/Export) is still unconnected.
   const historyManager = new HistoryManager({ maxSize: 100, onChange: updateHistoryControls });
   updateHistoryControls(); // set the buttons' initial (empty-history) disabled state
   // Test-only hook: there is no Undo/Redo keyboard/UI test seam otherwise,
@@ -2975,13 +2976,40 @@ function init() {
   // ============================================================
   // Flip
   // ============================================================
+  // Single point that actually applies a scene's flip state and refreshes
+  // the surfaces that show it (the flip button's active state and the
+  // live sphere texture, both only when that scene is the one currently
+  // displayed). Used both for a live user toggle and for undo/redo
+  // replaying a past toggle. Always marks the project dirty, including
+  // when called from undo/redo, matching applySceneName()'s same rule.
+  // Never calls historyManager.push() itself — only toggleFlipSingle()
+  // does, at the single point a user actually toggles the flip — so
+  // undo()/redo() (which call this function) can never record a new
+  // history entry while replaying one.
+  function applySceneFlip(sceneId, flipH) {
+    const s = scenes.find(sc => sc.id === sceneId);
+    if (!s) return;
+    s.flipH = flipH;
+    if (currentIdx >= 0 && scenes[currentIdx] && scenes[currentIdx].id === sceneId) {
+      flipBtn.classList.toggle('active', flipH);
+      applyFlip(sphere, flipH);
+    }
+    markProjectDirty('左右反転');
+  }
+
   function toggleFlipSingle() {
     if (currentIdx < 0) return;
     if (!assertEditorMode('左右反転')) return;
-    scenes[currentIdx].flipH = !scenes[currentIdx].flipH;
-    flipBtn.classList.toggle('active', scenes[currentIdx].flipH);
-    applyFlip(sphere, scenes[currentIdx].flipH);
-    markProjectDirty('左右反転');
+    const s = scenes[currentIdx];
+    const sceneId = s.id;
+    const oldFlip = s.flipH;
+    const newFlip = !oldFlip;
+    applySceneFlip(sceneId, newFlip);
+    historyManager.push({
+      label: 'Flip scene',
+      undo: () => applySceneFlip(sceneId, oldFlip),
+      redo: () => applySceneFlip(sceneId, newFlip),
+    });
   }
 
   function toggleFlipCompare(side) {
