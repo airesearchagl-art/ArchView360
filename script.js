@@ -2977,15 +2977,31 @@ function init() {
   // Flip
   // ============================================================
   // Single point that actually applies a scene's flip state and refreshes
-  // the surfaces that show it (the flip button's active state and the
-  // live sphere texture, both only when that scene is the one currently
-  // displayed). Used both for a live user toggle and for undo/redo
-  // replaying a past toggle. Always marks the project dirty, including
-  // when called from undo/redo, matching applySceneName()'s same rule.
-  // Never calls historyManager.push() itself — only toggleFlipSingle()
-  // does, at the single point a user actually toggles the flip — so
-  // undo()/redo() (which call this function) can never record a new
-  // history entry while replaying one.
+  // every surface that currently shows it. flipH lives on the scene
+  // itself (scenes[i].flipH) — it is not per-compare-slot state — so a
+  // scene picked for BOTH compare slots at once is handled correctly by
+  // just checking each slot independently below, no special-casing
+  // needed. All three "current" references (single-view currentIdx,
+  // compare slot A, compare slot B) are checked unconditionally,
+  // regardless of which view type is on screen right now:
+  //  - this keeps the single view's flip button + live sphere in sync
+  //    even while compare mode is what's actually visible, so switching
+  //    back to single view later (exitCompareMode() doesn't rebuild
+  //    the single sphere or re-sync flipBtn on its own) shows the
+  //    correct state without any extra work there;
+  //  - conversely, flipping in single view keeps the A/B compare
+  //    surfaces in sync for whenever compare mode is re-entered.
+  // Touching a hidden view's button/sphere here is harmless (applyFlip
+  // no-ops on a null/disposed mesh, and updateCompareSelects()/
+  // loadCompareSphere() already reset stale classes on next compare
+  // entry regardless).
+  // Used both for a live user toggle and for undo/redo replaying a past
+  // toggle. Always marks the project dirty, including when called from
+  // undo/redo, matching applySceneName()'s same rule. Never calls
+  // historyManager.push() itself — only toggleFlipSingle()/
+  // toggleFlipCompare() do, at the single point a user actually toggles
+  // the flip — so undo()/redo() (which call this function) can never
+  // record a new history entry while replaying one.
   function applySceneFlip(sceneId, flipH) {
     const s = scenes.find(sc => sc.id === sceneId);
     if (!s) return;
@@ -2993,6 +3009,14 @@ function init() {
     if (currentIdx >= 0 && scenes[currentIdx] && scenes[currentIdx].id === sceneId) {
       flipBtn.classList.toggle('active', flipH);
       applyFlip(sphere, flipH);
+    }
+    if (compareState.sceneAIndex >= 0 && scenes[compareState.sceneAIndex] && scenes[compareState.sceneAIndex].id === sceneId) {
+      flipABtn.classList.toggle('active', flipH);
+      applyFlip(sphereA, flipH);
+    }
+    if (compareState.sceneBIndex >= 0 && scenes[compareState.sceneBIndex] && scenes[compareState.sceneBIndex].id === sceneId) {
+      flipBBtn.classList.toggle('active', flipH);
+      applyFlip(sphereB, flipH);
     }
     markProjectDirty('左右反転');
   }
@@ -3016,10 +3040,16 @@ function init() {
     const idx = side === 'a' ? compareState.sceneAIndex : compareState.sceneBIndex;
     if (idx < 0 || idx >= scenes.length) return;
     if (!assertEditorMode('左右反転')) return;
-    scenes[idx].flipH = !scenes[idx].flipH;
-    (side === 'a' ? flipABtn : flipBBtn).classList.toggle('active', scenes[idx].flipH);
-    applyFlip(side === 'a' ? sphereA : sphereB, scenes[idx].flipH);
-    markProjectDirty('左右反転');
+    const s = scenes[idx];
+    const sceneId = s.id;
+    const oldFlip = s.flipH;
+    const newFlip = !oldFlip;
+    applySceneFlip(sceneId, newFlip);
+    historyManager.push({
+      label: 'Flip scene (compare)',
+      undo: () => applySceneFlip(sceneId, oldFlip),
+      redo: () => applySceneFlip(sceneId, newFlip),
+    });
   }
 
   // ============================================================
