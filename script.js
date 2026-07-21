@@ -7,6 +7,90 @@
  *   window.THREE として公開される。WebXR-Sandbox 実機検証と同一バージョン）
  * ============================================================ */
 
+// ============================================================
+// HistoryManager — Undo/Redo foundation (not yet wired to any
+// editing operation; this commit only adds the stack + registration
+// API described in the Roadmap task).
+// ============================================================
+//
+// Kept as a standalone, DOM/THREE-free class (defined outside init())
+// rather than in a separate file, since index.html can't gain a new
+// <script> tag to load one and this app has no bundler/module loader —
+// script.js itself is loaded as a single classic script. Being
+// self-contained also means it's independently testable without
+// waiting on THREE.js/app init.
+//
+// Command-pattern, not snapshot-based: the existing ~30 mutation call
+// sites (markProjectDirty() callers across scenes/markers/floorplans/
+// groups/compareSets/projectInfo) each already know their own
+// before/after values at the point of mutation (e.g. a rename handler
+// has both the old and new name in scope). Capturing an {undo, redo}
+// closure pair right there is a small, local addition per call site
+// when that wiring happens later. A snapshot/diff approach would need
+// a generic deep-clone of heterogeneous state (including scene
+// blobUrl/File references that can't be JSON-cloned) and a separate
+// diffing step, which is more machinery than this foundation needs
+// before any real operation is connected.
+//
+// Intentionally NOT in scope for undo/redo (per the Roadmap task):
+// Import/Export (JSON/ZIP) — these load/save whole-project state, not
+// a single editing action; Viewer/Editor mode switching — never
+// mutates project data; Dirty State itself — a derived indicator, not
+// an editable value.
+class HistoryManager {
+  constructor({ maxSize = 100 } = {}) {
+    this.maxSize = maxSize;
+    this._undoStack = [];
+    this._redoStack = [];
+  }
+
+  // Registers an action that has ALREADY been applied. `entry.undo()`
+  // reverts it, `entry.redo()` re-applies it; neither runs at
+  // registration time. `entry.label` is optional, for future UI/debug
+  // display only. Pushing a new entry always clears the redo stack —
+  // the standard rule that a fresh action invalidates the redone-away
+  // branch of history.
+  push(entry) {
+    if (!entry || typeof entry.undo !== 'function' || typeof entry.redo !== 'function') {
+      throw new TypeError('HistoryManager.push() requires an { undo, redo } entry');
+    }
+    this._undoStack.push({ label: entry.label || null, undo: entry.undo, redo: entry.redo });
+    if (this._undoStack.length > this.maxSize) this._undoStack.shift();
+    this._redoStack.length = 0;
+  }
+
+  canUndo() { return this._undoStack.length > 0; }
+  canRedo() { return this._redoStack.length > 0; }
+
+  undo() {
+    if (!this.canUndo()) return false;
+    const entry = this._undoStack.pop();
+    entry.undo();
+    this._redoStack.push(entry);
+    return true;
+  }
+
+  redo() {
+    if (!this.canRedo()) return false;
+    const entry = this._redoStack.pop();
+    entry.redo();
+    this._undoStack.push(entry);
+    return true;
+  }
+
+  clear() {
+    this._undoStack.length = 0;
+    this._redoStack.length = 0;
+  }
+
+  get undoCount() { return this._undoStack.length; }
+  get redoCount() { return this._redoStack.length; }
+}
+// Exposed for testing only (class declarations aren't auto-global like
+// function/var); never referenced by any UI or editing code in this
+// commit.
+window.HistoryManager = HistoryManager;
+
 function init() {
   if (typeof THREE === 'undefined') {
     show('threejs-error');
@@ -757,6 +841,11 @@ function init() {
     markers:    [], // { id, floorplanId, sceneId, x, y, rotation, name }
     groups:     [], // { id, name } — scene groupings
   };
+
+  // Undo/Redo foundation (see HistoryManager above) — instantiated so
+  // it's part of the app's lifecycle, but not yet called from any
+  // mutation. No editing operation pushes to it in this commit.
+  const historyManager = new HistoryManager({ maxSize: 100 });
 
   // ---- FloorMap Navigator state ----
   let activeFloorplanId   = null;
