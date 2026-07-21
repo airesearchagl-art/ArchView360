@@ -1,0 +1,14 @@
+{
+  "appVersion": "2.22.0",
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "projectName": "架空プロジェクト：ライフサイクルテスト",
+  "projectInfo": { "client": "", "author": "", "date": "", "notes": "" },
+  "scenes": [
+    { "id": "fixlc-scene-a", "name": "架空シーンA", "fileName": "lifecycle-scene-a.png", "flipped": false, "floorplanId": null, "groupId": null },
+    { "id": "fixlc-scene-b", "name": "架空シーンB", "fileName": "lifecycle-scene-b.png", "flipped": false, "floorplanId": null, "groupId": null }
+  ],
+  "groups": [],
+  "floorplans": [],
+  "markers": [],
+  "compareSets": []
+}

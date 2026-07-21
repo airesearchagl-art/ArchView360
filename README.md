@@ -566,7 +566,9 @@ npm run test:headed   # ブラウザを表示して実行
 npm run test:debug    # Playwright Inspectorでデバッグ
 ```
 
-**対象範囲:** 初期表示、Viewer/Editorモード切替、Viewerでのmutation guard（隠しDOM要素経由の回帰確認）、Dirty Stateの基本遷移、JSON保存後のclean化、ローカルテスト用静的サーバー（`tests/server.js`）のパストラバーサル対策。テストは`tests/fixtures/`内の自作の最小画像のみを使用し、実案件データは一切参照しません。
+**対象範囲:** 初期表示、Viewer/Editorモード切替、Viewerでのmutation guard（隠しDOM要素経由の回帰確認）、Dirty Stateの基本遷移、JSON/ZIP保存（成功・失敗）、JSON/ZIPのOpen・Import（空プロジェクトへのOpen、非空プロジェクトへのImportとその未保存確認ダイアログ、Viewerモードでの制限）、WebGLコンテキストロスト／リストア時の挙動、ローカルテスト用静的サーバー（`tests/server.js`）のパストラバーサル対策。テストは`tests/fixtures/`内の自作の最小画像・JSONのみを使用し、実案件データは一切参照しません。ZIPの内容検証には devDependency の `jszip`（`vendor/jszip.min.js`と同一バージョン）をNode側でのみ使用します。
+
+**既知のproduction上の不具合（未修正・別PRで対応予定）:** JSON設定ファイルを既にシーン等が読み込まれているプロジェクトへ読み込む（Import/マージ）と、実際には何も復元されないまま「復元完了」という成功トーストだけが表示されます。`importImagesInput`の`change`ハンドラが非同期の`_doImportWithFiles(importImagesInput.files)`を呼び出した直後に`importImagesInput.value = ''`を実行しており、プロジェクトが空でない場合は`_doImportWithFiles`内部の`await confirmUnsavedChanges()`によってこの値リセットの方が先に実行されてしまうため、参照渡しされたファイル一覧が空になります。ZIPインポートはファイル取得とリセットの順序が異なるため影響を受けません。本PRのテストはこの不具合を回避し、影響を受けるシナリオ（非空プロジェクトへのJSON Import成功パス）は対象外としています。
 
 **CI:** GitHub Actions（`.github/workflows/playwright.yml`）が、pull requestとmainへのpushのたびに`npm ci` → `npx playwright install --with-deps chromium` → `npm test`を実行します。対象ブラウザはChromiumのみです。実案件データ・外部API・Vercel Previewには一切依存しません。ローカルでの実行方法は上記のとおり変わりません。
 
