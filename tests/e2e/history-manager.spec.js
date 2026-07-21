@@ -149,4 +149,90 @@ test.describe('HistoryManager (undo/redo foundation)', () => {
 
     expectNoErrors(errors);
   });
+
+  test('undo() keeps a failing entry on the undo stack and rethrows', async ({ page }) => {
+    const errors = await gotoApp(page);
+
+    const result = await page.evaluate(() => {
+      const hm = new window.HistoryManager();
+      hm.push({ label: 'ok', undo() {}, redo() {} });
+      hm.push({
+        label: 'boom',
+        undo() { throw new Error('undo failed'); },
+        redo() {},
+      });
+
+      let threw = false;
+      let message = null;
+      try {
+        hm.undo(); // undoes 'boom' — throws
+      } catch (e) {
+        threw = true;
+        message = e.message;
+      }
+
+      const afterFailure = { undoCount: hm.undoCount, redoCount: hm.redoCount, canUndo: hm.canUndo(), canRedo: hm.canRedo() };
+
+      // The failing entry must still be the one on top of the undo stack —
+      // undoing the OTHER ('ok') entry must not be possible without first
+      // getting past 'boom' again, and 'boom' must still throw (it wasn't
+      // silently dropped or half-transitioned to the redo stack).
+      let secondThrew = false;
+      try {
+        hm.undo();
+      } catch (e) {
+        secondThrew = true;
+      }
+
+      return { threw, message, afterFailure, secondThrew, finalUndoCount: hm.undoCount, finalRedoCount: hm.redoCount };
+    });
+
+    expect(result.threw).toBe(true);
+    expect(result.message).toBe('undo failed');
+    // Entry must NOT be lost and NOT be moved to the redo stack.
+    expect(result.afterFailure).toEqual({ undoCount: 2, redoCount: 0, canUndo: true, canRedo: false });
+    expect(result.secondThrew).toBe(true); // still the same failing entry on top
+    expect(result.finalUndoCount).toBe(2);
+    expect(result.finalRedoCount).toBe(0);
+
+    expectNoErrors(errors);
+  });
+
+  test('redo() keeps a failing entry on the redo stack and rethrows', async ({ page }) => {
+    const errors = await gotoApp(page);
+
+    const result = await page.evaluate(() => {
+      const hm = new window.HistoryManager();
+      hm.push({
+        label: 'boom',
+        undo() {},
+        redo() { throw new Error('redo failed'); },
+      });
+      hm.undo(); // moves 'boom' onto the redo stack
+
+      const beforeRedo = { undoCount: hm.undoCount, redoCount: hm.redoCount };
+
+      let threw = false;
+      let message = null;
+      try {
+        hm.redo();
+      } catch (e) {
+        threw = true;
+        message = e.message;
+      }
+
+      return {
+        beforeRedo, threw, message,
+        afterFailure: { undoCount: hm.undoCount, redoCount: hm.redoCount, canUndo: hm.canUndo(), canRedo: hm.canRedo() },
+      };
+    });
+
+    expect(result.beforeRedo).toEqual({ undoCount: 0, redoCount: 1 });
+    expect(result.threw).toBe(true);
+    expect(result.message).toBe('redo failed');
+    // Entry must NOT be lost and NOT be moved to the undo stack.
+    expect(result.afterFailure).toEqual({ undoCount: 0, redoCount: 1, canUndo: false, canRedo: true });
+
+    expectNoErrors(errors);
+  });
 });

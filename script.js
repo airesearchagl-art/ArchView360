@@ -65,7 +65,12 @@ class HistoryManager {
   undo() {
     if (!this.canUndo()) return false;
     const entry = this._undoStack.pop();
-    entry.undo();
+    try {
+      entry.undo();
+    } catch (err) {
+      this._undoStack.push(entry); // failed — keep it on the undo side, not lost
+      throw err; // never swallowed; caller decides how to handle it
+    }
     this._redoStack.push(entry);
     return true;
   }
@@ -73,7 +78,12 @@ class HistoryManager {
   redo() {
     if (!this.canRedo()) return false;
     const entry = this._redoStack.pop();
-    entry.redo();
+    try {
+      entry.redo();
+    } catch (err) {
+      this._redoStack.push(entry); // failed — keep it on the redo side, not lost
+      throw err; // never swallowed; caller decides how to handle it
+    }
     this._undoStack.push(entry);
     return true;
   }
