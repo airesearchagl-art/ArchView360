@@ -38,10 +38,22 @@
 // mutates project data; Dirty State itself — a derived indicator, not
 // an editable value.
 class HistoryManager {
-  constructor({ maxSize = 100 } = {}) {
+  constructor({ maxSize = 100, onChange } = {}) {
     this.maxSize = maxSize;
     this._undoStack = [];
     this._redoStack = [];
+    // Optional UI-notification hook: called after every stack change
+    // (push/undo/redo — including a failed undo/redo, since the entry
+    // still moves between/back onto a stack — and clear), so a caller
+    // can keep e.g. button disabled-state in sync without polling
+    // canUndo()/canRedo() itself. Never called from inside this class
+    // for any other reason, and this class never touches the DOM —
+    // the callback is the caller's own function.
+    this.onChange = typeof onChange === 'function' ? onChange : null;
+  }
+
+  _notify() {
+    if (this.onChange) this.onChange();
   }
 
   // Registers an action that has ALREADY been applied. `entry.undo()`
@@ -57,6 +69,7 @@ class HistoryManager {
     this._undoStack.push({ label: entry.label || null, undo: entry.undo, redo: entry.redo });
     if (this._undoStack.length > this.maxSize) this._undoStack.shift();
     this._redoStack.length = 0;
+    this._notify();
   }
 
   canUndo() { return this._undoStack.length > 0; }
@@ -69,9 +82,11 @@ class HistoryManager {
       entry.undo();
     } catch (err) {
       this._undoStack.push(entry); // failed — keep it on the undo side, not lost
+      this._notify();
       throw err; // never swallowed; caller decides how to handle it
     }
     this._redoStack.push(entry);
+    this._notify();
     return true;
   }
 
@@ -82,15 +97,18 @@ class HistoryManager {
       entry.redo();
     } catch (err) {
       this._redoStack.push(entry); // failed — keep it on the redo side, not lost
+      this._notify();
       throw err; // never swallowed; caller decides how to handle it
     }
     this._undoStack.push(entry);
+    this._notify();
     return true;
   }
 
   clear() {
     this._undoStack.length = 0;
     this._redoStack.length = 0;
+    this._notify();
   }
 
   get undoCount() { return this._undoStack.length; }
@@ -133,6 +151,8 @@ function init() {
   const fullscreenBtn      = $('fullscreen-btn');
   const fullscreenIcon     = $('fullscreen-icon');
   const backBtn            = $('back-btn');
+  const undoBtn            = $('undo-btn');
+  const redoBtn            = $('redo-btn');
 
   // Compare toolbar
   const toolbarCompare     = $('toolbar-compare');
@@ -691,6 +711,7 @@ function init() {
         ? 'Viewer表示に戻ります（表示のみ・編集はできません）'
         : 'Editorに切り替えて編集機能を利用します';
     }
+    updateHistoryControls();
   }
 
   // ============================================================
@@ -852,17 +873,31 @@ function init() {
     groups:     [], // { id, name } — scene groupings
   };
 
+  // Reflects HistoryManager's current undo/redo availability onto the
+  // Undo/Redo toolbar buttons. Called after the manager is created, after
+  // every push/undo/redo/clear (via the onChange hook below), and after
+  // every Viewer/Editor mode switch (see renderModeUi()). Editor-only
+  // visibility itself is handled by the existing `.editor-only` CSS rule
+  // (the buttons carry that class already); this only ever toggles
+  // `disabled`, which is meaningless-but-harmless while hidden in Viewer.
+  function updateHistoryControls() {
+    if (!undoBtn || !redoBtn) return;
+    undoBtn.disabled = !historyManager.canUndo();
+    redoBtn.disabled = !historyManager.canRedo();
+  }
+
   // Undo/Redo foundation (see HistoryManager above). Scene renaming (see
   // applySceneName()/the rename blur handler below) is the first, and so
   // far only, editing operation wired into it — every other mutation
   // (scenes add/delete/reorder, markers, floorplans, groups, compare
   // sets, project info, Import/Export) is still unconnected.
-  const historyManager = new HistoryManager({ maxSize: 100 });
-  // Test-only hook: there is no Undo/Redo UI or shortcut in this app yet,
-  // so Playwright has no production-facing way to trigger undo()/redo().
-  // Deliberately named differently from window.HistoryManager (the class,
-  // exposed for the same reason) since this is a specific instance, not
-  // the constructor. Never read by any production/UI code path.
+  const historyManager = new HistoryManager({ maxSize: 100, onChange: updateHistoryControls });
+  updateHistoryControls(); // set the buttons' initial (empty-history) disabled state
+  // Test-only hook: there is no Undo/Redo keyboard/UI test seam otherwise,
+  // so Playwright can reach the manager directly. Deliberately named
+  // differently from window.HistoryManager (the class, exposed for the
+  // same reason) since this is a specific instance, not the constructor.
+  // Never read by any production/UI code path.
   window.__historyManagerForTests = historyManager;
 
   // ---- FloorMap Navigator state ----
@@ -6954,6 +6989,55 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'o' && e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault(); fileInput.click();
+    }
+  });
+
+  // ============================================================
+  // Undo / Redo — buttons + Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z
+  // ============================================================
+  // Only scene renaming is wired into HistoryManager so far (see
+  // applySceneName()); these buttons/shortcuts just expose whatever is
+  // already on its stacks, so no operation-specific logic lives here.
+  function performUndo() {
+    if (!canMutateProject()) return;
+    if (!historyManager.canUndo()) return;
+    historyManager.undo();
+  }
+
+  function performRedo() {
+    if (!canMutateProject()) return;
+    if (!historyManager.canRedo()) return;
+    historyManager.redo();
+  }
+
+  if (undoBtn) undoBtn.addEventListener('click', performUndo);
+  if (redoBtn) redoBtn.addEventListener('click', performRedo);
+
+  document.addEventListener('keydown', (e) => {
+    // Ignore key-repeat so holding the combo doesn't fire undo/redo
+    // over and over.
+    if (e.repeat) return;
+    if (e.key.toLowerCase() !== 'z') return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+
+    // Never steal the shortcut from a field the user is actively typing
+    // or editing in — this includes the scene-name span while it's the
+    // contentEditable rename field, so the browser's own native undo
+    // inside that field keeps working exactly as before.
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.activeElement?.contentEditable === 'true') return;
+
+    if (!canMutateProject()) return; // Viewer mode: never run, never preventDefault
+
+    if (e.shiftKey) {
+      if (!historyManager.canRedo()) return; // empty: never preventDefault
+      e.preventDefault();
+      historyManager.redo();
+    } else {
+      if (!historyManager.canUndo()) return; // empty: never preventDefault
+      e.preventDefault();
+      historyManager.undo();
     }
   });
 
