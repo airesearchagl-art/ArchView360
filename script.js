@@ -887,11 +887,12 @@ function init() {
   }
 
   // Undo/Redo foundation (see HistoryManager above). Scene renaming (see
-  // applySceneName()) and single-view scene flip (see applySceneFlip() /
-  // toggleFlipSingle()) are the only editing operations wired into it so
-  // far — every other mutation (scenes add/delete/reorder, markers,
-  // floorplans, groups, compare-mode flip/compare sets, project info,
-  // Import/Export) is still unconnected.
+  // applySceneName()), single-view and compare-mode scene flip (see
+  // applySceneFlip()), and FloorMap renaming (see applyFloorMapName())
+  // are the only editing operations wired into it so far — every other
+  // mutation (scenes add/delete/reorder, markers, floorplan add/delete,
+  // groups, compare sets, project info, Import/Export) is still
+  // unconnected.
   const historyManager = new HistoryManager({ maxSize: 100, onChange: updateHistoryControls });
   updateHistoryControls(); // set the buttons' initial (empty-history) disabled state
   // Test-only hook: there is no Undo/Redo keyboard/UI test seam otherwise,
@@ -5587,6 +5588,36 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     renderMarkerList();
   }
 
+  // ============================================================
+  // FloorMap (floorplan) renaming — third operation wired into
+  // HistoryManager (v2.22.x+)
+  // ============================================================
+  // Single point that actually applies a floorplan's name and refreshes
+  // every place that currently displays it (the sidebar floorplan list,
+  // and — matching the rename handler's pre-existing behavior — the
+  // FloorMap Navigator's floorplan select when this is the active
+  // floorplan). Used both for a live user rename and for undo/redo
+  // replaying a past rename, so there is exactly one place that needs to
+  // stay in sync with whatever the sidebar/select actually show.
+  //
+  // Always marks the project dirty, including when called from undo/
+  // redo, matching applySceneName()'s same rule: undoing back to a
+  // previously-saved name does not by itself mean the project is saved
+  // again.
+  //
+  // Never calls historyManager.push() itself — only the rename commit
+  // handler below does, at the single point a user actually confirms a
+  // new name. That keeps undo()/redo() (which call this function) from
+  // ever recording a new history entry while replaying one.
+  function applyFloorMapName(floorplanId, name) {
+    const fp = projectState.floorplans.find(f => f.id === floorplanId);
+    if (!fp) return;
+    fp.name = name;
+    renderFloorplanList();
+    if (floorplanId === activeFloorplanId) _updateFloormapSelect();
+    markProjectDirty('平面図名称変更');
+  }
+
   function renderFloorplanList() {
     floorplanListEl.innerHTML = '';
     if (!projectState.floorplans.length) {
@@ -5622,10 +5653,23 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         nameEl.contentEditable = 'false'; nameEl.classList.remove('editing');
         if (!canMutateProject()) { nameEl.textContent = fp.name; return; }
         const newName = nameEl.textContent.trim() || fp.name;
-        if (newName !== fp.name) { fp.name = newName; markProjectDirty('平面図名称変更'); }
-        nameEl.textContent = fp.name;
-        // Update select if this is active
-        if (fp.id === activeFloorplanId) _updateFloormapSelect();
+        if (newName !== fp.name) {
+          // Capture before/after now — fp.id never changes, but fp.name is
+          // about to; renderFloorplanList() inside applyFloorMapName() also
+          // recreates this exact DOM node, so nothing here is touched again
+          // after this branch.
+          const floorplanId = fp.id, oldName = fp.name, confirmedName = newName;
+          applyFloorMapName(floorplanId, confirmedName);
+          historyManager.push({
+            label: 'Rename floor map',
+            undo: () => applyFloorMapName(floorplanId, oldName),
+            redo: () => applyFloorMapName(floorplanId, confirmedName),
+          });
+        } else {
+          nameEl.textContent = fp.name;
+          // Update select if this is active
+          if (fp.id === activeFloorplanId) _updateFloormapSelect();
+        }
       });
       nameEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter')  { e.preventDefault(); nameEl.blur(); }
@@ -5638,7 +5682,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFloorplan(fp.id); });
 
       div.appendChild(icon); div.appendChild(nameEl); div.appendChild(delBtn);
-      div.addEventListener('click', () => setActiveFloorplan(fp.id));
+      // Mirrors the scene list's `if (i !== currentIdx) switchToScene(i)`
+      // guard: a native dblclick fires two click events before the dblclick
+      // itself, and re-rendering on an already-active item would tear down
+      // nameEl mid-rename.
+      div.addEventListener('click', () => { if (fp.id !== activeFloorplanId) setActiveFloorplan(fp.id); });
       floorplanListEl.appendChild(div);
     });
   }
