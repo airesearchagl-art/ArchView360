@@ -222,7 +222,11 @@ test.describe('Viewer Preview (Phase 1)', () => {
 
     await previewStartBtn(page).click();
 
-    expect(await page.evaluate(() => window.__viewerPreviewTestHooks.isPreviewActive())).toBe(false);
+    // previewActive/inVrSession are observable through the DOM already
+    // (see the body/vr-btn classes renderModeUi()/updateVrBtn() maintain),
+    // so no dedicated JS getters are exposed for them — kept the test hook
+    // to only what has no DOM equivalent (see script.js's own comment).
+    await expect(page.locator('body')).not.toHaveClass(/preview-active/);
     await expect(page.locator('body')).toHaveClass(/mode-editor/); // never switched
 
     await page.evaluate(() => window.__viewerPreviewTestHooks.setInVrSession(false)); // reset
@@ -234,7 +238,7 @@ test.describe('Viewer Preview (Phase 1)', () => {
     const errors = await gotoApp(page);
     await loadOneScene(page);
     await previewStartBtn(page).click();
-    expect(await page.evaluate(() => window.__viewerPreviewTestHooks.isPreviewActive())).toBe(true);
+    await expect(page.locator('body')).toHaveClass(/preview-active/);
 
     // Real WebXR sessions cannot be created in this headless environment
     // (see the test hook's own comment in script.js), so vr-btn stays
@@ -243,7 +247,53 @@ test.describe('Viewer Preview (Phase 1)', () => {
     await page.evaluate(() => { document.getElementById('vr-btn').disabled = false; });
     await page.evaluate(() => window.__viewerPreviewTestHooks.enterVr());
 
-    expect(await page.evaluate(() => window.__viewerPreviewTestHooks.isInVrSession())).toBe(false);
+    await expect(page.locator('#vr-btn')).not.toHaveClass(/active/); // inVrSession stayed false
+
+    expectNoErrors(errors);
+  });
+
+  test('14. previewActive clears no matter which path returns to Editor', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadOneScene(page);
+    await previewStartBtn(page).click();
+    await expect(page.locator('body')).toHaveClass(/preview-active/);
+
+    // The normal toggle button is display:none during Preview (see test 1)
+    // — Playwright can't click a display:none element even with
+    // force:true, so this exercises the same "hidden DOM element,
+    // programmatic call" bypass pattern PR #13 used for its own mutation
+    // -guard regression tests. enterEditorMode() itself — not just
+    // exitViewerPreview() — must clear previewActive unconditionally, so
+    // even this bypass must leave no stale Preview state behind.
+    await page.evaluate(() => document.getElementById('app-mode-toggle-btn').click());
+
+    await expect(page.locator('body')).toHaveClass(/mode-editor/);
+    await expect(page.locator('body')).not.toHaveClass(/preview-active/);
+    await expect(previewExitBtn(page)).toBeHidden();
+    await expect(toggleBtn(page)).toBeVisible();
+
+    expectNoErrors(errors);
+  });
+
+  test('15. Exiting Preview never shows an unsaved-changes or access confirmation', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadOneScene(page);
+
+    // Dirty first, so a "real" Editor<->Viewer switch would normally need
+    // confirmUnsavedChanges('switch-to-viewer') — Preview exit must still
+    // skip it entirely, since exitViewerPreview() calls enterEditorMode()
+    // directly rather than requestEditorAccess() (see script.js).
+    const nameEl = page.locator('.scene-name').first();
+    await nameEl.dblclick();
+    await page.keyboard.type('Renamed');
+    await page.keyboard.press('Enter');
+    await expect(dirtyIndicator(page)).toBeVisible();
+
+    await previewStartBtn(page).click();
+    await previewExitBtn(page).click();
+
+    await expect(page.locator('body')).toHaveClass(/mode-editor/); // returned unconditionally
+    await expect(page.locator('#dirty-confirm-modal')).toBeHidden();
 
     expectNoErrors(errors);
   });

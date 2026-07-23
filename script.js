@@ -764,13 +764,21 @@ function init() {
     enterViewerMode(); // real Viewer mode — every existing guard applies unchanged
   }
 
-  // Returns to Editor from Preview. Also reachable defensively via
-  // enterEditorMode() itself clearing previewActive, so this never leaves
-  // the flag set if Editor is reached by some other path.
+  // Returns to Editor from Preview. Calls enterEditorMode() directly —
+  // deliberately NOT requestEditorAccess(). requestEditorAccess() is
+  // documented (see its own definition above) as the seam where a future
+  // auth/license/permission check will be inserted for a genuine
+  // Viewer -> Editor transition. Preview never actually left Editor's
+  // authority (it started FROM Editor), so exiting it must never be
+  // gated behind whatever gets added there later — it has to be an
+  // unconditional return, which only enterEditorMode() itself guarantees.
+  // Also reachable defensively via enterEditorMode() itself clearing
+  // previewActive, so this never leaves the flag set if Editor is reached
+  // by some other path (e.g. the normal toggle button, forced or not).
   function exitViewerPreview() {
     if (!previewActive) return;
     previewActive = false;
-    requestEditorAccess(); // real Editor entry point — unchanged
+    enterEditorMode(); // unconditional return to Editor — never gated
   }
 
   // ============================================================
@@ -5563,23 +5571,30 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     vrBtn.addEventListener('click', () => { inVrSession ? exitVr() : enterVr(); });
   }
   checkXrSupport();
-  // Test-only hook: genuine WebXR immersive sessions require real XR
-  // hardware/runtime and have never been reachable in this headless test
-  // environment (xrSupported resolves false, vrBtn stays disabled — VR
-  // entry itself has no Playwright coverage for this reason). Exposes
-  // enterVr() itself plus the inVrSession flag it depends on, so the
-  // Preview<->VR exclusion guards (see startViewerPreview()/enterVr()
-  // above) can be exercised deterministically without a real session.
-  // getCameraFov() is a plain read-only accessor for asserting the single
-  // -view camera's zoom is untouched across a Preview round-trip (there is
-  // no dedicated zoom state variable — see script.js's camera object
-  // itself). Never read by any production/UI code path.
+  // Test-only hook, kept to the minimum that isn't already observable
+  // through the DOM: whether Preview is active (`.preview-active` on
+  // `body`) and whether a VR session is active (`.active` on `#vr-btn`,
+  // via updateVrBtn()) are both readable without any JS seam, so no
+  // getters for previewActive/inVrSession are exposed here. What genuinely
+  // has no other seam:
+  //   - setInVrSession: genuine WebXR immersive sessions require real XR
+  //     hardware/runtime and have never been reachable in this headless
+  //     test environment (xrSupported resolves false, vrBtn stays disabled
+  //     — VR entry itself has no Playwright coverage for this reason), so
+  //     there is no other way to simulate "a VR session is active" for
+  //     testing the Preview<->VR exclusion guards.
+  //   - enterVr: same reason — calling the real function directly is the
+  //     only way to exercise its previewActive guard once vrBtn.disabled
+  //     is forced false for the test.
+  //   - getCameraFov: plain read-only accessor for asserting the single
+  //     -view camera's zoom is untouched across a Preview round-trip
+  //     (there is no dedicated zoom state variable or DOM reflection of
+  //     it — see script.js's camera object itself).
+  // Never read by any production/UI code path.
   window.__viewerPreviewTestHooks = {
-    isPreviewActive: () => previewActive,
-    isInVrSession:   () => inVrSession,
-    setInVrSession:  (v) => { inVrSession = v; },
+    setInVrSession: (v) => { inVrSession = v; },
     enterVr,
-    getCameraFov:    () => (camera ? camera.fov : null),
+    getCameraFov:   () => (camera ? camera.fov : null),
   };
 
   // ============================================================
