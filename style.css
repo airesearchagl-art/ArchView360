@@ -143,7 +143,9 @@ body {
   white-space: nowrap;
 }
 .mode-editor .app-mode-label { color: var(--accent-h); }
-.app-mode-toggle-btn { padding: 5px 10px; font-size: .74rem; }
+.app-mode-toggle-btn,
+#viewer-preview-btn,
+#viewer-preview-exit-btn { padding: 5px 10px; font-size: .74rem; }
 
 /* Editor-only / Viewer-only UI, gated purely by the body-level mode class
    renderModeUi() toggles — see script.js "App Mode" section. Mutation

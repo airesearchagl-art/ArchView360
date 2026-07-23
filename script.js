@@ -269,6 +269,10 @@ function init() {
   const appModeLabel       = $('app-mode-label');
   const appModeToggleBtn   = $('app-mode-toggle-btn');
 
+  // Viewer Preview (Phase 1)
+  const viewerPreviewBtn     = $('viewer-preview-btn');
+  const viewerPreviewExitBtn = $('viewer-preview-exit-btn');
+
   // Dirty State (unsaved changes) — foundation
   const dirtyIndicator         = $('dirty-indicator');
   const dirtyConfirmModal      = $('dirty-confirm-modal');
@@ -680,6 +684,12 @@ function init() {
   }
 
   function enterEditorMode() {
+    // Defensive, not just the normal path: this is the only place that ever
+    // sets appMode to 'editor', so clearing previewActive here (rather than
+    // only in exitViewerPreview()) guarantees Preview's session flag can
+    // never survive a return to Editor, even via a hidden/forced/legacy
+    // path that bypasses exitViewerPreview() itself.
+    previewActive = false;
     if (appMode === 'editor') return;
     appMode = 'editor';
     renderModeUi();
@@ -704,14 +714,71 @@ function init() {
     const editing = appMode === 'editor';
     document.body.classList.toggle('mode-editor', editing);
     document.body.classList.toggle('mode-viewer', !editing);
-    if (appModeLabel) appModeLabel.textContent = editing ? 'Editor' : 'Viewer';
+    if (appModeLabel) appModeLabel.textContent = editing ? 'Editor' : (previewActive ? 'Viewer (Preview)' : 'Viewer');
     if (appModeToggleBtn) {
       appModeToggleBtn.textContent = editing ? 'Viewerで確認' : 'Editorへ切替';
       appModeToggleBtn.title = editing
         ? 'Viewer表示に戻ります（表示のみ・編集はできません）'
         : 'Editorに切り替えて編集機能を利用します';
+      // Preview reuses real Viewer mode, so the normal toggle button would
+      // otherwise sit right next to the dedicated Preview-exit button in
+      // the exact same state (appMode === 'viewer'). Hiding it during
+      // Preview is what keeps the two return-to-Editor paths from being
+      // confused with each other — see startViewerPreview()/
+      // exitViewerPreview() below.
+      appModeToggleBtn.style.display = previewActive ? 'none' : '';
     }
+    if (viewerPreviewExitBtn) viewerPreviewExitBtn.style.display = previewActive ? '' : 'none';
+    document.body.classList.toggle('preview-active', previewActive);
     updateHistoryControls();
+  }
+
+  // ============================================================
+  // Viewer Preview (Phase 1, v2.22.x+)
+  // ============================================================
+  // Lets Editor temporarily see the project exactly as Viewer mode shows
+  // it, without leaving Editor's own confirm/dirty semantics behind.
+  // Deliberately reuses the real 'viewer' appMode as-is — there is no
+  // third appMode value — so every existing mutation guard
+  // (assertEditorMode()/canMutateProject(), all ~54 call sites),
+  // editor-only CSS, and Export gating keeps working completely
+  // unmodified. previewActive is a separate session-local flag layered on
+  // top of appMode purely to (a) know which of the two return-to-Editor
+  // buttons to show, and (b) skip the normal switch-to-viewer confirmation
+  // (Preview never actually leaves Editor's data, so nothing needs
+  // confirming). Never persisted to JSON/ZIP/localStorage — matches
+  // appMode's and Dirty State's own non-persistence contract.
+  let previewActive = false;
+
+  // Starts Preview only from Editor — this is an Editor-only operation
+  // (the button itself is also `.editor-only`, but the mutation-guard
+  // lesson from PR #13 is that CSS visibility alone is never the actual
+  // boundary, so this checks appMode directly too). Skips
+  // confirmUnsavedChanges('switch-to-viewer') entirely: Preview keeps all
+  // in-memory project data untouched and returns to the exact same Editor
+  // state, so there is nothing to confirm and nothing to mark dirty.
+  function startViewerPreview() {
+    if (appMode !== 'editor') return;
+    if (inVrSession) { showToast('VR表示中はプレビューを開始できません'); return; }
+    previewActive = true;
+    enterViewerMode(); // real Viewer mode — every existing guard applies unchanged
+  }
+
+  // Returns to Editor from Preview. Calls enterEditorMode() directly —
+  // deliberately NOT requestEditorAccess(). requestEditorAccess() is
+  // documented (see its own definition above) as the seam where a future
+  // auth/license/permission check will be inserted for a genuine
+  // Viewer -> Editor transition. Preview never actually left Editor's
+  // authority (it started FROM Editor), so exiting it must never be
+  // gated behind whatever gets added there later — it has to be an
+  // unconditional return, which only enterEditorMode() itself guarantees.
+  // Also reachable defensively via enterEditorMode() itself clearing
+  // previewActive, so this never leaves the flag set if Editor is reached
+  // by some other path (e.g. the normal toggle button, forced or not).
+  function exitViewerPreview() {
+    if (!previewActive) return;
+    previewActive = false;
+    enterEditorMode(); // unconditional return to Editor — never gated
   }
 
   // ============================================================
@@ -2686,6 +2753,15 @@ function init() {
       }
     });
   }
+  // ---- Viewer Preview (Phase 1) ----
+  // Deliberately separate buttons/handlers from app-mode-toggle-btn above:
+  // Preview must never be reachable through the normal Editor<->Viewer
+  // toggle's confirmUnsavedChanges('switch-to-viewer') path, and the
+  // normal toggle button is hidden (see renderModeUi()) for the entire
+  // duration of Preview so it cannot be clicked into firing that path by
+  // mistake.
+  if (viewerPreviewBtn)     viewerPreviewBtn.addEventListener('click', startViewerPreview);
+  if (viewerPreviewExitBtn) viewerPreviewExitBtn.addEventListener('click', exitViewerPreview);
   renderModeUi(); // apply the initial 'viewer' state to the DOM immediately
 
   // ---- Quick help modal (v2.9.4) ----
@@ -5424,6 +5500,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       showToast('VRモードは通常表示のみ対応です');
       return;
     }
+    if (previewActive) { showToast('プレビュー中はVRを開始できません'); return; }
     try {
       startRender(); // no-op when the loop is already running (normal case)
       vrHudVisible = true;
@@ -5494,6 +5571,31 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     vrBtn.addEventListener('click', () => { inVrSession ? exitVr() : enterVr(); });
   }
   checkXrSupport();
+  // Test-only hook, kept to the minimum that isn't already observable
+  // through the DOM: whether Preview is active (`.preview-active` on
+  // `body`) and whether a VR session is active (`.active` on `#vr-btn`,
+  // via updateVrBtn()) are both readable without any JS seam, so no
+  // getters for previewActive/inVrSession are exposed here. What genuinely
+  // has no other seam:
+  //   - setInVrSession: genuine WebXR immersive sessions require real XR
+  //     hardware/runtime and have never been reachable in this headless
+  //     test environment (xrSupported resolves false, vrBtn stays disabled
+  //     — VR entry itself has no Playwright coverage for this reason), so
+  //     there is no other way to simulate "a VR session is active" for
+  //     testing the Preview<->VR exclusion guards.
+  //   - enterVr: same reason — calling the real function directly is the
+  //     only way to exercise its previewActive guard once vrBtn.disabled
+  //     is forced false for the test.
+  //   - getCameraFov: plain read-only accessor for asserting the single
+  //     -view camera's zoom is untouched across a Preview round-trip
+  //     (there is no dedicated zoom state variable or DOM reflection of
+  //     it — see script.js's camera object itself).
+  // Never read by any production/UI code path.
+  window.__viewerPreviewTestHooks = {
+    setInVrSession: (v) => { inVrSession = v; },
+    enterVr,
+    getCameraFov:   () => (camera ? camera.fov : null),
+  };
 
   // ============================================================
   // VR Observer Mode (v2.11)
