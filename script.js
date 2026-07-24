@@ -643,9 +643,10 @@ function init() {
   // no VR-side editing UI exists or is added by this change.
   //
   // Session-local only: never read from or written to project JSON, ZIP,
-  // localStorage, or a URL parameter. Every page load/reload always starts
-  // in 'viewer' — there is no restore path for 'editor' at all, so this
-  // requirement can't regress by omission.
+  // or localStorage. Every page load/reload re-derives its initial value
+  // fresh (via resolveInitialAppMode() below) — there is no persisted
+  // 'editor' state carried across reloads, so this requirement can't
+  // regress by omission.
   //
   // UI code must never assign to `appMode` directly. All transitions go
   // through enterViewerMode() / enterEditorMode() / requestEditorAccess()
@@ -653,7 +654,26 @@ function init() {
   // mode change, and exactly one seam (`requestEditorAccess()`) where a
   // future auth/license/permission check can be inserted without touching
   // any button handler.
-  let appMode = 'viewer'; // 'viewer' | 'editor'
+  //
+  // Phase 1 (URL指定による起動モード分離, see
+  // docs/ViewerEditor_Entrypoints_Investigation.md 9節/10節): the initial
+  // value only may come from the URL's `mode` query parameter, read once
+  // here at startup and never again. Contract: no parameter, `?mode=viewer`,
+  // an empty value, a case variant (`Editor`/`EDITOR`), or anything else
+  // that isn't the exact lowercase string `editor` all resolve to
+  // `'viewer'`; only an exact `?mode=editor` resolves to `'editor'` (strict
+  // equality, no trimming/case-folding — 9.2節 treats case variants the
+  // same as any other invalid value, not as an accepted alias). This is a
+  // convenience default, not an access-control decision — nothing in this
+  // file treats the URL as a permission check (see 11節), and this value is
+  // never written back to the URL (no history.replaceState/pushState calls
+  // exist anywhere in this file), so it has no effect on the in-page
+  // Viewer<->Editor switch below.
+  function resolveInitialAppMode() {
+    return new URLSearchParams(window.location.search).get('mode') === 'editor' ? 'editor' : 'viewer';
+  }
+
+  let appMode = resolveInitialAppMode(); // 'viewer' | 'editor'
 
   function getAppMode() { return appMode; }
 
