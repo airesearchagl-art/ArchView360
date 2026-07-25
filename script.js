@@ -5864,11 +5864,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     // Show/hide orientation bar
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (fp) {
-      showEl(floormapOrientBar);
-      floormapOrientVal.textContent = `${fp.rotationOffset || 0}°`;
-      floormapOrientPreset.value = String((fp.rotationOffset || 0) % 360);
+      if (floormapOrientBar) showEl(floormapOrientBar);
+      if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset || 0}°`;
+      if (floormapOrientPreset) floormapOrientPreset.value = String((fp.rotationOffset || 0) % 360);
     } else {
-      hideEl(floormapOrientBar);
+      if (floormapOrientBar) hideEl(floormapOrientBar);
     }
   }
 
@@ -6622,14 +6622,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   } catch {}
 
   // FloorMap button wiring
-  floormapOrientL.addEventListener('click', () => _adjustOrientOffset(-15));
-  floormapOrientR.addEventListener('click', () => _adjustOrientOffset(+15));
-  floormapOrientPreset.addEventListener('change', () => {
+  if (floormapOrientL) floormapOrientL.addEventListener('click', () => _adjustOrientOffset(-15));
+  if (floormapOrientR) floormapOrientR.addEventListener('click', () => _adjustOrientOffset(+15));
+  if (floormapOrientPreset) floormapOrientPreset.addEventListener('change', () => {
     if (!assertEditorMode('平面図の方位補正')) return;
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
-    fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
-    floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+    if (floormapOrientPreset) fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
+    if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset}°`;
     markProjectDirty('平面図の方位補正');
     renderFloormapCanvas();
   });
@@ -6638,8 +6638,8 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
     fp.rotationOffset = ((fp.rotationOffset || 0) + delta + 360) % 360;
-    floormapOrientVal.textContent = `${fp.rotationOffset}°`;
-    floormapOrientPreset.value = String(fp.rotationOffset);
+    if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+    if (floormapOrientPreset) floormapOrientPreset.value = String(fp.rotationOffset);
     markProjectDirty('平面図の方位補正');
     renderFloormapCanvas();
   }
