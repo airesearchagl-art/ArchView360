@@ -6691,7 +6691,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   });
 
   // Floor plan file input
-  addFloorplanBtn.addEventListener('click', () => floorplanInput.click());
+  if (addFloorplanBtn) addFloorplanBtn.addEventListener('click', () => floorplanInput.click());
   floorplanInput.addEventListener('change', () => {
     if (floorplanInput.files.length) handleFloorplanFiles(floorplanInput.files);
     floorplanInput.value = '';
@@ -6755,7 +6755,8 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     showToast('プロジェクト情報を保存しました');
   }
 
-  $('project-info-btn').addEventListener('click', openProjectInfoModal);
+  const projectInfoBtn = $('project-info-btn');
+  if (projectInfoBtn) projectInfoBtn.addEventListener('click', openProjectInfoModal);
   $('pi-close-btn').addEventListener('click',  closeProjectInfoModal);
   $('pi-cancel-btn').addEventListener('click', closeProjectInfoModal);
   $('pi-save-btn').addEventListener('click',   saveProjectInfo);
