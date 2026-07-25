@@ -7270,8 +7270,8 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     }
   });
 
-  exportJsonBtn.addEventListener('click', exportProjectJSON);
-  importJsonBtn.addEventListener('click', openImportJSON);
+  if (exportJsonBtn) exportJsonBtn.addEventListener('click', exportProjectJSON);
+  if (importJsonBtn) importJsonBtn.addEventListener('click', openImportJSON);
   if (exportPackageBtn) exportPackageBtn.addEventListener('click', exportProjectPackage);
   if (importPackageBtn) importPackageBtn.addEventListener('click', openImportZip);
 
