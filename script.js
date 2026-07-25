@@ -6301,7 +6301,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       { label: '✏ 名称変更', action: () => {
         selectedMarkerId = mk.id;
         _updateInfoPanel();
-        setTimeout(() => floormapRenameBtn.click(), 50);
+        setTimeout(() => { if (floormapRenameBtn) floormapRenameBtn.click(); }, 50);
       }},
       { label: '× 削除', danger: true, action: () => {
         selectedMarkerId = mk.id;
@@ -6480,7 +6480,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   function togglePlacementMode() {
     if (!assertEditorMode('マーカー配置モード')) return;
     isPlacementMode = !isPlacementMode;
-    floormapPlaceBtn.classList.toggle('active', isPlacementMode);
+    if (floormapPlaceBtn) floormapPlaceBtn.classList.toggle('active', isPlacementMode);
     floormapCanvas.classList.toggle('placement-mode', isPlacementMode);
     floormapPlaceHint.style.display = isPlacementMode ? '' : 'none';
     if (isPlacementMode) showToast('マーカー配置モード: 平面図をクリックして配置');
@@ -6643,15 +6643,15 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     markProjectDirty('平面図の方位補正');
     renderFloormapCanvas();
   }
-  floormapPlaceBtn.addEventListener('click', togglePlacementMode);
+  if (floormapPlaceBtn) floormapPlaceBtn.addEventListener('click', togglePlacementMode);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
   $('floormap-reseq-btn')?.addEventListener('click', resequenceMarkers);
-  floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
-  floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
-  floormapDelMk.addEventListener('click', deleteSelectedMarker);
+  if (floormapRotL) floormapRotL.addEventListener('click', () => rotateSelectedMarker(-15));
+  if (floormapRotR) floormapRotR.addEventListener('click', () => rotateSelectedMarker(+15));
+  if (floormapDelMk) floormapDelMk.addEventListener('click', deleteSelectedMarker);
 
   // Rename button: make info-name div editable
-  floormapRenameBtn.addEventListener('click', () => {
+  if (floormapRenameBtn) floormapRenameBtn.addEventListener('click', () => {
     // Defense-in-depth: this button lives inside .floormap-info-actions
     // (editor-only in CSS) and the context-menu path to it is already
     // gated, but the handler itself had no independent check — add one so
