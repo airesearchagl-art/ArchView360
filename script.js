@@ -1377,7 +1377,7 @@ function init() {
     currentIdx = idx;
     const s = scenes[idx];
     currentSceneNameEl.textContent = s.name;
-    flipBtn.classList.toggle('active', s.flipH);
+    if (flipBtn) flipBtn.classList.toggle('active', s.flipH);
     renderSceneList();
     loadPanorama(s.blobUrl, s.name, s.flipH);
     // Auto-sync FloorMap: v2.7 uses marker-based lookup first, then scene.floorplanId fallback
@@ -3443,9 +3443,9 @@ function init() {
   // ============================================================
   // Button event wiring
   // ============================================================
-  addImgBtn.addEventListener('click',    () => fileInput.click());
-  addSceneBtn.addEventListener('click',  () => fileInput.click());
-  updateSceneBtn.addEventListener('click', () => {
+  if (addImgBtn) addImgBtn.addEventListener('click', () => fileInput.click());
+  if (addSceneBtn) addSceneBtn.addEventListener('click', () => fileInput.click());
+  if (updateSceneBtn) updateSceneBtn.addEventListener('click', () => {
     if (currentIdx < 0 || !scenes.length) { showToast('シーンがありません'); return; }
     openReplaceScenePicker(currentIdx);
   });
@@ -3493,7 +3493,7 @@ function init() {
     });
   });
 
-  flipBtn.addEventListener('click',   toggleFlipSingle);
+  if (flipBtn) flipBtn.addEventListener('click', toggleFlipSingle);
   if (flipABtn) flipABtn.addEventListener('click', () => toggleFlipCompare('a'));
   if (flipBBtn) flipBBtn.addEventListener('click', () => toggleFlipCompare('b'));
   swapAbBtn.addEventListener('click', swapAB);
