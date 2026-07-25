@@ -3494,8 +3494,8 @@ function init() {
   });
 
   flipBtn.addEventListener('click',   toggleFlipSingle);
-  flipABtn.addEventListener('click',  () => toggleFlipCompare('a'));
-  flipBBtn.addEventListener('click',  () => toggleFlipCompare('b'));
+  if (flipABtn) flipABtn.addEventListener('click', () => toggleFlipCompare('a'));
+  if (flipBBtn) flipBBtn.addEventListener('click', () => toggleFlipCompare('b'));
   swapAbBtn.addEventListener('click', swapAB);
   syncBtn.addEventListener('click',   toggleSyncViews);
 
@@ -3519,7 +3519,7 @@ function init() {
 
   pickerBtnA.addEventListener('click', (e) => { e.stopPropagation(); openPicker('a'); });
   pickerBtnB.addEventListener('click', (e) => { e.stopPropagation(); openPicker('b'); });
-  saveSetBtn.addEventListener('click', saveCurrentCompareSet);
+  if (saveSetBtn) saveSetBtn.addEventListener('click', saveCurrentCompareSet);
 
   // Close picker when clicking outside
   document.addEventListener('click', (e) => {
