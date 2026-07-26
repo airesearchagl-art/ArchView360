@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArchView360 - 360°パノラマビューワー</title>
+  <link rel="stylesheet" href="style.css?v=20260720b" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">ArchView360</span>
+        <span id="app-version-badge" class="app-version-badge">v2.22.0</span>
+      </div>
+      <p class="header-desc">D5 Renderなどで書き出した360°パノラマ画像をブラウザ上で確認できます。</p>
+      <span class="local-badge" title="画像・JSONはすべてブラウザ内で処理され、外部送信されません">🔒 Local Processing / No Cloud Upload</span>
+      <div class="header-actions">
+        <div id="app-mode-switch" class="app-mode-switch" title="Viewer: 閲覧専用。Editor: シーン追加・平面図編集・保存/書き出しなどの編集機能を利用できます。">
+          <span id="app-mode-label" class="app-mode-label">Viewer</span>
+          <span id="dirty-indicator" class="dirty-indicator" style="display:none" title="未保存の変更があります">● 未保存</span>
+          <button id="viewer-preview-exit-btn" type="button" class="header-link-btn" style="display:none" title="プレビューを終了してEditorに戻ります">プレビュー終了</button>
+        </div>
+        <button id="quick-help-btn" class="header-link-btn" title="クイックヘルプを開く">❔ クイックヘルプ</button>
+        <a id="manual-link-btn" class="header-link-btn" href="/docs/index.html" target="_blank" rel="noopener" title="ユーザーマニュアルを開く">📖 マニュアル</a>
+        <a id="security-link-btn" class="header-link-btn" href="/docs/security.html" target="_blank" rel="noopener" title="セキュリティポリシーを開く">🔒 セキュリティ</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ===== アップロード画面 ===== -->
+    <section id="upload-section" class="upload-section">
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="パノラマ画像をアップロード">
+        <div class="drop-zone-content">
+          <div class="drop-icon">🖼️</div>
+          <p class="drop-title">パノラマ画像をドラッグ＆ドロップ</p>
+          <p class="drop-sub-hint">設定JSON（.json）をドロップするとプロジェクトを復元できます</p>
+          <p class="drop-sub">または</p>
+          <label class="btn btn-primary" for="file-input">ファイルを選択</label>
+          <p class="drop-hint">JPEG / PNG / WebP ・ 推奨サイズ：4096×2048（2:1 正距円筒図法）・ 複数ファイル同時選択可</p>
+        </div>
+      </div>
+      <!-- 設定JSONから開く -->
+      <div class="json-open-card">
+        <div class="json-open-or">または</div>
+        <div class="json-open-content">
+          <span class="json-open-icon">📂</span>
+          <div class="json-open-text">
+            <p class="json-open-title">設定JSONからプロジェクトを開く</p>
+            <p class="json-open-desc">JSON + 画像ファイル一式があれば別環境でもプロジェクトを完全復元できます。JSONと画像を一緒にドロップすると自動マッチングします</p>
+          </div>
+          <button id="open-json-btn" class="btn btn-secondary">設定JSONを開く</button>
+        </div>
+      </div>
+      <!-- プロジェクトZIPから開く (v2.12) -->
+      <div class="json-open-card">
+        <div class="json-open-or">または</div>
+        <div class="json-open-content">
+          <span class="json-open-icon">📦</span>
+          <div class="json-open-text">
+            <p class="json-open-title">プロジェクトZIPを開く</p>
+            <p class="json-open-desc">プロジェクトZIPを読み込むと、画像・平面図・設定をまとめて復元できます。画像をドロップ／設定JSONをドロップ／プロジェクトZIPをドロップのいずれにも対応しています。</p>
+          </div>
+          <button id="open-zip-btn" class="btn btn-secondary">プロジェクトZIPを開く</button>
+        </div>
+      </div>
+      <div class="usage-card">
+        <h2 class="usage-title">操作方法</h2>
+        <ul class="usage-list">
+          <li><span class="usage-icon">🖱️</span> ドラッグで視点を移動（タッチ端末はスワイプ）</li>
+          <li><span class="usage-icon">🔍</span> スクロール／ピンチでズーム</li>
+          <li><span class="usage-icon">⌨️</span> キーボードショートカット（ビューワー表示中）</li>
+        </ul>
+        <table class="shortcut-table">
+          <tbody>
+            <tr><td class="shortcut-key">← →</td><td>前のシーン / 次のシーン（通常表示時）</td></tr>
+            <tr><td class="shortcut-key">R</td><td>視点リセット</td></tr>
+            <tr><td class="shortcut-key">A</td><td>自動回転 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">F</td><td>全画面切り替え</td></tr>
+            <tr><td class="shortcut-key">M</td><td>現在シーンを左右反転</td></tr>
+            <tr><td class="shortcut-key">C</td><td>分割比較 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">S</td><td>スライダー比較 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">V</td><td>分割比較中：左右 ↔ 上下切替</td></tr>
+            <tr><td class="shortcut-key">L</td><td>比較中：視点同期 ON / OFF</td></tr>
+            <tr><td class="shortcut-key">Esc</td><td>通常表示に戻る</td></tr>
+          </tbody>
+        </table>
+        <p class="usage-note">※ D5 Render の360°出力は「正距円筒図法」を選択してください。</p>
+      </div>
+      <div class="security-card">
+        <h2 class="security-title">🔒 セキュリティについて</h2>
+        <ul class="security-list">
+          <li>画像は外部送信されません</li>
+          <li>平面図は外部送信されません</li>
+          <li>JSONは外部送信されません</li>
+          <li>処理はすべてブラウザ内で完結します</li>
+        </ul>
+        <p class="security-more">詳しくは <a href="/docs/security.html" target="_blank" rel="noopener">🔒 セキュリティポリシー</a> をご覧ください。</p>
+      </div>
+    </section>
+
+    <!-- ===== ビューワー画面 ===== -->
+    <div id="viewer-layout" class="viewer-layout" style="display:none">
+
+      <!-- 左サイドバー -->
+      <aside class="scene-panel">
+        <div class="scene-panel-hd">
+          <span id="scene-counter" class="scene-counter">0 / 0</span>
+          <div class="scene-panel-actions">
+            <button id="clear-all-btn" class="sidebar-btn sidebar-btn-danger" title="すべてクリア">🗑</button>
+          </div>
+        </div>
+        <div id="scene-filter-bar" class="scene-filter-bar" style="display:none"></div>
+        <div id="project-dashboard" class="project-dashboard" style="display:none"></div>
+
+        <ul id="scene-list" class="scene-list"></ul>
+
+        <!-- 平面図一覧 -->
+        <div id="floorplan-section" class="floorplan-section">
+          <div class="floorplan-section-hd">
+            <span class="floorplan-section-title">平面図</span>
+          </div>
+          <div id="floorplan-list-el" class="floorplan-list-el"></div>
+          <div id="floorplan-empty-msg" class="floorplan-empty-msg">
+            <p>平面図がありません</p>
+            <p class="floorplan-empty-hint">ツールバー「🗺 平面図」で追加</p>
+          </div>
+        </div>
+
+        <!-- 比較セット一覧 (常時表示) -->
+        <div id="compare-sets-panel" class="compare-sets-panel">
+          <div class="compare-sets-hd">
+            <span class="compare-sets-title">比較セット</span>
+          </div>
+          <div id="compare-sets-body" class="compare-sets-body">
+            <ul id="compare-sets-list" class="compare-sets-list"></ul>
+            <div id="compare-sets-empty" class="cset-empty" style="display:none">
+              <p>保存された比較セットはありません</p>
+              <p class="cset-empty-hint">比較モードで「💾 セット保存」を<br>押すと追加されます</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 操作ガイド -->
+        <div class="sidebar-guide">
+          <div class="sidebar-guide-heading">操作ガイド</div>
+          <div class="shortcut-rows">
+            <div class="shortcut-row"><span class="skey">Drag</span><span class="sdesc">見回し</span></div>
+            <div class="shortcut-row"><span class="skey">Wheel</span><span class="sdesc">ズーム</span></div>
+            <div class="shortcut-row"><span class="skey">← →</span><span class="sdesc">シーン切替</span></div>
+            <div class="shortcut-row"><span class="skey">R</span><span class="sdesc">リセット</span></div>
+            <div class="shortcut-row"><span class="skey">A</span><span class="sdesc">自動回転</span></div>
+            <div class="shortcut-row"><span class="skey">F</span><span class="sdesc">全画面</span></div>
+            <div class="shortcut-row"><span class="skey">M</span><span class="sdesc">左右反転</span></div>
+            <div class="shortcut-row"><span class="skey">C</span><span class="sdesc">分割比較</span></div>
+            <div class="shortcut-row"><span class="skey">S</span><span class="sdesc">スライダー比較</span></div>
+            <div class="shortcut-row"><span class="skey">V</span><span class="sdesc">レイアウト切替</span></div>
+            <div class="shortcut-row"><span class="skey">L</span><span class="sdesc">視点同期</span></div>
+            <div class="shortcut-row"><span class="skey">Esc</span><span class="sdesc">通常表示に戻る</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ビューワー本体 -->
+      <div class="viewer-wrap">
+
+        <!-- ===== ツールバー：通常表示時 ===== -->
+        <div id="toolbar-single" class="toolbar">
+          <!-- 【画像】グループ -->
+          <button id="back-btn" class="toolbar-btn toolbar-btn-muted" data-action="back">
+            <span class="btn-icon">🗑</span><span class="btn-label">すべてクリア</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【表示】グループ -->
+          <button id="autorotate-btn" class="toolbar-btn" data-action="autorotate">
+            <span class="btn-icon">▶</span><span class="btn-label">自動回転</span>
+          </button>
+          <button id="reset-btn" class="toolbar-btn" data-action="reset">
+            <span class="btn-icon">↺</span><span class="btn-label">リセット</span>
+          </button>
+          <button id="fullscreen-btn" class="toolbar-btn" data-action="fullscreen">
+            <span class="btn-icon" id="fullscreen-icon">⛶</span><span class="btn-label">全画面</span>
+          </button>
+          <button id="vr-btn" class="toolbar-btn" data-action="vr" title="Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。">
+            <span class="btn-icon">🥽</span><span class="btn-label">VRモード</span>
+          </button>
+          <span class="vr-note-badge" title="VRモードはMeta Quest BrowserなどのWebXR対応ブラウザ向けです。PC画面拡張や通常モニター表示ではVR表示にならない場合があります。">ⓘ</span>
+          <button id="observer-btn" class="toolbar-btn" data-action="observer" title="VR体験者の現在位置・視線方向をFloorMap上で確認します（Observer Mode）">
+            <span class="btn-icon">👁</span><span class="btn-label">Observer</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【比較】グループ -->
+          <button id="split-compare-btn" class="toolbar-btn" data-action="split" disabled>
+            <span class="btn-icon">⊞</span><span class="btn-label">分割比較</span>
+          </button>
+          <button id="slider-compare-btn" class="toolbar-btn" data-action="slider" disabled>
+            <span class="btn-icon">◫</span><span class="btn-label">スライダー比較</span>
+          </button>
+        </div>
+
+        <!-- ===== ツールバー：比較モード ===== -->
+        <div id="toolbar-compare" class="toolbar" style="display:none">
+          <!-- 【比較モード】グループ -->
+          <button id="exit-compare-btn" class="toolbar-btn toolbar-btn-exit" data-action="exit-compare">
+            <span class="btn-icon">←</span><span class="btn-label">通常表示</span>
+          </button>
+          <button id="switch-to-split-btn" class="toolbar-btn toolbar-btn-sm" data-action="switch-split">
+            <span class="btn-icon">⊞</span><span class="btn-label">分割</span>
+          </button>
+          <button id="switch-to-slider-btn" class="toolbar-btn toolbar-btn-sm" data-action="switch-slider">
+            <span class="btn-icon">◫</span><span class="btn-label">スライダー</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【比較対象】グループ -->
+          <div class="tb-select-group">
+            <span class="tb-badge tb-badge-a">A</span>
+            <button id="picker-btn-a" class="toolbar-btn toolbar-btn-sm picker-btn" title="シーンAを選択">
+              <img id="picker-thumb-a" class="picker-thumb" src="" alt="" style="display:none" />
+              <span id="picker-name-a" class="picker-name">---</span>
+            </button>
+          </div>
+          <button id="swap-ab-btn" class="toolbar-btn toolbar-btn-sm" data-action="swap">
+            <span class="btn-icon">⇄</span><span class="btn-label">入替</span>
+          </button>
+          <div class="tb-select-group">
+            <span class="tb-badge tb-badge-b">B</span>
+            <button id="picker-btn-b" class="toolbar-btn toolbar-btn-sm picker-btn" title="シーンBを選択">
+              <img id="picker-thumb-b" class="picker-thumb" src="" alt="" style="display:none" />
+              <span id="picker-name-b" class="picker-name">---</span>
+            </button>
+          </div>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【セット保存】グループ -->
+
+          <div class="tb-sep"></div>
+
+          <!-- 【補正】グループ -->
+          <!-- flip-a-btn/flip-b-btn: CSSベースEditor専用として除去候補だが、
+               updateCompareSelects()（enterSplitMode()/enterSliderMode()経由で
+               分割・スライダー比較モードに入るたびに呼ばれる、Common機能）が
+               この2要素を無条件に参照しており、script.jsの追加guardなしには
+               除去できないことがfail-firstテストで判明したため、本PRでは
+               意図的に残す（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
+          <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-a">
+            <span class="btn-icon">↔</span><span class="btn-label">A反転</span>
+          </button>
+          <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-b">
+            <span class="btn-icon">↔</span><span class="btn-label">B反転</span>
+          </button>
+          <button id="sync-btn" class="toolbar-btn toolbar-btn-sm active" data-action="sync" title="視点同期 ON/OFF (L)">
+            <span class="btn-icon">🔗</span><span class="btn-label">視点同期 ON</span>
+          </button>
+
+          <div class="tb-sep" id="split-layout-sep"></div>
+
+          <!-- 【表示 / 分割のみ】グループ -->
+          <button id="layout-lr-btn" class="toolbar-btn toolbar-btn-sm active" data-action="layout-lr">
+            <span class="btn-icon">⊞</span><span class="btn-label">左右</span>
+          </button>
+          <button id="layout-tb-btn" class="toolbar-btn toolbar-btn-sm" data-action="layout-tb">
+            <span class="btn-icon">⊟</span><span class="btn-label">上下</span>
+          </button>
+
+          <div class="tb-sep"></div>
+
+          <!-- 【表示】共通グループ -->
+          <button id="compare-autorotate-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-autorotate">
+            <span class="btn-icon">▶</span><span class="btn-label">自動回転</span>
+          </button>
+          <button id="compare-reset-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-reset">
+            <span class="btn-icon">↺</span><span class="btn-label">リセット</span>
+          </button>
+          <button id="compare-fullscreen-btn" class="toolbar-btn toolbar-btn-sm" data-action="cmp-fs">
+            <span class="btn-icon">⛶</span><span class="btn-label">全画面</span>
+          </button>
+        </div>
+
+        <!-- ===== 通常表示ビューワー ===== -->
+        <div id="viewer-container" class="viewer-container">
+          <canvas id="viewer-canvas"></canvas>
+          <div class="scene-name-bar">
+            <span id="current-scene-name" class="scene-name-display"></span>
+          </div>
+          <div id="scene-fade-overlay" class="scene-fade-overlay"></div>
+          <div id="unplaced-warning" class="unplaced-warning" style="display:none">
+            ⚠️ このシーンは未配置です — 📍ボタンで現在の平面図に配置できます
+          </div>
+          <div id="loading-overlay" class="loading-overlay" style="display:none">
+            <div class="spinner"></div>
+            <p id="loading-message">画像を読み込み中…</p>
+          </div>
+          <div id="error-overlay" class="error-overlay" style="display:none">
+            <div class="error-content">
+              <span class="error-icon">⚠️</span>
+              <p id="error-message">エラーが発生しました。</p>
+              <button id="error-back-btn" class="btn btn-secondary">戻る</button>
+            </div>
+          </div>
+          <div class="status-bar">
+            <span id="status-fov">FOV: 75°</span>
+          </div>
+          <div id="toast" class="toast" aria-live="polite"></div>
+        </div>
+
+        <!-- ===== 比較モードビューワー ===== -->
+        <div id="compare-container" class="compare-container" style="display:none">
+          <div class="compare-pane" id="compare-pane-a">
+            <div class="compare-label">
+              <span class="tb-badge tb-badge-a">A</span>
+              <span id="compare-name-a" class="compare-pane-name"></span>
+            </div>
+            <canvas id="canvas-a"></canvas>
+            <div id="loading-a" class="compare-loading" style="display:none"><div class="spinner-sm"></div></div>
+          </div>
+          <div class="compare-pane" id="compare-pane-b">
+            <div class="compare-label compare-label-b">
+              <span class="tb-badge tb-badge-b">B</span>
+              <span id="compare-name-b" class="compare-pane-name"></span>
+            </div>
+            <canvas id="canvas-b"></canvas>
+            <div id="loading-b" class="compare-loading" style="display:none"><div class="spinner-sm"></div></div>
+          </div>
+          <!-- スライダー比較ディバイダー -->
+          <div id="slider-divider" class="slider-divider" style="display:none">
+            <div class="slider-handle">⟺</div>
+          </div>
+        </div>
+
+        <!-- ===== FloorMap Navigator ===== -->
+        <div id="floormap-navigator" class="floormap-navigator" style="display:none">
+          <div id="floormap-resize-handle" class="floormap-resize-handle"></div>
+          <div id="floormap-resize-handle-left" class="floormap-resize-handle-left"></div>
+          <div class="floormap-hd">
+            <div id="floormap-fp-tabs" class="floormap-fp-tabs"></div>
+            <div class="floormap-hd-actions">
+              <button class="floormap-icon-btn floormap-size-btn" data-size="240" title="S">S</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="360" title="M">M</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="520" title="L">L</button>
+              <button class="floormap-icon-btn floormap-size-btn" data-size="700" title="XL">XL</button>
+              <button id="floormap-toggle-btn" class="floormap-icon-btn" title="折りたたむ">−</button>
+            </div>
+          </div>
+          <div id="floormap-body" class="floormap-body">
+            <canvas id="floormap-canvas" class="floormap-canvas" width="340" height="255"></canvas>
+            <div id="floormap-place-hint" class="floormap-place-hint" style="display:none">クリックでマーカーを配置 / 視点方向を自動取得</div>
+            <div id="floormap-tooltip" class="floormap-tooltip" style="display:none"></div>
+          </div>
+          <!-- マーカー情報パネル -->
+          <div id="floormap-info-panel" class="floormap-info-panel" style="display:none">
+            <div class="floormap-info-row">
+              <div class="floormap-info-cell floormap-info-cell-order">
+                <div class="floormap-info-label">番号 <span class="floormap-info-edit-hint">✏</span></div>
+                <div id="floormap-info-order" class="floormap-info-order" title="クリックして番号を編集">---</div>
+              </div>
+              <div class="floormap-info-cell floormap-info-cell-name">
+                <div class="floormap-info-label">名称</div>
+                <div id="floormap-info-name" class="floormap-info-name" title="ダブルクリックで名称編集">---</div>
+              </div>
+              <div class="floormap-info-cell">
+                <div class="floormap-info-label">シーン</div>
+                <div id="floormap-info-scene" class="floormap-info-scene">---</div>
+              </div>
+              <div class="floormap-info-cell floormap-info-cell-dir">
+                <div class="floormap-info-label">向き</div>
+                <div id="floormap-info-dir" class="floormap-info-dir">0°</div>
+              </div>
+            </div>
+          </div>
+          <!-- マーカー一覧 -->
+          <div id="floormap-mk-list" class="floormap-mk-list">
+            <div class="floormap-mk-list-hd">
+              <span class="floormap-mk-list-hd-label">マーカー一覧</span>
+            </div>
+            <ul id="floormap-mk-list-ul" class="floormap-mk-list-ul"></ul>
+            <div id="floormap-mk-list-empty" class="floormap-mk-list-empty" style="display:none">マーカーなし</div>
+          </div>
+        </div>
+
+        <!-- ===== ビューア内ドロップオーバーレイ ===== -->
+        <div id="viewer-drop-overlay" class="viewer-drop-overlay" style="display:none">
+          <div class="viewer-drop-inner">
+            <div class="viewer-drop-plus">＋</div>
+            <p class="viewer-drop-text">ここにドロップして画像を追加</p>
+            <p class="viewer-drop-sub">既存のシーンは維持されます</p>
+          </div>
+        </div>
+
+      </div><!-- /viewer-wrap -->
+    </div><!-- /viewer-layout -->
+
+    <div id="threejs-error" class="global-msg global-msg-error" style="display:none" role="alert">
+      ⚠️ Three.js の読み込みに失敗しました。ページを再読み込みしてください。
+    </div>
+    <div id="global-error" class="global-msg global-msg-error" style="display:none" role="alert"></div>
+
+  </main>
+
+  <footer class="footer">
+    <p>ArchView360 v2.22.0 &mdash; 360° Panorama Viewer for Architecture &mdash; 🔒 Local Processing / No Cloud Upload</p>
+  </footer>
+
+  <script type="module" src="vendor/three-global.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <input type="file" id="file-input"          accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="floorplan-input"     accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="json-import-input"   accept=".json,application/json"          class="visually-hidden" />
+  <input type="file" id="import-images-input" accept="image/jpeg,image/png,image/webp" multiple class="visually-hidden" />
+  <input type="file" id="replace-scene-input" accept="image/jpeg,image/png,image/webp" class="visually-hidden" />
+  <input type="file" id="zip-import-input"    accept=".zip,application/zip,application/x-zip-compressed" class="visually-hidden" />
+
+  <!-- Picker dropdown -->
+  <div id="picker-dropdown" class="picker-dropdown" style="display:none" role="listbox">
+    <ul id="picker-dropdown-list" class="picker-dropdown-list"></ul>
+  </div>
+
+  <!-- JSON Import モーダル -->
+  <div id="import-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-hd">
+        <span class="modal-title" id="import-modal-title">JSONからプロジェクトを読み込む</span>
+        <button id="import-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body" id="import-modal-body">
+        <!-- filled by JS -->
+      </div>
+      <div class="modal-ft">
+        <button id="import-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="import-upload-btn" class="btn btn-primary">画像ファイルを選択して復元</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- グループピッカー -->
+  <!-- 本来はEditor専用（DOM調査文書13節監査で確定）だが、group-picker-add-btn
+       のクリックハンドラとgroup-picker-inputのkeydown/clickハンドラが
+       openGroupPicker()のガードの外側で無条件にaddEventListener登録されて
+       おり、script.jsの追加guardなしにはviewer.htmlから安全に除去できない
+       ことがfail-firstテストで判明したため、本PRでは意図的に残す
+       （docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
+  <div id="group-picker" class="group-picker" style="display:none">
+    <ul id="group-picker-list" class="group-picker-list"></ul>
+    <div class="group-picker-add">
+      <input type="text" id="group-picker-input" class="group-picker-input" placeholder="新しいグループ名" maxlength="40" autocomplete="off" />
+      <button id="group-picker-add-btn" class="group-picker-add-btn">追加</button>
+    </div>
+  </div>
+
+  <!-- プロジェクト情報モーダル -->
+  <!-- 本来はEditor専用（DOM調査文書13節監査で確定）だが、この2群は
+       project-info-modal/set-name-modalへの参照がopenXxxModal()の外側
+       （outside-click-to-closeハンドラ、set-name-modalはさらに全キーボード
+       ショートカットの入口ガード）にも無条件で存在し、script.jsの追加guard
+       なしにはviewer.htmlから安全に除去できないことがfail-firstテストで
+       判明したため、本PRでは意図的に残す（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
+  <div id="project-info-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pi-modal-title">
+    <div class="modal-box" style="max-width:460px">
+      <div class="modal-hd">
+        <span class="modal-title" id="pi-modal-title">プロジェクト情報</span>
+        <button id="pi-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="modal-label" for="pi-name">案件名</label>
+        <input type="text" id="pi-name" class="modal-input" maxlength="100" autocomplete="off" placeholder="例: ○○オフィスビル新築工事" />
+        <label class="modal-label" for="pi-client">施主名</label>
+        <input type="text" id="pi-client" class="modal-input" maxlength="80" autocomplete="off" placeholder="施主・クライアント名" />
+        <label class="modal-label" for="pi-author">作成者</label>
+        <input type="text" id="pi-author" class="modal-input" maxlength="80" autocomplete="off" placeholder="設計者・担当者名" />
+        <label class="modal-label" for="pi-date">作成日</label>
+        <input type="date" id="pi-date" class="modal-input" />
+        <label class="modal-label" for="pi-notes">備考</label>
+        <textarea id="pi-notes" class="modal-textarea" rows="3" placeholder="備考・メモ" maxlength="500"></textarea>
+      </div>
+      <div class="modal-ft">
+        <button id="pi-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="pi-save-btn" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 比較セット名入力モーダル -->
+  <!-- 同上の理由でPR対象外（set-name-modalは全キーボードショートカットの
+       入口ガードにも参照されるため、除去するとViewerの矢印キー等のショート
+       カットが全滅する）。docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照。 -->
+  <div id="set-name-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="set-name-modal-title">
+    <div class="modal-box">
+      <div class="modal-hd">
+        <span class="modal-title" id="set-name-modal-title">比較セットを保存</span>
+        <button id="set-name-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="set-name-modal-info" class="modal-info" style="display:none"></div>
+        <label class="modal-label" for="set-name-input">セット名</label>
+        <input type="text" id="set-name-input" class="modal-input" maxlength="80" autocomplete="off" />
+        <p id="set-name-modal-note" class="modal-note" style="display:none"></p>
+      </div>
+      <div class="modal-ft">
+        <button id="set-name-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="set-name-ok-btn" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Unsaved changes confirmation (Dirty State, v2.21.x) ===== -->
+  <div id="dirty-confirm-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="dirty-confirm-modal-title">
+    <div class="modal-box">
+      <div class="modal-hd">
+        <span class="modal-title" id="dirty-confirm-modal-title">未保存の変更があります</span>
+        <button id="dirty-confirm-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="dirty-confirm-modal-body">このまま続行すると、保存していない変更が失われます。保存する場合は先にキャンセルし、既存の「設定を書き出し」または「パッケージ書き出し」から保存してください。</p>
+      </div>
+      <div class="modal-ft">
+        <button id="dirty-confirm-cancel-btn" class="btn btn-secondary">キャンセル</button>
+        <button id="dirty-confirm-discard-btn" class="btn btn-danger">破棄して続行</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Quick Help modal (v2.9.4) ===== -->
+  <div id="quick-help-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="quick-help-title">
+    <div class="modal-box quick-help-box">
+      <div class="modal-hd">
+        <span class="modal-title" id="quick-help-title">❔ クイックヘルプ</span>
+        <button id="quick-help-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="modal-body quick-help-body">
+        <section class="qh-section">
+          <h3 class="qh-heading">🚀 はじめに</h3>
+          <p class="qh-text">360°パノラマ画像（JPEG/PNG/WebP）をドラッグ＆ドロップ、または「ファイルを選択」で読み込みます。複数枚を同時に追加できます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">⌨️ 主なショートカット</h3>
+          <table class="qh-table">
+            <tbody>
+              <tr><td class="qh-key">← →</td><td>シーン切替</td></tr>
+              <tr><td class="qh-key">R</td><td>視点リセット</td></tr>
+              <tr><td class="qh-key">A</td><td>自動回転 ON/OFF</td></tr>
+              <tr><td class="qh-key">F</td><td>全画面</td></tr>
+              <tr><td class="qh-key">M</td><td>左右反転</td></tr>
+              <tr><td class="qh-key">C</td><td>分割比較 ON/OFF</td></tr>
+              <tr><td class="qh-key">S</td><td>スライダー比較 ON/OFF</td></tr>
+              <tr><td class="qh-key">Esc</td><td>通常表示に戻る</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">🗺️ FloorMap</h3>
+          <p class="qh-text">平面図画像を追加し、配置モードで平面図をクリックするとその位置にシーンのマーカーを置けます。マーカー番号で ← → の移動順を制御できます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">⊞ 比較モード</h3>
+          <p class="qh-text">ツールバーの「分割比較」「スライダー比較」で2つのシーンを並べて比較できます。比較セットとして保存すれば後から呼び出せます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">🥽 VRモード</h3>
+          <p class="qh-text">Quest Browserでの利用を推奨。PC画面拡張ではVR表示にならない場合があります。VR中はQuest Touch Plusコントローラーの右Aボタンで次のシーンへ、左Xボタンで前のシーンへ、右Bボタンでhud表示/非表示、左Yボタンでdebug詳細/簡易切替ができます。</p>
+        </section>
+        <section class="qh-section">
+          <h3 class="qh-heading">👁 Observer Mode</h3>
+          <p class="qh-text">VR体験者の現在位置と視線方向をPC側のFloorMap上で確認できます（v2.11ではローカル表示のみ。Quest-PC間の同期は今後対応予定）。</p>
+        </section>
+        <p class="qh-more">さらに詳しい説明は <a href="/docs/index.html" target="_blank" rel="noopener">📖 ユーザーマニュアル</a> をご覧ください。</p>
+      </div>
+      <div class="modal-ft">
+        <button id="quick-help-ok-btn" class="btn btn-primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VR Observer Mode panel (v2.11) -->
+  <div id="observer-panel" class="observer-panel">
+    <div class="observer-panel-hd">
+      <span class="observer-panel-title">👁 Observer Mode</span>
+      <button id="obs-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
+    </div>
+    <div class="observer-panel-body">
+      <div class="obs-row"><span class="obs-label">状態</span><span id="obs-state" class="obs-val">停止中</span></div>
+      <div class="obs-row"><span class="obs-label">現在シーン</span><span id="obs-scene" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">FloorMap</span><span id="obs-floorplan" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">マーカー</span><span id="obs-marker" class="obs-val">—</span></div>
+      <div class="obs-row"><span class="obs-label">視線方向</span><span id="obs-yaw" class="obs-val">0°</span></div>
+      <div class="obs-row"><span class="obs-label">FOV</span><span id="obs-fov" class="obs-val">100°</span></div>
+      <div class="obs-row"><span class="obs-label">セッションID</span><span id="obs-session" class="obs-val">—</span></div>
+      <p id="obs-warning" class="obs-warning" style="display:none">⚠ このシーンはFloorMap未配置です</p>
+      <div class="obs-btn-row">
+        <button id="obs-start-btn" class="btn btn-primary">Observer開始</button>
+        <button id="obs-end-btn" class="btn btn-secondary" style="display:none">セッション終了</button>
+        <button id="obs-viewer-btn" class="btn btn-secondary">Viewerとして接続</button>
+        <button id="obs-copy-btn" class="btn btn-secondary">セッションIDコピー</button>
+      </div>
+      <p class="obs-note">v2.11ではローカルObserver表示に対応しています。Quest-PC間のリアルタイム同期は将来のWebSocket / WebRTC対応予定です。外部送信は行われません（すべてブラウザ内のみ）。</p>
+    </div>
+  </div>
+
+  <!-- VR Debug Log: on-screen input state (v2.15). Local-only, never persisted. -->
+  <pre id="vr-debug-log" class="vr-debug-log" style="display:none" aria-label="VR Debug Log"></pre>
+
+  <script src="script.js?v=20260720c" defer></script>
+</body>
+</html>
