@@ -246,18 +246,9 @@
           <div class="tb-sep"></div>
 
           <!-- 【補正】グループ -->
-          <!-- flip-a-btn/flip-b-btn: CSSベースEditor専用として除去候補だが、
-               updateCompareSelects()（enterSplitMode()/enterSliderMode()経由で
-               分割・スライダー比較モードに入るたびに呼ばれる、Common機能）が
-               この2要素を無条件に参照しており、script.jsの追加guardなしには
-               除去できないことがfail-firstテストで判明したため、本PRでは
-               意図的に残す（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
-          <button id="flip-a-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-a">
-            <span class="btn-icon">↔</span><span class="btn-label">A反転</span>
-          </button>
-          <button id="flip-b-btn" class="toolbar-btn toolbar-btn-sm editor-only" data-action="flip-b">
-            <span class="btn-icon">↔</span><span class="btn-label">B反転</span>
-          </button>
+          <!-- flip-a-btn/flip-b-btnはCSSベースEditor専用として除去済み。
+               参照元updateCompareSelects()にはscript.js側でnull-guardを追加済み
+               （docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
           <button id="sync-btn" class="toolbar-btn toolbar-btn-sm active" data-action="sync" title="視点同期 ON/OFF (L)">
             <span class="btn-icon">🔗</span><span class="btn-label">視点同期 ON</span>
           </button>
@@ -441,75 +432,17 @@
     </div>
   </div>
 
-  <!-- グループピッカー -->
-  <!-- 本来はEditor専用（DOM調査文書13節監査で確定）だが、group-picker-add-btn
-       のクリックハンドラとgroup-picker-inputのkeydown/clickハンドラが
-       openGroupPicker()のガードの外側で無条件にaddEventListener登録されて
-       おり、script.jsの追加guardなしにはviewer.htmlから安全に除去できない
-       ことがfail-firstテストで判明したため、本PRでは意図的に残す
+  <!-- グループピッカー: Editor専用として除去済み。参照元
+       group-picker-add-btn/group-picker-inputのwiringにはscript.js側で
+       null-guardを追加済み（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
+
+  <!-- プロジェクト情報モーダル: Editor専用として除去済み。外側クリック
+       ハンドラにはscript.js側でnull-guardを追加済み
        （docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
-  <div id="group-picker" class="group-picker" style="display:none">
-    <ul id="group-picker-list" class="group-picker-list"></ul>
-    <div class="group-picker-add">
-      <input type="text" id="group-picker-input" class="group-picker-input" placeholder="新しいグループ名" maxlength="40" autocomplete="off" />
-      <button id="group-picker-add-btn" class="group-picker-add-btn">追加</button>
-    </div>
-  </div>
 
-  <!-- プロジェクト情報モーダル -->
-  <!-- 本来はEditor専用（DOM調査文書13節監査で確定）だが、この2群は
-       project-info-modal/set-name-modalへの参照がopenXxxModal()の外側
-       （outside-click-to-closeハンドラ、set-name-modalはさらに全キーボード
-       ショートカットの入口ガード）にも無条件で存在し、script.jsの追加guard
-       なしにはviewer.htmlから安全に除去できないことがfail-firstテストで
-       判明したため、本PRでは意図的に残す（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
-  <div id="project-info-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pi-modal-title">
-    <div class="modal-box" style="max-width:460px">
-      <div class="modal-hd">
-        <span class="modal-title" id="pi-modal-title">プロジェクト情報</span>
-        <button id="pi-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
-      </div>
-      <div class="modal-body">
-        <label class="modal-label" for="pi-name">案件名</label>
-        <input type="text" id="pi-name" class="modal-input" maxlength="100" autocomplete="off" placeholder="例: ○○オフィスビル新築工事" />
-        <label class="modal-label" for="pi-client">施主名</label>
-        <input type="text" id="pi-client" class="modal-input" maxlength="80" autocomplete="off" placeholder="施主・クライアント名" />
-        <label class="modal-label" for="pi-author">作成者</label>
-        <input type="text" id="pi-author" class="modal-input" maxlength="80" autocomplete="off" placeholder="設計者・担当者名" />
-        <label class="modal-label" for="pi-date">作成日</label>
-        <input type="date" id="pi-date" class="modal-input" />
-        <label class="modal-label" for="pi-notes">備考</label>
-        <textarea id="pi-notes" class="modal-textarea" rows="3" placeholder="備考・メモ" maxlength="500"></textarea>
-      </div>
-      <div class="modal-ft">
-        <button id="pi-cancel-btn" class="btn btn-secondary">キャンセル</button>
-        <button id="pi-save-btn" class="btn btn-primary">保存</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 比較セット名入力モーダル -->
-  <!-- 同上の理由でPR対象外（set-name-modalは全キーボードショートカットの
-       入口ガードにも参照されるため、除去するとViewerの矢印キー等のショート
-       カットが全滅する）。docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照。 -->
-  <div id="set-name-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="set-name-modal-title">
-    <div class="modal-box">
-      <div class="modal-hd">
-        <span class="modal-title" id="set-name-modal-title">比較セットを保存</span>
-        <button id="set-name-close-btn" class="modal-close-btn" aria-label="閉じる">✕</button>
-      </div>
-      <div class="modal-body">
-        <div id="set-name-modal-info" class="modal-info" style="display:none"></div>
-        <label class="modal-label" for="set-name-input">セット名</label>
-        <input type="text" id="set-name-input" class="modal-input" maxlength="80" autocomplete="off" />
-        <p id="set-name-modal-note" class="modal-note" style="display:none"></p>
-      </div>
-      <div class="modal-ft">
-        <button id="set-name-cancel-btn" class="btn btn-secondary">キャンセル</button>
-        <button id="set-name-ok-btn" class="btn btn-primary">保存</button>
-      </div>
-    </div>
-  </div>
+  <!-- 比較セット名入力モーダル: Editor専用として除去済み。外側クリック
+       ハンドラおよび全キーボードショートカットの入口ガードには
+       script.js側でnull-guardを追加済み（docs/ViewerEditor_Viewer_Html_Known_Gaps.md参照）。 -->
 
   <!-- ===== Unsaved changes confirmation (Dirty State, v2.21.x) ===== -->
   <div id="dirty-confirm-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="dirty-confirm-modal-title">

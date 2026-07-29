@@ -1,32 +1,29 @@
-// Minimal launch + main-display regression for the new viewer.html static
-// entry point (docs/ViewerEditor_DOM_Separation_Design_Comparison.md 案2,
-// 6節 PR-B). This is the "最低限の起動・主要表示テスト" bundled with the
-// viewer.html addition itself; the "詳細回帰テスト" (Common機能全般・
-// Editor切替導線が無いことの確認・Viewer Preview関連UIが無いことの確認)
-// is left for a separate follow-up PR (6節 PR-C), per the design doc.
+// Launch + regression tests for the viewer.html static Viewer-only entry
+// point (docs/ViewerEditor_DOM_Separation_Design_Comparison.md 案2).
 //
-// viewer.html is a static copy of index.html with the *verified-safe*
-// subset of the confirmed 49-id removal set taken out
-// (docs/ViewerEditor_Phase2_Section13_Audit.md 9.1節), plus the id-less
-// `floormap-info-actions` container and -- as an additional design
+// viewer.html is a static copy of index.html with the full confirmed-49-id
+// removal set taken out (docs/ViewerEditor_Phase2_Section13_Audit.md 9.1節:
+// CSS-based Editor-only 27 + function-gated Editor-only 22), plus the
+// id-less `floormap-info-actions` container and -- as an additional design
 // decision beyond the confirmed 49 (design comparison doc 4.3節) --
 // `app-mode-toggle-btn`, so viewer.html has no normal-UI path into Editor.
 //
-// IMPORTANT: fail-first testing during this PR found that 3 of the 22
-// function-gated ids' groups (project-info-modal, set-name-modal,
-// group-picker) and 2 of the 27 CSS-based ids (flip-a-btn, flip-b-btn)
-// are referenced unconditionally from script.js code paths *outside* the
-// gated open-function the earlier audits examined (an outside-click-close
-// handler, a global keyboard-shortcut guard, "add group" button/input
-// wiring, and updateCompareSelects() -- called every time Common
-// split/slider compare mode is entered). None of these can be physically
-// removed from viewer.html without an accompanying script.js null-guard,
-// which is out of scope for this PR (script.js is not touched here). See
-// docs/ViewerEditor_Viewer_Html_Known_Gaps.md for the full writeup; those
-// 18 + 2 = 20 ids are intentionally still present in viewer.html.
+// A follow-up fail-first pass (this file's history) found that 24 of the
+// confirmed-49 ids (project-info-modal group x10, set-name-modal group x8,
+// group-picker group x4, flip-a-btn, flip-b-btn) were referenced
+// unconditionally from script.js code paths *outside* the gated
+// open-function the earlier audits examined -- not only the outside-click
+// handlers first identified, but also each modal's own
+// close/cancel/save/ok button wiring and the set-name-modal keydown
+// listener. All of these unconditional references now have a minimal
+// null-guard in script.js (see docs/ViewerEditor_Viewer_Html_Known_Gaps.md
+// for the full list of guarded call sites), so all 24 ids are now removed
+// from viewer.html along with the rest of the confirmed-49 set.
 //
 // script.js and style.css are shared byte-for-byte with index.html (same
-// `?v=` query strings); this file changes no code, only markup.
+// `?v=` query strings); index.html's own behavior is unchanged because
+// every added guard only skips work for an element that index.html always
+// has present.
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { gotoApp, expectNoErrors } = require('./helpers');
@@ -34,6 +31,30 @@ const { gotoApp, expectNoErrors } = require('./helpers');
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
 const FIXTURE_A = path.join(FIXTURES, 'fixture-a.png');
 const FIXTURE_B = path.join(FIXTURES, 'fixture-b.png');
+
+// The full confirmed-49 Editor-only id set (CSS-based 27 + function-gated
+// 22), per docs/ViewerEditor_Phase2_Section13_Audit.md 7節/9.1節. None of
+// these should exist anywhere in viewer.html.
+const CONFIRMED_EDITOR_ONLY_49 = [
+  // CSS-based (27)
+  'add-floorplan-btn', 'add-img-btn', 'add-scene-btn', 'export-json-btn',
+  'export-package-btn', 'flip-a-btn', 'flip-b-btn', 'flip-btn',
+  'floormap-del-mk', 'floormap-orient-bar', 'floormap-orient-l',
+  'floormap-orient-preset', 'floormap-orient-r', 'floormap-orient-val',
+  'floormap-place-btn', 'floormap-rename-btn', 'floormap-reseq-btn',
+  'floormap-rot-l', 'floormap-rot-r', 'import-json-btn', 'import-package-btn',
+  'project-info-btn', 'redo-btn', 'save-set-btn', 'undo-btn',
+  'update-scene-btn', 'viewer-preview-btn',
+  // Function-gated (22)
+  'project-info-modal', 'pi-modal-title', 'pi-close-btn', 'pi-name',
+  'pi-client', 'pi-author', 'pi-date', 'pi-notes', 'pi-cancel-btn',
+  'pi-save-btn',
+  'set-name-modal', 'set-name-modal-title', 'set-name-close-btn',
+  'set-name-modal-info', 'set-name-input', 'set-name-modal-note',
+  'set-name-cancel-btn', 'set-name-ok-btn',
+  'group-picker', 'group-picker-list', 'group-picker-input',
+  'group-picker-add-btn',
+];
 
 async function gotoViewerHtml(page) {
   const pageErrors = [];
@@ -47,7 +68,7 @@ async function gotoViewerHtml(page) {
   return { pageErrors, consoleErrors };
 }
 
-test.describe('viewer.html: minimal launch + main-display', () => {
+test.describe('viewer.html: launch + main-display', () => {
   test('viewer.html is reachable directly and init() completes without throwing', async ({ page }) => {
     const errors = await gotoViewerHtml(page);
     // A thrown exception inside init() would abort before later
@@ -73,17 +94,41 @@ test.describe('viewer.html: minimal launch + main-display', () => {
     expectNoErrors(errors);
   });
 
-  test('entering split compare mode does not throw (updateCompareSelects() reach, flip-a-btn/flip-b-btn kept)', async ({ page }) => {
-    // This is a direct regression test for the fail-first discovery: with
-    // flip-a-btn/flip-b-btn removed, updateCompareSelects() -- called from
-    // enterSplitMode()/enterSliderMode() -- threw on
-    // `flipABtn.classList.toggle(...)`. It must not throw now that both
-    // buttons are intentionally kept (docs/ViewerEditor_Viewer_Html_Known_Gaps.md).
+  test('entering split compare mode does not throw (updateCompareSelects() reach, now that flip-a-btn/flip-b-btn are removed and null-guarded)', async ({ page }) => {
+    // Regression test for the fail-first discovery: with flip-a-btn/
+    // flip-b-btn removed, updateCompareSelects() -- called from
+    // enterSplitMode()/enterSliderMode() -- used to throw on
+    // `flipABtn.classList.toggle(...)`. It must not throw now that
+    // script.js null-guards both references.
     const errors = await gotoViewerHtml(page);
     await page.locator('#file-input').setInputFiles([FIXTURE_A, FIXTURE_B]);
     await expect(page.locator('#scene-list li')).toHaveCount(2);
     await page.keyboard.press('c'); // split compare mode shortcut, Common
     await expect(page.locator('#compare-container')).toBeVisible();
+    expectNoErrors(errors);
+  });
+
+  test('entering slider compare mode does not throw', async ({ page }) => {
+    const errors = await gotoViewerHtml(page);
+    await page.locator('#file-input').setInputFiles([FIXTURE_A, FIXTURE_B]);
+    await expect(page.locator('#scene-list li')).toHaveCount(2);
+    await page.keyboard.press('s'); // slider compare mode shortcut, Common
+    await expect(page.locator('#compare-container')).toBeVisible();
+    expectNoErrors(errors);
+  });
+
+  test('keyboard shortcuts work with set-name-modal removed (global handler no longer references a null element unconditionally)', async ({ page }) => {
+    // Regression test for the other major fail-first discovery: the global
+    // keydown handler used to read `setNameModal.style.display` on every
+    // keystroke unconditionally. With set-name-modal removed, this must not
+    // throw, and ordinary Common shortcuts (autorotate, reset view) must
+    // keep working.
+    const errors = await gotoViewerHtml(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE_A);
+    await expect(page.locator('#viewer-canvas')).toBeVisible();
+    await page.keyboard.press('a'); // toggle auto-rotate, Common
+    await page.keyboard.press('r'); // reset view, Common
+    await page.keyboard.press('f'); // fullscreen, Common
     expectNoErrors(errors);
   });
 
@@ -93,36 +138,15 @@ test.describe('viewer.html: minimal launch + main-display', () => {
     expectNoErrors(errors);
   });
 
-  test('representative Editor-only ids that are verified safe to remove are absent', async ({ page }) => {
+  test('no confirmed Editor-only id (49) exists anywhere in viewer.html', async ({ page }) => {
     const errors = await gotoViewerHtml(page);
-    const removedIds = [
-      // CSS-based, direct
-      'add-scene-btn',
-      'export-json-btn',
-      'undo-btn',
-      'redo-btn',
-      // CSS-based, inherited from a removed .editor-only container
-      'floormap-orient-bar',
-      'floormap-rename-btn',
-    ];
-    for (const id of removedIds) {
+    for (const id of CONFIRMED_EDITOR_ONLY_49) {
       await expect(page.locator(`#${id}`)).toHaveCount(0);
     }
-    // The id-less container that wrapped 4 of the inherited ids should be
+    // The id-less container that wrapped 4 of the CSS-based ids should be
     // gone too; its class name is unique enough not to collide with
     // anything else in viewer.html.
     await expect(page.locator('.floormap-info-actions')).toHaveCount(0);
-    expectNoErrors(errors);
-  });
-
-  test('known-gap ids are intentionally still present (not a regression -- see docs/ViewerEditor_Viewer_Html_Known_Gaps.md)', async ({ page }) => {
-    const errors = await gotoViewerHtml(page);
-    const keptIds = [
-      'project-info-modal', 'set-name-modal', 'group-picker', 'flip-a-btn', 'flip-b-btn',
-    ];
-    for (const id of keptIds) {
-      await expect(page.locator(`#${id}`)).toHaveCount(1);
-    }
     expectNoErrors(errors);
   });
 
@@ -130,6 +154,10 @@ test.describe('viewer.html: minimal launch + main-display', () => {
     const errors = await gotoApp(page);
     await expect(page.locator('#app-mode-toggle-btn')).toHaveCount(1);
     await expect(page.locator('#project-info-modal')).toHaveCount(1);
+    await expect(page.locator('#set-name-modal')).toHaveCount(1);
+    await expect(page.locator('#group-picker')).toHaveCount(1);
+    await expect(page.locator('#flip-a-btn')).toHaveCount(1);
+    await expect(page.locator('#flip-b-btn')).toHaveCount(1);
     await expect(page.locator('#add-scene-btn')).toHaveCount(1);
     expectNoErrors(errors);
   });
