@@ -2622,8 +2622,8 @@ function init() {
       else pickerThumbB.style.display = 'none';
       pickerNameB.textContent = sb.name;
     }
-    flipABtn.classList.toggle('active', sa?.flipH || false);
-    flipBBtn.classList.toggle('active', sb?.flipH || false);
+    if (flipABtn) flipABtn.classList.toggle('active', sa?.flipH || false);
+    if (flipBBtn) flipBBtn.classList.toggle('active', sb?.flipH || false);
   }
 
   // ============================================================
@@ -2739,11 +2739,11 @@ function init() {
     if (confirmed && cb) cb(name);
   }
 
-  setNameOkBtn.addEventListener('click', () => _closeSetNameModal(true));
-  setNameCancelBtn.addEventListener('click', () => _closeSetNameModal(false));
-  setNameCloseBtn.addEventListener('click', () => _closeSetNameModal(false));
-  setNameModal.addEventListener('click', (e) => { if (e.target === setNameModal) _closeSetNameModal(false); });
-  setNameInput.addEventListener('keydown', (e) => {
+  if (setNameOkBtn) setNameOkBtn.addEventListener('click', () => _closeSetNameModal(true));
+  if (setNameCancelBtn) setNameCancelBtn.addEventListener('click', () => _closeSetNameModal(false));
+  if (setNameCloseBtn) setNameCloseBtn.addEventListener('click', () => _closeSetNameModal(false));
+  if (setNameModal) setNameModal.addEventListener('click', (e) => { if (e.target === setNameModal) _closeSetNameModal(false); });
+  if (setNameInput) setNameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter')  { e.preventDefault(); _closeSetNameModal(true); }
     if (e.key === 'Escape') { e.preventDefault(); _closeSetNameModal(false); }
   });
@@ -3104,15 +3104,15 @@ function init() {
     if (!s) return;
     s.flipH = flipH;
     if (currentIdx >= 0 && scenes[currentIdx] && scenes[currentIdx].id === sceneId) {
-      flipBtn.classList.toggle('active', flipH);
+      if (flipBtn) flipBtn.classList.toggle('active', flipH);
       applyFlip(sphere, flipH);
     }
     if (compareState.sceneAIndex >= 0 && scenes[compareState.sceneAIndex] && scenes[compareState.sceneAIndex].id === sceneId) {
-      flipABtn.classList.toggle('active', flipH);
+      if (flipABtn) flipABtn.classList.toggle('active', flipH);
       applyFlip(sphereA, flipH);
     }
     if (compareState.sceneBIndex >= 0 && scenes[compareState.sceneBIndex] && scenes[compareState.sceneBIndex].id === sceneId) {
-      flipBBtn.classList.toggle('active', flipH);
+      if (flipBBtn) flipBBtn.classList.toggle('active', flipH);
       applyFlip(sphereB, flipH);
     }
     markProjectDirty('左右反転');
@@ -3402,7 +3402,7 @@ function init() {
     if (['INPUT','TEXTAREA','SELECT','BUTTON'].includes(tag)) return;
     if (document.activeElement?.contentEditable === 'true') return;
     if (!viewerActive) return;
-    if (setNameModal.style.display !== 'none') return; // modal open
+    if (setNameModal && setNameModal.style.display !== 'none') return; // modal open
 
     switch (e.key) {
       case 'ArrowLeft':
@@ -6700,28 +6700,30 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // Group picker add button wiring
   const groupPickerInput  = $('group-picker-input');
   const groupPickerAddBtn = $('group-picker-add-btn');
-  groupPickerAddBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (!assertEditorMode('グループ作成')) return;
-    const name = groupPickerInput.value.trim();
-    if (!name) return;
-    const group = { id: genId(), name };
-    projectState.groups.push(group);
-    if (_groupPickerSceneIdx >= 0 && scenes[_groupPickerSceneIdx]) {
-      scenes[_groupPickerSceneIdx].groupId = group.id;
-    }
-    markProjectDirty('グループ作成');
-    groupPickerInput.value = '';
-    closeGroupPicker();
-    renderSceneList();
-    renderDashboard();
-  });
-  groupPickerInput.addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Enter') { e.preventDefault(); groupPickerAddBtn.click(); }
-    if (e.key === 'Escape') { e.stopPropagation(); closeGroupPicker(); }
-  });
-  groupPickerInput.addEventListener('click', (e) => e.stopPropagation());
+  if (groupPickerInput && groupPickerAddBtn) {
+    groupPickerAddBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!assertEditorMode('グループ作成')) return;
+      const name = groupPickerInput.value.trim();
+      if (!name) return;
+      const group = { id: genId(), name };
+      projectState.groups.push(group);
+      if (_groupPickerSceneIdx >= 0 && scenes[_groupPickerSceneIdx]) {
+        scenes[_groupPickerSceneIdx].groupId = group.id;
+      }
+      markProjectDirty('グループ作成');
+      groupPickerInput.value = '';
+      closeGroupPicker();
+      renderSceneList();
+      renderDashboard();
+    });
+    groupPickerInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); groupPickerAddBtn.click(); }
+      if (e.key === 'Escape') { e.stopPropagation(); closeGroupPicker(); }
+    });
+    groupPickerInput.addEventListener('click', (e) => e.stopPropagation());
+  }
 
   // ============================================================
   // Project Info Modal (v2.5)
@@ -6757,12 +6759,18 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   const projectInfoBtn = $('project-info-btn');
   if (projectInfoBtn) projectInfoBtn.addEventListener('click', openProjectInfoModal);
-  $('pi-close-btn').addEventListener('click',  closeProjectInfoModal);
-  $('pi-cancel-btn').addEventListener('click', closeProjectInfoModal);
-  $('pi-save-btn').addEventListener('click',   saveProjectInfo);
-  $('project-info-modal').addEventListener('click', (e) => {
-    if (e.target === $('project-info-modal')) closeProjectInfoModal();
-  });
+  const piCloseBtn = $('pi-close-btn');
+  const piCancelBtn = $('pi-cancel-btn');
+  const piSaveBtn = $('pi-save-btn');
+  if (piCloseBtn) piCloseBtn.addEventListener('click', closeProjectInfoModal);
+  if (piCancelBtn) piCancelBtn.addEventListener('click', closeProjectInfoModal);
+  if (piSaveBtn) piSaveBtn.addEventListener('click', saveProjectInfo);
+  const projectInfoModalEl = $('project-info-modal');
+  if (projectInfoModalEl) {
+    projectInfoModalEl.addEventListener('click', (e) => {
+      if (e.target === projectInfoModalEl) closeProjectInfoModal();
+    });
+  }
 
   // ============================================================
   // JSON Export
