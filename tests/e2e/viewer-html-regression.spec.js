@@ -14,12 +14,84 @@
 // as a mode switch inside these tests).
 const { test, expect } = require('@playwright/test');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const zlib = require('zlib');
 const { gotoViewerHtml, gotoApp, expectNoErrors, dirtyIndicator } = require('./helpers');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
 const FIXTURE_A = path.join(FIXTURES, 'fixture-a.png');
 const FIXTURE_B = path.join(FIXTURES, 'fixture-b.png');
 const FIXTURE_C = path.join(FIXTURES, 'fixture-c.png');
+
+// tests/fixtures/*.png are deliberately 1x1 solid-color placeholders (per
+// this project's "no real material" fixture rule); mapped onto the
+// equirectangular sphere they render as a uniform color from every camera
+// angle, so a real drag/rotation is visually undetectable against them --
+// confirmed empirically (a real 150px drag against fixture-a.png measured a
+// ~0.5 mean fingerprint diff, indistinguishable from render noise). Rather
+// than add a checked-in fixture with real spatial content, this generates a
+// small striped PNG at test-runtime (stdlib zlib only, no new dependency)
+// and writes it to the OS temp dir -- not tests/fixtures/, so no new file
+// enters the repo -- for the two tests below that need to actually see a
+// rotation. Its 8 vertical color bands sit at different image-U
+// coordinates, which the sphere's equirectangular UV mapping ties to
+// longitude (theta), the same axis a horizontal drag changes.
+function crc32(buf) {
+  if (!crc32.table) {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    crc32.table = table;
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i += 1) crc = crc32.table[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const typeBuf = Buffer.from(type, 'ascii');
+  const crcBuf = Buffer.alloc(4);
+  crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+  return Buffer.concat([len, typeBuf, data, crcBuf]);
+}
+
+function makeStripedPanoramaPng(width = 64, height = 32) {
+  const PALETTE = [
+    [230, 25, 75], [60, 180, 75], [255, 225, 25], [0, 130, 200],
+    [245, 130, 48], [145, 30, 180], [70, 240, 240], [240, 50, 230],
+  ];
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: truecolor RGB
+  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  let pos = 0;
+  for (let y = 0; y < height; y += 1) {
+    raw[pos] = 0; pos += 1; // filter type: none
+    for (let x = 0; x < width; x += 1) {
+      const [r, g, b] = PALETTE[Math.floor((x / width) * PALETTE.length) % PALETTE.length];
+      raw[pos] = r; raw[pos + 1] = g; raw[pos + 2] = b; pos += 3;
+    }
+  }
+  const idat = zlib.deflateSync(raw);
+  const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  return Buffer.concat([signature, pngChunk('IHDR', ihdr), pngChunk('IDAT', idat), pngChunk('IEND', Buffer.alloc(0))]);
+}
+
+function writeTempPanoramaFixture() {
+  const p = path.join(os.tmpdir(), `archview360-striped-panorama-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+  fs.writeFileSync(p, makeStripedPanoramaPng());
+  return p;
+}
 
 function sceneItems(page) {
   return page.locator('#scene-list .scene-item');
@@ -191,8 +263,110 @@ test.describe('viewer.html: D. FloorMap (no Viewer-reachable creation path)', ()
   });
 });
 
+// AI Review Agent Formal Review #4840243966 (PR #42, head 4d0fd28...) flagged
+// that this section's original 4 tests only asserted "no thrown error" for
+// fullscreen/zoom/drag/reset, never that the operation actually did
+// anything. These replacements verify real state/API-call/render changes:
+//   - Fullscreen: headless Chromium's real requestFullscreen() usually
+//     rejects (no user-activation state in CDP-driven headless), which the
+//     app already swallows via .catch(showGlobalError) -- so "no thrown
+//     error" was true even if the call never fired. Stubbing
+//     Element.prototype.requestFullscreen via page.addInitScript() (a
+//     Playwright-side monkeypatch injected before script.js runs, not a
+//     production code change) lets the test assert the app actually called
+//     it, deterministically, without depending on headless Fullscreen-API
+//     behavior.
+//   - Zoom/drag/reset: window.__viewerPreviewTestHooks.getCameraFov() is an
+//     existing production hook (added for PR #27's Viewer Preview tests,
+//     script.js:5614-5618) reused here rather than adding a new one, for
+//     the FOV axis. Camera *direction* (theta/phi) has no equivalent
+//     numeric hook, so drag and the direction half of reset are verified via
+//     a downsampled canvas fingerprint (drawImage the live WebGL canvas onto
+//     a small 2D canvas, read back its pixels) compared with an explicit
+//     numeric tolerance -- exact full-resolution screenshot-byte equality
+//     was tried first and flaked (WebGL/canvas capture has enough
+//     frame-to-frame sampling noise that two renders of the identical
+//     camera state are not always byte-identical), so this downsamples to
+//     smooth that noise out while staying sensitive to an actual
+//     rotation/zoom, per the task's guidance to use an explicit-tolerance
+//     numeric comparison when exact equality is unstable.
+async function waitForFrames(page, count = 3) {
+  await page.evaluate((n) => new Promise((resolve) => {
+    let i = 0;
+    function tick() { i += 1; if (i >= n) resolve(); else requestAnimationFrame(tick); }
+    requestAnimationFrame(tick);
+  }), count);
+}
+
+function getCameraFov(page) {
+  return page.evaluate(() => window.__viewerPreviewTestHooks.getCameraFov());
+}
+
+// Downsampling to a small fixed size averages away per-frame WebGL sampling
+// noise (see comment above) while remaining sensitive to a real change in
+// camera direction/FOV, which shifts large contiguous regions of the sphere
+// texture into view.
+const FINGERPRINT_SIZE = 24;
+
+// Reading the live WebGL canvas back via drawImage()+getImageData() in-page
+// returns a constant/blank buffer here (this app's renderer does not set
+// preserveDrawingBuffer, so by the time our JS runs the drawing buffer may
+// already be gone) -- confirmed empirically: a real drag produced a 0 mean
+// diff with that approach. A CDP-level screenshot (locator.screenshot(),
+// the same call the earlier byte-exact attempt used) does capture the true
+// rendered pixels; decoding it back through the browser's own <img> loader
+// (rather than a hand-rolled PNG parser) lets the downsample reuse that
+// already-correct capture.
+async function canvasFingerprint(page, selector) {
+  const png = await page.locator(selector).screenshot();
+  return page.evaluate(({ base64, size }) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const tmp = document.createElement('canvas');
+      tmp.width = size; tmp.height = size;
+      const ctx = tmp.getContext('2d');
+      ctx.drawImage(img, 0, 0, size, size);
+      resolve(Array.from(ctx.getImageData(0, 0, size, size).data));
+    };
+    img.onerror = () => reject(new Error('fingerprint image failed to load'));
+    img.src = `data:image/png;base64,${base64}`;
+  }), { base64: png.toString('base64'), size: FINGERPRINT_SIZE });
+}
+
+function meanAbsDiff(a, b) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
+  return sum / a.length;
+}
+
+// Empirically, two fingerprints of an unchanged camera state differ by a
+// mean absolute per-channel value well under 1 (0-255 scale); a real
+// rotation/zoom shifts large regions of the sphere texture and differs by
+// tens. SAME_VIEW_TOLERANCE stays well above the former and DIFFERENT_VIEW_MIN
+// stays well below the latter, so there is no ambiguous middle ground for
+// these specific interactions (drag ~150px, zoom +/-3deg FOV).
+const SAME_VIEW_TOLERANCE = 3;
+const DIFFERENT_VIEW_MIN = 8;
+
 test.describe('viewer.html: E. operations allowed in Viewer', () => {
-  test('reset view, auto-rotate and fullscreen shortcuts run without throwing on a loaded scene', async ({ page }) => {
+  test('the "f" fullscreen shortcut actually calls the Fullscreen API (stubbed via addInitScript, since headless Chromium\'s real requestFullscreen() has no user-activation state to reject/resolve deterministically)', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__testFullscreenCallCount = 0;
+      const stub = function () { window.__testFullscreenCallCount += 1; return Promise.resolve(); };
+      Element.prototype.requestFullscreen = stub;
+      Element.prototype.webkitRequestFullscreen = stub;
+    });
+    const errors = await gotoViewerHtml(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE_A);
+    await expect(page.locator('#viewer-canvas')).toBeVisible();
+
+    expect(await page.evaluate(() => window.__testFullscreenCallCount)).toBe(0);
+    await page.keyboard.press('f');
+    await expect.poll(() => page.evaluate(() => window.__testFullscreenCallCount)).toBe(1);
+    expectNoErrors(errors);
+  });
+
+  test('auto-rotate ("a") toggles the toolbar button state (reset view is covered by its own state-restoration test below)', async ({ page }) => {
     const errors = await gotoViewerHtml(page);
     await page.locator('#file-input').setInputFiles(FIXTURE_A);
     await expect(page.locator('#viewer-canvas')).toBeVisible();
@@ -200,32 +374,90 @@ test.describe('viewer.html: E. operations allowed in Viewer', () => {
     await expect(page.locator('#autorotate-btn')).toHaveClass(/active/);
     await page.keyboard.press('a');
     await expect(page.locator('#autorotate-btn')).not.toHaveClass(/active/);
-    await page.keyboard.press('r');
     expectNoErrors(errors);
   });
 
-  test('mouse-wheel zoom on the main canvas does not throw', async ({ page }) => {
+  test('mouse-wheel zoom actually changes the camera FOV (both directions)', async ({ page }) => {
     const errors = await gotoViewerHtml(page);
     await page.locator('#file-input').setInputFiles(FIXTURE_A);
     await expect(page.locator('#viewer-canvas')).toBeVisible();
+
+    const initialFov = await getCameraFov(page);
     const box = await page.locator('#viewer-canvas').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, 100);
-    await page.mouse.wheel(0, -100);
+
+    await page.mouse.wheel(0, 100); // deltaY > 0 -> zoomBy(+3): wider FOV (zoom out)
+    const zoomedOutFov = await getCameraFov(page);
+    expect(zoomedOutFov).toBeGreaterThan(initialFov);
+
+    await page.mouse.wheel(0, -100); // deltaY < 0 -> zoomBy(-3): narrower FOV (zoom in)
+    const zoomedInFov = await getCameraFov(page);
+    expect(zoomedInFov).toBeLessThan(zoomedOutFov);
+
     expectNoErrors(errors);
   });
 
-  test('drag-to-look-around on the main canvas does not throw', async ({ page }) => {
-    const errors = await gotoViewerHtml(page);
-    await page.locator('#file-input').setInputFiles(FIXTURE_A);
-    await expect(page.locator('#viewer-canvas')).toBeVisible();
-    const box = await page.locator('#viewer-canvas').boundingBox();
-    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
-    await page.mouse.move(cx, cy);
-    await page.mouse.down();
-    await page.mouse.move(cx + 80, cy - 40, { steps: 5 });
-    await page.mouse.up();
-    expectNoErrors(errors);
+  test('drag-to-look-around actually changes the rendered view', async ({ page }) => {
+    const panoramaPath = writeTempPanoramaFixture();
+    try {
+      const errors = await gotoViewerHtml(page);
+      await page.locator('#file-input').setInputFiles(panoramaPath);
+      await expect(page.locator('#viewer-canvas')).toBeVisible();
+      await waitForFrames(page);
+      const before = await canvasFingerprint(page, '#viewer-canvas');
+
+      const box = await page.locator('#viewer-canvas').boundingBox();
+      const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx + 150, cy - 80, { steps: 10 });
+      await page.mouse.up();
+      await waitForFrames(page);
+      const after = await canvasFingerprint(page, '#viewer-canvas');
+
+      expect(meanAbsDiff(before, after)).toBeGreaterThan(DIFFERENT_VIEW_MIN);
+      expectNoErrors(errors);
+    } finally {
+      fs.unlinkSync(panoramaPath);
+    }
+  });
+
+  test('reset view ("r") restores both FOV and the rendered view after zoom + drag changed them', async ({ page }) => {
+    const panoramaPath = writeTempPanoramaFixture();
+    try {
+      const errors = await gotoViewerHtml(page);
+      await page.locator('#file-input').setInputFiles(panoramaPath);
+      await expect(page.locator('#viewer-canvas')).toBeVisible();
+      await waitForFrames(page);
+      const initialFov = await getCameraFov(page);
+      const initialFingerprint = await canvasFingerprint(page, '#viewer-canvas');
+
+      const box = await page.locator('#viewer-canvas').boundingBox();
+      const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.wheel(0, 150);
+      await page.mouse.down();
+      await page.mouse.move(cx + 150, cy - 80, { steps: 10 });
+      await page.mouse.up();
+      await waitForFrames(page);
+
+      const changedFov = await getCameraFov(page);
+      expect(changedFov).not.toBe(initialFov);
+      const changedFingerprint = await canvasFingerprint(page, '#viewer-canvas');
+      expect(meanAbsDiff(initialFingerprint, changedFingerprint)).toBeGreaterThan(DIFFERENT_VIEW_MIN);
+
+      await page.keyboard.press('r');
+      await waitForFrames(page);
+
+      const resetFov = await getCameraFov(page);
+      expect(resetFov).toBe(initialFov);
+      const resetFingerprint = await canvasFingerprint(page, '#viewer-canvas');
+      expect(meanAbsDiff(initialFingerprint, resetFingerprint)).toBeLessThan(SAME_VIEW_TOLERANCE);
+
+      expectNoErrors(errors);
+    } finally {
+      fs.unlinkSync(panoramaPath);
+    }
   });
 
   test('viewing operations (switch scene, enter/exit compare, drag/zoom) never mark the project dirty', async ({ page }) => {
