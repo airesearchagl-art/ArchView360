@@ -16,6 +16,23 @@ async function gotoApp(page) {
   return { pageErrors, consoleErrors };
 }
 
+// Same shape as gotoApp(), pointed at the static Viewer-only entry point
+// instead of index.html. Mirrors viewer-html-minimal.spec.js's own local
+// gotoViewerHtml() (kept there unchanged, PR #41's launch canary); pulled
+// out here as a shared export only for the newer detailed-regression spec,
+// which needs the identical error-collecting navigation in many tests.
+async function gotoViewerHtml(page) {
+  const pageErrors = [];
+  const consoleErrors = [];
+  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+  });
+  await page.goto('/viewer.html');
+  await page.waitForFunction(() => window.THREE !== undefined, { timeout: 15000 }).catch(() => {});
+  return { pageErrors, consoleErrors };
+}
+
 function expectNoErrors({ pageErrors, consoleErrors }) {
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
@@ -58,4 +75,4 @@ async function buildZipFixtureBuffer() {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-module.exports = { gotoApp, expectNoErrors, dirtyIndicator, enterEditor, buildZipFixtureBuffer };
+module.exports = { gotoApp, gotoViewerHtml, expectNoErrors, dirtyIndicator, enterEditor, buildZipFixtureBuffer };
