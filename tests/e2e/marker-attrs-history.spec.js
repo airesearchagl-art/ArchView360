@@ -25,6 +25,21 @@ async function historyCounts(page) {
   }));
 }
 
+// Required-fix follow-up (PR #45 review 4873109669): the marker-move
+// undo/redo tests below previously verified only HistoryManager stack
+// transitions and the absence of page errors, which a no-op
+// applyMarkerPosition() would still satisfy. This reads the FloorMap
+// canvas's own rendered bitmap via canvas.toDataURL() — no production
+// test hook needed, since renderFloormapCanvas() (script.js) is a
+// synchronous, deterministic 2D-context draw with no animation, so two
+// reads of the same logical state always produce byte-identical PNG data
+// URLs. Used to prove the marker's rendered position actually moves on
+// drag and is actually restored by undo/redo, not just the history
+// stack's bookkeeping.
+async function canvasFingerprint(page) {
+  return page.evaluate(() => document.getElementById('floormap-canvas').toDataURL());
+}
+
 // Loads one scene, adds a floorplan (auto-activated), enters placement
 // mode, places one marker for the current scene, then exits placement
 // mode again — the prerequisite state shared by every U1 operation (they
@@ -68,29 +83,35 @@ test.describe('marker move history (undo/redo)', () => {
     expectNoErrors(errors);
   });
 
-  // The FloorMap canvas draws markers as bitmap pixels (no per-marker DOM
-  // node exposes x/y), and no test hook exposes projectState.markers
-  // directly (only window.__historyManagerForTests, script.js:990). This
-  // test therefore asserts undo()/redo() run without throwing (any
-  // exception would surface as a page error via expectNoErrors) and that
-  // the undo/redo stacks transition correctly, matching the level of
-  // coverage the FloorMap orientation feature's own tests use for
-  // canvas-drawn state.
-  test('undo and redo both run cleanly after a drag, with correct stack transitions', async ({ page }) => {
+  // Verifies the marker's actual rendered position, not just the history
+  // stack's bookkeeping: a canvasFingerprint() before the drag, after the
+  // drag, after undo, and after redo must show before ≈ undo (position
+  // restored), after-drag ≈ redo (position re-applied), and before ≠
+  // after-drag (the drag actually moved something). A no-op or broken
+  // applyMarkerPosition() would still pass the old
+  // HistoryManager-stack-only assertions but would fail this one, since
+  // the canvas bitmap would never change and "before" would equal
+  // "after-drag" instead of differing.
+  test('undo restores and redo re-applies the marker\'s actual rendered position', async ({ page }) => {
     const errors = await gotoApp(page);
     await loadSceneFloorplanAndMarker(page);
+    const before = await canvasFingerprint(page);
 
     await dragMarker(page, MARKER_POS.x, MARKER_POS.y, MARKER_POS.x + 20, MARKER_POS.y + 10);
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
+    const afterDrag = await canvasFingerprint(page);
+    expect(afterDrag).not.toBe(before); // the drag actually moved the rendered marker
 
     const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
     expect(undoResult).toBe(true);
     expect(await historyCounts(page)).toEqual({ undoCount: 0, redoCount: 1 });
     await expect(dirtyIndicator(page)).toBeVisible(); // undo never auto-cleans
+    expect(await canvasFingerprint(page)).toBe(before); // rendered position actually restored
 
     const redoResult = await page.evaluate(() => window.__historyManagerForTests.redo());
     expect(redoResult).toBe(true);
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
+    expect(await canvasFingerprint(page)).toBe(afterDrag); // rendered position actually re-applied
 
     expectNoErrors(errors);
   });
