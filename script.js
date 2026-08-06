@@ -997,6 +997,11 @@ function init() {
   let isFloormapExpanded  = false;
   let isDraggingMarker    = false;
   let _dragMarkerId       = null;
+  // Marker position at drag start (U1: Undo/Redo — captured on mousedown,
+  // used to push a single history entry per drag gesture on mouseup,
+  // rather than one per mousemove tick).
+  let _dragMarkerStartX   = null;
+  let _dragMarkerStartY   = null;
 
   // ---- Scene filter / group state (v2.5) ----
   let sceneFilterFloorplanId = null; // null = all, string = filter by floorplan, '__unplaced__' = unplaced
@@ -6337,6 +6342,49 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     }, 0);
   });
 
+  // ============================================================
+  // Marker attribute operations — U1: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U1: マーカー移動・
+  // マーカー回転・マーカー名称変更)
+  // ============================================================
+  // Same shape as applySceneName()/applySceneFlip()/applyFloorMapName():
+  // a single point that mutates the marker and refreshes every place that
+  // currently displays it, used both for a live user edit and for
+  // undo/redo replaying a past change. Never calls historyManager.push()
+  // itself — only the live-edit commit points below do, at the single
+  // point a user actually confirms a change — so undo()/redo() (which
+  // call these functions) can never record a new history entry while
+  // replaying one. Always marks the project dirty, including when called
+  // from undo/redo, matching the existing three operations' same rule.
+  // A missing marker (e.g. deleted since the entry was pushed) is a
+  // silent no-op, matching applySceneName()'s `if (!s) return;` guard.
+  function applyMarkerPosition(markerId, x, y) {
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk) return;
+    mk.x = x; mk.y = y;
+    markProjectDirty('マーカー移動');
+    renderFloormapCanvas();
+    if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
+  function applyMarkerRotation(markerId, rotation) {
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk) return;
+    mk.rotation = rotation;
+    markProjectDirty('マーカー回転');
+    renderFloormapCanvas();
+    if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
+  function applyMarkerName(markerId, name) {
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk) return;
+    mk.name = name;
+    markProjectDirty('マーカー名称変更');
+    renderMarkerList();
+    if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
   // FloorMap canvas events
   floormapCanvas.addEventListener('mousedown', (e) => {
     if (isPlacementMode) return;
@@ -6348,6 +6396,9 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const mk = _findMarkerAt(cx, cy);
     if (mk) {
       isDraggingMarker = true; _dragMarkerId = mk.id;
+      // U1: Undo/Redo — remember the pre-drag position so mouseup can
+      // push a single history entry for the whole gesture.
+      _dragMarkerStartX = mk.x; _dragMarkerStartY = mk.y;
       selectedMarkerId = mk.id;
       floormapCanvas.style.cursor = 'grabbing';
       // Switch to that scene on click (not drag)
@@ -6397,7 +6448,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const coords = _canvasToImage(e);
     if (!coords) return;
     const mk = projectState.markers.find(m => m.id === _dragMarkerId);
-    if (mk) { mk.x = coords.x; mk.y = coords.y; markProjectDirty('マーカー移動'); renderFloormapCanvas(); }
+    if (mk) applyMarkerPosition(mk.id, coords.x, coords.y);
   });
 
   floormapCanvas.addEventListener('mouseleave', () => {
@@ -6415,7 +6466,29 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
           if (idx >= 0) switchToScene(idx);
         }
       }
+      // U1: Undo/Redo — push a single entry for the whole drag gesture
+      // (mousemove already applied the live position via
+      // applyMarkerPosition(); this only records history once the
+      // gesture is done). Gated on the same dist<5 threshold as the
+      // click-to-navigate branch above: a dist<5 "click" can still cause
+      // a sub-pixel position jitter via mousemove's live updates, but
+      // that was never a real drag and pushing history for it would let
+      // undo "restore" a position the user never intentionally set.
+      if (dist >= 5 && _dragMarkerId && _dragMarkerStartX !== null) {
+        const draggedId = _dragMarkerId;
+        const mkAfter = projectState.markers.find(m => m.id === draggedId);
+        if (mkAfter && (mkAfter.x !== _dragMarkerStartX || mkAfter.y !== _dragMarkerStartY)) {
+          const oldX = _dragMarkerStartX, oldY = _dragMarkerStartY;
+          const newX = mkAfter.x, newY = mkAfter.y;
+          historyManager.push({
+            label: 'Move marker',
+            undo: () => applyMarkerPosition(draggedId, oldX, oldY),
+            redo: () => applyMarkerPosition(draggedId, newX, newY),
+          });
+        }
+      }
       isDraggingMarker = false; _dragMarkerId = null;
+      _dragMarkerStartX = null; _dragMarkerStartY = null;
       floormapCanvas.style.cursor = isPlacementMode ? 'crosshair' : 'default';
       _updateInfoPanel(); renderMarkerList();
     }
@@ -6508,9 +6581,16 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (!mk) return;
     if (!assertEditorMode('マーカー回転')) return;
-    mk.rotation = ((mk.rotation || 0) + delta + 360) % 360;
-    markProjectDirty('マーカー回転');
-    renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
+    const markerId = mk.id;
+    const oldRotation = mk.rotation || 0;
+    const newRotation = (oldRotation + delta + 360) % 360;
+    applyMarkerRotation(markerId, newRotation);
+    renderMarkerList();
+    historyManager.push({
+      label: 'Rotate marker',
+      undo: () => applyMarkerRotation(markerId, oldRotation),
+      redo: () => applyMarkerRotation(markerId, newRotation),
+    });
   }
 
   function deleteSelectedMarker() {
@@ -6679,7 +6759,15 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
       const trimmed = floormapInfoName.textContent.trim();
-      if (trimmed && trimmed !== mk.name) { mk.name = trimmed; markProjectDirty('マーカー名称変更'); }
+      if (trimmed && trimmed !== mk.name) {
+        const markerId = mk.id, oldName = mk.name, newName = trimmed;
+        applyMarkerName(markerId, newName);
+        historyManager.push({
+          label: 'Rename marker',
+          undo: () => applyMarkerName(markerId, oldName),
+          redo: () => applyMarkerName(markerId, newName),
+        });
+      }
       floormapInfoName.textContent = mk.name || '';
       renderMarkerList();
     }
