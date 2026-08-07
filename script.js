@@ -6701,6 +6701,39 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (savedH >= 100) floormapBody.style.height = savedH + 'px';
   } catch {}
 
+  // ============================================================
+  // FloorMap orientation operations — U2: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U2: FloorMap方位補正)
+  // ============================================================
+  // Same shape as applyMarkerPosition()/applyMarkerRotation()/
+  // applyMarkerName() (U1) and the original 3 operations: a single point
+  // that mutates the floorplan and refreshes every place that currently
+  // displays it, used both for a live user edit and for undo/redo
+  // replaying a past change. Never calls historyManager.push() itself —
+  // only the live-edit commit points below do, at the single point a
+  // user actually confirms a change — so undo()/redo() (which call this
+  // function) can never record a new history entry while replaying one.
+  // Always marks the project dirty, including when called from undo/redo,
+  // matching the existing operations' same rule. A missing floorplan
+  // (e.g. deleted since the entry was pushed) is a silent no-op, matching
+  // applySceneName()'s `if (!s) return;` guard. Only refreshes the
+  // orient-bar display elements when the target floorplan is the one
+  // currently active — they display whichever floorplan is active, which
+  // may differ from the one an undo/redo is replaying (e.g. the user
+  // switched FloorMap tabs in between), same as U1's
+  // `if (selectedMarkerId === markerId) _updateInfoPanel();` pattern.
+  function applyFloorMapOrientation(floorplanId, rotationOffset) {
+    const fp = projectState.floorplans.find(f => f.id === floorplanId);
+    if (!fp) return;
+    fp.rotationOffset = rotationOffset;
+    markProjectDirty('平面図の方位補正');
+    if (floorplanId === activeFloorplanId) {
+      if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset}°`;
+      if (floormapOrientPreset) floormapOrientPreset.value = String(fp.rotationOffset);
+    }
+    renderFloormapCanvas();
+  }
+
   // FloorMap button wiring
   if (floormapOrientL) floormapOrientL.addEventListener('click', () => _adjustOrientOffset(-15));
   if (floormapOrientR) floormapOrientR.addEventListener('click', () => _adjustOrientOffset(+15));
@@ -6708,20 +6741,31 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!assertEditorMode('平面図の方位補正')) return;
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
-    if (floormapOrientPreset) fp.rotationOffset = parseInt(floormapOrientPreset.value, 10);
-    if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset}°`;
-    markProjectDirty('平面図の方位補正');
-    renderFloormapCanvas();
+    const floorplanId = fp.id;
+    const oldRotation = fp.rotationOffset || 0;
+    const newRotation = parseInt(floormapOrientPreset.value, 10);
+    if (newRotation === oldRotation) return; // no real change — no mutation, no dirty, no history
+    applyFloorMapOrientation(floorplanId, newRotation);
+    historyManager.push({
+      label: 'FloorMap orientation',
+      undo: () => applyFloorMapOrientation(floorplanId, oldRotation),
+      redo: () => applyFloorMapOrientation(floorplanId, newRotation),
+    });
   });
   function _adjustOrientOffset(delta) {
     if (!assertEditorMode('平面図の方位補正')) return;
     const fp = projectState.floorplans.find(f => f.id === activeFloorplanId);
     if (!fp) return;
-    fp.rotationOffset = ((fp.rotationOffset || 0) + delta + 360) % 360;
-    if (floormapOrientVal) floormapOrientVal.textContent = `${fp.rotationOffset}°`;
-    if (floormapOrientPreset) floormapOrientPreset.value = String(fp.rotationOffset);
-    markProjectDirty('平面図の方位補正');
-    renderFloormapCanvas();
+    const floorplanId = fp.id;
+    const oldRotation = fp.rotationOffset || 0;
+    const newRotation = (oldRotation + delta + 360) % 360;
+    if (newRotation === oldRotation) return; // no real change — no mutation, no dirty, no history
+    applyFloorMapOrientation(floorplanId, newRotation);
+    historyManager.push({
+      label: 'FloorMap orientation',
+      undo: () => applyFloorMapOrientation(floorplanId, oldRotation),
+      redo: () => applyFloorMapOrientation(floorplanId, newRotation),
+    });
   }
   if (floormapPlaceBtn) floormapPlaceBtn.addEventListener('click', togglePlacementMode);
   floormapToggleBtn.addEventListener('click', toggleFloormapCollapse);
