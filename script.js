@@ -6285,16 +6285,30 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
     const items = [
       { label: '↑ 番号を前へ', disabled: mkPos <= 0, action: () => {
+        if (!assertEditorMode('マーカー番号swap')) return;
         const prev = fpMarkers[mkPos - 1];
-        [mk.order, prev.order] = [prev.order, mk.order];
-        markProjectDirty('マーカー番号変更');
-        renderMarkerList(); renderFloormapCanvas();
+        const idA = mk.id, idB = prev.id;
+        const orderABefore = mk.order, orderBBefore = prev.order;
+        const orderAAfter = prev.order, orderBAfter = mk.order;
+        applyMarkerOrderSwap(idA, orderAAfter, idB, orderBAfter);
+        historyManager.push({
+          label: 'Marker order swap',
+          undo: () => applyMarkerOrderSwap(idA, orderABefore, idB, orderBBefore),
+          redo: () => applyMarkerOrderSwap(idA, orderAAfter, idB, orderBAfter),
+        });
       }},
       { label: '↓ 番号を後ろへ', disabled: mkPos >= fpMarkers.length - 1, action: () => {
+        if (!assertEditorMode('マーカー番号swap')) return;
         const next = fpMarkers[mkPos + 1];
-        [mk.order, next.order] = [next.order, mk.order];
-        markProjectDirty('マーカー番号変更');
-        renderMarkerList(); renderFloormapCanvas();
+        const idA = mk.id, idB = next.id;
+        const orderABefore = mk.order, orderBBefore = next.order;
+        const orderAAfter = next.order, orderBAfter = mk.order;
+        applyMarkerOrderSwap(idA, orderAAfter, idB, orderBAfter);
+        historyManager.push({
+          label: 'Marker order swap',
+          undo: () => applyMarkerOrderSwap(idA, orderABefore, idB, orderBBefore),
+          redo: () => applyMarkerOrderSwap(idA, orderAAfter, idB, orderBAfter),
+        });
       }},
       { label: '🔢 番号を変更', action: () => {
         selectedMarkerId = mk.id;
@@ -6383,6 +6397,30 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     markProjectDirty('マーカー名称変更');
     renderMarkerList();
     if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
+  // ============================================================
+  // Marker order swap — U3: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U3: マーカー番号swap)
+  // ============================================================
+  // Same applyXxx()/historyManager.push() separation as U1/U2, but this
+  // operation touches exactly two markers (the context-menu 前へ/後ろへ
+  // swap), so both markers' before/after order values are captured by the
+  // caller and passed in explicitly rather than derived inside this
+  // function — undo() and redo() below are just this same function called
+  // with the opposite pair of values. A missing marker on either side
+  // (e.g. deleted since the entry was pushed) is a silent no-op, same as
+  // the other applyXxx() functions.
+  function applyMarkerOrderSwap(markerIdA, orderA, markerIdB, orderB) {
+    const mkA = projectState.markers.find(m => m.id === markerIdA);
+    const mkB = projectState.markers.find(m => m.id === markerIdB);
+    if (!mkA || !mkB) return;
+    mkA.order = orderA;
+    mkB.order = orderB;
+    markProjectDirty('マーカー番号変更');
+    renderMarkerList();
+    renderFloormapCanvas();
+    if (selectedMarkerId === markerIdA || selectedMarkerId === markerIdB) _updateInfoPanel();
   }
 
   // FloorMap canvas events
