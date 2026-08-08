@@ -1542,89 +1542,152 @@ function init() {
     switchToScene(order[nextPos]);
   }
 
+  // ============================================================
+  // Scene removal (delete/restore) — U6: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U6: シーン削除)
+  // ============================================================
+  // isPresent=false removes the scene (a live delete, or redo replaying
+  // one); isPresent=true restores it at its original array index (undo).
+  // Both directions restore/remove the exact same marker objects that
+  // referenced the scene, so no marker orphaning or duplication can occur
+  // across repeated undo/redo. blobUrl is revoked on removal and
+  // regenerated from the scene's retained `file` (kept for ZIP export,
+  // see handleFiles()) on restore — the same scene object/id is reused
+  // throughout, so a saved compare set referencing this scene's id
+  // becomes resolvable again the moment it's restored, with no compare-
+  // set-specific code needed here at all. Never calls
+  // historyManager.push() itself.
+  function applySceneRemoval(snapshot, isPresent) {
+    const { scene, index, markers } = snapshot;
+    if (isPresent) {
+      scene.blobUrl = URL.createObjectURL(scene.file);
+      scenes.splice(index, 0, scene);
+      projectState.markers.push(...markers);
+    } else {
+      URL.revokeObjectURL(scene.blobUrl);
+      const at = scenes.findIndex(s => s.id === scene.id);
+      if (at < 0) return; // already absent — nothing to do
+      scenes.splice(at, 1);
+      projectState.markers = projectState.markers.filter(m => m.sceneId !== scene.id);
+    }
+    markProjectDirty('シーン削除');
+    if (activeFloorplanId) { renderFloormapCanvas(); renderMarkerList(); }
+    renderSceneFilterBar();
+    renderDashboard();
+    const targetId = isPresent ? snapshot.beforeCurrentSceneId : snapshot.afterCurrentSceneId;
+    const targetIdx = scenes.findIndex(s => s.id === targetId);
+    currentIdx = -1;
+    if (targetIdx >= 0) switchToScene(targetIdx);
+    else renderSceneList();
+  }
+
   function deleteScene(idx) {
     if (idx < 0 || idx >= scenes.length) return;
     if (!assertEditorMode('シーン削除')) return;
-    URL.revokeObjectURL(scenes[idx].blobUrl);
+    const scene = scenes[idx];
     const wasCurrent = idx === currentIdx;
     if (wasCurrent) stopRender();
     if (compareState.mode !== 'single') exitCompareMode(true);
-    scenes.splice(idx, 1);
-    // Mark dirty for the delete itself before the possible cascade below —
-    // deleting the last scene wasn't confirmed through
-    // confirmUnsavedChanges(), and it also wipes floorplans/markers/groups
-    // via clearAllAndShowUpload(), so this must not silently present as
-    // clean just because the project ends up empty.
-    markProjectDirty('シーン削除');
 
-    if (!scenes.length) {
+    if (scenes.length <= 1) {
+      // Deleting the last remaining scene wipes the whole project
+      // (floorplans/markers/groups too, via clearAllAndShowUpload()) — a
+      // full project reset, not a single-scene edit. Same "intentionally
+      // out of Undo/Redo scope" category as Import/Export (see
+      // HistoryManager's own class comment): not tracked here.
+      URL.revokeObjectURL(scene.blobUrl);
+      scenes.splice(idx, 1);
+      // Mark dirty for the delete itself before the cascade below —
+      // deleting the last scene wasn't confirmed through
+      // confirmUnsavedChanges(), and it also wipes floorplans/markers/
+      // groups via clearAllAndShowUpload(), so this must not silently
+      // present as clean just because the project ends up empty.
+      markProjectDirty('シーン削除');
       disposeCurrentSphere();
       clearAllAndShowUpload({ markClean: false });
       return;
     }
-    // Remove markers referencing deleted scene
-    const deletedId = scenes[idx]?.id; // scenes[idx] was already spliced? No, we spliced before this line
-    // Actually: idx was already removed by splice above; use the blobUrl approach
-    // We stored deleted scene id before splice in wasCurrent check — use scenes array pre-splice
-    // Better: filter markers whose sceneId no longer matches any scene
-    const sceneIds = new Set(scenes.map(s => s.id));
-    projectState.markers = projectState.markers.filter(m => sceneIds.has(m.sceneId));
-    if (activeFloorplanId) setTimeout(() => renderFloormapCanvas(), 0);
-    renderSceneFilterBar();
-    renderDashboard();
 
-    // Adjust indices
+    // ---- U6: snapshot before mutating ----
+    const beforeCurrentSceneId = scenes[currentIdx]?.id ?? null;
+    const markers = projectState.markers.filter(m => m.sceneId === scene.id);
+    const postSplice = scenes.filter((_, i) => i !== idx);
+    let nextIdx;
+    if (wasCurrent) nextIdx = Math.min(idx, postSplice.length - 1);
+    else if (idx < currentIdx) nextIdx = currentIdx - 1;
+    else nextIdx = currentIdx;
+    const afterCurrentSceneId = postSplice[nextIdx]?.id ?? null;
+
+    // Pre-existing bookkeeping unrelated to U6 scope: keep compareState's
+    // A/B slot indices roughly valid for a future re-entry into compare
+    // mode. Not reversed by undo — compare mode/A-B slot state is out of
+    // scope, same as U1-U9.
     if (idx < compareState.sceneAIndex) compareState.sceneAIndex--;
-    else if (idx === compareState.sceneAIndex) compareState.sceneAIndex = Math.min(compareState.sceneAIndex, scenes.length - 1);
+    else if (idx === compareState.sceneAIndex) compareState.sceneAIndex = Math.min(compareState.sceneAIndex, postSplice.length - 1);
     if (idx < compareState.sceneBIndex) compareState.sceneBIndex--;
-    else if (idx === compareState.sceneBIndex) compareState.sceneBIndex = Math.min(compareState.sceneBIndex, scenes.length - 1);
+    else if (idx === compareState.sceneBIndex) compareState.sceneBIndex = Math.min(compareState.sceneBIndex, postSplice.length - 1);
     // Keep A !== B if possible
-    if (compareState.sceneAIndex === compareState.sceneBIndex && scenes.length >= 2) {
+    if (compareState.sceneAIndex === compareState.sceneBIndex && postSplice.length >= 2) {
       compareState.sceneBIndex = compareState.sceneAIndex === 0 ? 1 : 0;
     }
-
     updateCompareBtns();
-    let next = currentIdx;
-    if (wasCurrent)            next = Math.min(idx, scenes.length - 1);
-    else if (idx < currentIdx) next = currentIdx - 1;
-    currentIdx = -1;
-    switchToScene(next);
+
+    const snapshot = { scene, index: idx, markers, beforeCurrentSceneId, afterCurrentSceneId };
+    applySceneRemoval(snapshot, false);
+    historyManager.push({
+      label: 'Delete scene',
+      undo: () => applySceneRemoval(snapshot, true),
+      redo: () => applySceneRemoval(snapshot, false),
+    });
+  }
+
+  // ============================================================
+  // Scene order — U6: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U6: シーン並び替え)
+  // ============================================================
+  // `order` is the full target list of scene ids (not a from/to move) —
+  // same full-snapshot shape as U9's compare-set arrays, and more robust
+  // for undo/redo replay than replaying a single splice: it applies
+  // identically regardless of how many moves happened between the
+  // snapshot and now. currentIdx and the compare A/B slot indices are
+  // re-derived by id after reordering (reordering never changes *which*
+  // scene occupies a role, only its position), so this is correct for
+  // both directions without needing separate before/after copies of them.
+  function applySceneOrder(order) {
+    const byId = new Map(scenes.map(s => [s.id, s]));
+    const currentSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
+    const sceneAId = compareState.sceneAIndex >= 0 ? scenes[compareState.sceneAIndex]?.id : null;
+    const sceneBId = compareState.sceneBIndex >= 0 ? scenes[compareState.sceneBIndex]?.id : null;
+
+    scenes.length = 0;
+    order.forEach(id => { const s = byId.get(id); if (s) scenes.push(s); });
+
+    if (currentSceneId != null) currentIdx = scenes.findIndex(s => s.id === currentSceneId);
+    if (sceneAId != null) compareState.sceneAIndex = scenes.findIndex(s => s.id === sceneAId);
+    if (sceneBId != null) compareState.sceneBIndex = scenes.findIndex(s => s.id === sceneBId);
+
+    markProjectDirty('シーン並び替え');
+    renderSceneList();
+    if (compareState.mode !== 'single') updateCompareSelects();
+    updateCompareBtns();
   }
 
   // ---- Drag-and-drop reorder ----
   function reorderScene(fromIdx, toIdx) {
     if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0) return;
     if (!assertEditorMode('シーン並び替え')) return;
-    const [moved] = scenes.splice(fromIdx, 1);
-    scenes.splice(toIdx, 0, moved);
-    markProjectDirty('シーン並び替え');
 
-    // Adjust currentIdx
-    if (currentIdx === fromIdx) {
-      currentIdx = toIdx;
-    } else if (fromIdx < toIdx) {
-      if (currentIdx > fromIdx && currentIdx <= toIdx) currentIdx--;
-    } else {
-      if (currentIdx >= toIdx && currentIdx < fromIdx) currentIdx++;
-    }
+    const before = scenes.map(s => s.id);
+    const after = before.slice();
+    const [movedId] = after.splice(fromIdx, 1);
+    after.splice(toIdx, 0, movedId);
 
-    // Adjust compareState indices
-    compareState.sceneAIndex = _shiftIdx(compareState.sceneAIndex, fromIdx, toIdx);
-    compareState.sceneBIndex = _shiftIdx(compareState.sceneBIndex, fromIdx, toIdx);
-
-    renderSceneList();
-    if (compareState.mode !== 'single') updateCompareSelects();
-    updateCompareBtns();
-  }
-
-  function _shiftIdx(idx, fromIdx, toIdx) {
-    if (idx === fromIdx) return toIdx;
-    if (fromIdx < toIdx) {
-      if (idx > fromIdx && idx <= toIdx) return idx - 1;
-    } else {
-      if (idx >= toIdx && idx < fromIdx) return idx + 1;
-    }
-    return idx;
+    applySceneOrder(after);
+    historyManager.push({
+      label: 'Reorder scene',
+      undo: () => applySceneOrder(before),
+      redo: () => applySceneOrder(after),
+    });
   }
 
   // markClean defaults to false: this function is also called from
