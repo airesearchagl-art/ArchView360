@@ -2800,6 +2800,27 @@ function init() {
     if (e.key === 'Escape' && quickHelpModal.style.display !== 'none') closeQuickHelp();
   });
 
+  // ============================================================
+  // Compare set state — U9: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U9: 比較セット)
+  // ============================================================
+  // Compare sets live entirely in localStorage (LS_COMPARE_SETS) — there is
+  // no persistent in-memory array between calls, every read goes through
+  // _loadCompareSets(). This is the single point that writes a full
+  // snapshot of the sets array back to localStorage and re-renders the
+  // sidebar list, used both for a live save/delete/rename and for undo/redo
+  // replaying a past change; it never calls historyManager.push() itself.
+  // Because it always writes localStorage then synchronously re-renders
+  // from it, localStorage and the UI list can never disagree at any point
+  // this function returns — including immediately after undo()/redo().
+  // Always marks the project dirty, matching the U1-U3 rule that undo/redo
+  // replay dirties the project the same as the original live edit.
+  function applyCompareSetsState(sets) {
+    _saveCompareSetsToStorage(sets);
+    markProjectDirty('比較セット変更');
+    renderCompareSets();
+  }
+
   // ---- Save / Restore / Delete / Rename ----
   function saveCurrentCompareSet() {
     if (!assertEditorMode('比較セット保存')) return;
@@ -2826,10 +2847,10 @@ function init() {
       (name) => {
         if (name === null) return;
         const setName = name || `${sa.name} vs ${sb.name}`;
-        const sets = _loadCompareSets();
-        const existingIdx = sets.findIndex(s => s.name === setName);
+        const before = _loadCompareSets();
+        const existingIdx = before.findIndex(s => s.name === setName);
         const newSet = {
-          id:             existingIdx >= 0 ? sets[existingIdx].id : genId(),
+          id:             existingIdx >= 0 ? before[existingIdx].id : genId(),
           name:           setName,
           mode:           compareState.mode,
           sceneAId:       sa.id,
@@ -2839,16 +2860,19 @@ function init() {
           layout:         compareState.layout,
           sliderPosition: compareState.sliderPosition,
           syncViews:      compareState.syncViews,
-          createdAt:      existingIdx >= 0 ? sets[existingIdx].createdAt : new Date().toISOString(),
+          createdAt:      existingIdx >= 0 ? before[existingIdx].createdAt : new Date().toISOString(),
         };
-        if (existingIdx >= 0) sets[existingIdx] = newSet;
-        else sets.push(newSet);
-        _saveCompareSetsToStorage(sets);
-        markProjectDirty('比較セット保存');
+        const after = existingIdx >= 0
+          ? before.map((s, i) => (i === existingIdx ? newSet : s))
+          : [...before, newSet];
+        applyCompareSetsState(after);
         compareState.activeSetId = newSet.id;
         showToast(`比較セット「${setName}」を保存しました — サイドバーから再表示できます`);
-        // Defer DOM rebuild to avoid INP on the save button click
-        setTimeout(() => renderCompareSets(), 0);
+        historyManager.push({
+          label: 'Save compare set',
+          undo: () => applyCompareSetsState(before),
+          redo: () => applyCompareSetsState(after),
+        });
       }
     );
   }
@@ -2872,27 +2896,35 @@ function init() {
 
   function deleteCompareSet(setId) {
     if (!assertEditorMode('比較セット削除')) return;
-    const sets = _loadCompareSets().filter(s => s.id !== setId);
-    _saveCompareSetsToStorage(sets);
-    markProjectDirty('比較セット削除');
+    const before = _loadCompareSets();
+    if (!before.some(s => s.id === setId)) return; // no-op: nothing to delete, no mutation/dirty/history
+    const after = before.filter(s => s.id !== setId);
+    applyCompareSetsState(after);
     if (compareState.activeSetId === setId) compareState.activeSetId = null;
     showToast('比較セットを削除しました');
-    setTimeout(() => renderCompareSets(), 0);
+    historyManager.push({
+      label: 'Delete compare set',
+      undo: () => applyCompareSetsState(before),
+      redo: () => applyCompareSetsState(after),
+    });
   }
 
   function renameCompareSet(setId) {
     if (!assertEditorMode('比較セット名変更')) return;
-    const sets = _loadCompareSets();
-    const set = sets.find(s => s.id === setId);
+    const before = _loadCompareSets();
+    const set = before.find(s => s.id === setId);
     if (!set) return;
     openSetNameModal(
       { title: 'セット名を変更', defaultName: set.name, okLabel: '変更' },
       (name) => {
-        if (!name || name === set.name) return;
-        set.name = name;
-        _saveCompareSetsToStorage(sets);
-        markProjectDirty('比較セット名変更');
-        setTimeout(() => renderCompareSets(), 0);
+        if (!name || name === set.name) return; // no real change — no mutation, no dirty, no history
+        const after = before.map(s => (s.id === setId ? { ...s, name } : s));
+        applyCompareSetsState(after);
+        historyManager.push({
+          label: 'Rename compare set',
+          undo: () => applyCompareSetsState(before),
+          redo: () => applyCompareSetsState(after),
+        });
       }
     );
   }
