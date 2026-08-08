@@ -1084,6 +1084,15 @@ function init() {
     syncViews:      true,
     activeSetId:    null,
   };
+  // Test-only hook (U9 required fix, review #4889199582 on PR #48):
+  // compareState.activeSetId has no DOM-observable proxy at every point in
+  // the undo/redo cycle (e.g. immediately after an undo that removes the
+  // set it references, the .active CSS class simply has nothing to attach
+  // to either way, whether or not activeSetId was actually restored
+  // correctly) — a getter is the only reliable external seam. Same
+  // never-read-by-production-code rule as window.__historyManagerForTests
+  // above.
+  window.__activeCompareSetIdForTests = () => compareState.activeSetId;
 
   // ---- Picker state ----
   let pickerActiveSide = null; // null | 'a' | 'b'
@@ -2815,8 +2824,19 @@ function init() {
   // this function returns — including immediately after undo()/redo().
   // Always marks the project dirty, matching the U1-U3 rule that undo/redo
   // replay dirties the project the same as the original live edit.
-  function applyCompareSetsState(sets) {
+  //
+  // Required fix (Review Agent #4889199582 on PR #48): the set array is
+  // not the only state a save/delete can change — saving sets
+  // compareState.activeSetId to the new set's id, and deleting the active
+  // set clears it to null. That in-memory reference must travel with the
+  // set-array snapshot through undo/redo, or undo can leave activeSetId
+  // pointing at a set that no longer exists (post-save undo) or fail to
+  // restore which set was active (post-delete undo). `activeSetId` is
+  // therefore now a required second argument, snapshotted at the same
+  // commit point as `sets` and applied atomically with it.
+  function applyCompareSetsState(sets, activeSetId) {
     _saveCompareSetsToStorage(sets);
+    compareState.activeSetId = activeSetId;
     markProjectDirty('比較セット変更');
     renderCompareSets();
   }
@@ -2848,6 +2868,7 @@ function init() {
         if (name === null) return;
         const setName = name || `${sa.name} vs ${sb.name}`;
         const before = _loadCompareSets();
+        const beforeActiveSetId = compareState.activeSetId;
         const existingIdx = before.findIndex(s => s.name === setName);
         const newSet = {
           id:             existingIdx >= 0 ? before[existingIdx].id : genId(),
@@ -2865,13 +2886,13 @@ function init() {
         const after = existingIdx >= 0
           ? before.map((s, i) => (i === existingIdx ? newSet : s))
           : [...before, newSet];
-        applyCompareSetsState(after);
-        compareState.activeSetId = newSet.id;
+        const afterActiveSetId = newSet.id;
+        applyCompareSetsState(after, afterActiveSetId);
         showToast(`比較セット「${setName}」を保存しました — サイドバーから再表示できます`);
         historyManager.push({
           label: 'Save compare set',
-          undo: () => applyCompareSetsState(before),
-          redo: () => applyCompareSetsState(after),
+          undo: () => applyCompareSetsState(before, beforeActiveSetId),
+          redo: () => applyCompareSetsState(after, afterActiveSetId),
         });
       }
     );
@@ -2898,14 +2919,15 @@ function init() {
     if (!assertEditorMode('比較セット削除')) return;
     const before = _loadCompareSets();
     if (!before.some(s => s.id === setId)) return; // no-op: nothing to delete, no mutation/dirty/history
+    const beforeActiveSetId = compareState.activeSetId;
     const after = before.filter(s => s.id !== setId);
-    applyCompareSetsState(after);
-    if (compareState.activeSetId === setId) compareState.activeSetId = null;
+    const afterActiveSetId = beforeActiveSetId === setId ? null : beforeActiveSetId;
+    applyCompareSetsState(after, afterActiveSetId);
     showToast('比較セットを削除しました');
     historyManager.push({
       label: 'Delete compare set',
-      undo: () => applyCompareSetsState(before),
-      redo: () => applyCompareSetsState(after),
+      undo: () => applyCompareSetsState(before, beforeActiveSetId),
+      redo: () => applyCompareSetsState(after, afterActiveSetId),
     });
   }
 
@@ -2918,12 +2940,16 @@ function init() {
       { title: 'セット名を変更', defaultName: set.name, okLabel: '変更' },
       (name) => {
         if (!name || name === set.name) return; // no real change — no mutation, no dirty, no history
+        // Rename never changes which set is active — the same activeSetId
+        // is replayed on both undo and redo (see applyCompareSetsState()'s
+        // required-fix comment above for why this is a parameter at all).
+        const activeSetId = compareState.activeSetId;
         const after = before.map(s => (s.id === setId ? { ...s, name } : s));
-        applyCompareSetsState(after);
+        applyCompareSetsState(after, activeSetId);
         historyManager.push({
           label: 'Rename compare set',
-          undo: () => applyCompareSetsState(before),
-          redo: () => applyCompareSetsState(after),
+          undo: () => applyCompareSetsState(before, activeSetId),
+          redo: () => applyCompareSetsState(after, activeSetId),
         });
       }
     );

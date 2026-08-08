@@ -94,6 +94,45 @@ async function deleteCset(page, name) {
   await csetItem(page, name).locator('.cset-btn-del').click();
 }
 
+// compareState.activeSetId (required fix, Review Agent #4889199582 on
+// PR #48): no DOM-observable proxy exists that can distinguish "correctly
+// cleared to null" from "still dangling on a since-removed id" at every
+// point in an undo/redo cycle -- immediately after an undo that removes
+// the set activeSetId pointed at, the .active CSS class has nothing to
+// attach to in the rendered list either way, whether or not the reference
+// itself was actually restored/cleared correctly. window.
+// __activeCompareSetIdForTests() is the getter added for exactly this
+// (never read by production code, same rule as
+// window.__historyManagerForTests).
+async function activeSetIdRaw(page) {
+  return page.evaluate(() => window.__activeCompareSetIdForTests());
+}
+
+function activeCsetNames(page) {
+  return page.locator('#compare-sets-list .compare-set-item.active .cset-name').allTextContents();
+}
+
+// Cross-checks the in-memory activeSetId reference against both the
+// rendered "active" indicator and the actual id stored for `expectedName`
+// in localStorage -- the 3-way (memory/localStorage/UI) consistency the
+// required fix asks for. Pass null for "nothing is active" -- strictly
+// requiring activeSetId === null, not merely "points at something absent
+// from storage", so this fails against the pre-fix dangling-reference bug
+// instead of silently tolerating it.
+async function expectActiveSet(page, expectedName) {
+  const rawId = await activeSetIdRaw(page);
+  if (expectedName === null) {
+    expect(rawId).toBeNull();
+    await expect(activeCsetNames(page)).resolves.toEqual([]);
+  } else {
+    const stored = await localStorageSets(page);
+    const expected = stored.find(s => s.name === expectedName);
+    expect(expected).toBeTruthy();
+    expect(rawId).toBe(expected.id);
+    await expect(activeCsetNames(page)).resolves.toEqual([expectedName]);
+  }
+}
+
 test.describe('Compare set history (undo/redo)', () => {
   test('saving a new compare set pushes one history entry, marks dirty, and is consistent in localStorage and the UI', async ({ page }) => {
     const errors = await gotoApp(page);
@@ -137,6 +176,33 @@ test.describe('Compare set history (undo/redo)', () => {
     expectNoErrors(errors);
   });
 
+  // Required fix (Review Agent #4889199582 on PR #48), failure scenario 1:
+  // "新規set保存 → activeSetId=newSet.id → Undo → setは消えるがactiveSetId
+  // が存在しないsetを指す". saveCurrentCompareSet() sets
+  // compareState.activeSetId = newSet.id as part of the live save; that
+  // in-memory reference must travel with the array snapshot through
+  // undo/redo or it dangles once undo removes the set it points at.
+  test('undo after a new save does not leave activeSetId pointing at the removed set, and redo restores the correct active set', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadTwoScenesInSplit(page);
+    await expectActiveSet(page, null); // nothing saved yet
+
+    await saveCompareSet(page);
+    await expectActiveSet(page, DEFAULT_NAME);
+
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    await expectSetsConsistent(page, []);
+    await expectActiveSet(page, null); // not just null-or-dangling -- strictly null
+
+    const redoResult = await page.evaluate(() => window.__historyManagerForTests.redo());
+    expect(redoResult).toBe(true);
+    await expectSetsConsistent(page, [DEFAULT_NAME]);
+    await expectActiveSet(page, DEFAULT_NAME);
+
+    expectNoErrors(errors);
+  });
+
   test('deleting a compare set pushes one history entry; undo restores it exactly and redo re-deletes it', async ({ page }) => {
     const errors = await gotoApp(page);
     await loadTwoScenesInSplit(page);
@@ -159,6 +225,37 @@ test.describe('Compare set history (undo/redo)', () => {
     expect(redoResult).toBe(true);
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
     await expectSetsConsistent(page, []);
+
+    expectNoErrors(errors);
+  });
+
+  // Required fix (Review Agent #4889199582 on PR #48), failure scenario 2:
+  // "active set削除 → activeSetId=null → Undo → setは復元されるがactive
+  // 状態が復元されない". deleteCompareSet() clears
+  // compareState.activeSetId to null when the deleted set was the active
+  // one; that clearing (and its previous value) must travel with the
+  // array snapshot through undo/redo, or undo restores the set's data but
+  // not its active identity.
+  test('undo after deleting the active set restores both the set and its active indicator; redo re-deletes it and clears active again', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadTwoScenesInSplit(page);
+    await saveCompareSet(page); // the just-saved set is active (DEFAULT_NAME)
+    await clearHistory(page);
+    await expectActiveSet(page, DEFAULT_NAME);
+
+    await deleteCset(page, DEFAULT_NAME);
+    await expectSetsConsistent(page, []);
+    await expectActiveSet(page, null);
+
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    await expectSetsConsistent(page, [DEFAULT_NAME]);
+    await expectActiveSet(page, DEFAULT_NAME); // both the set AND its active identity return
+
+    const redoResult = await page.evaluate(() => window.__historyManagerForTests.redo());
+    expect(redoResult).toBe(true);
+    await expectSetsConsistent(page, []);
+    await expectActiveSet(page, null); // re-deleted, and active clears consistently again
 
     expectNoErrors(errors);
   });
