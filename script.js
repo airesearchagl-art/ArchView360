@@ -1645,22 +1645,39 @@ function init() {
   // Scene order — U6: Undo/Redo expansion
   // (docs/UndoRedo_Expansion_Implementation_Plan.md U6: シーン並び替え)
   // ============================================================
-  // `order` is the full target list of scene ids (not a from/to move) —
-  // same full-snapshot shape as U9's compare-set arrays, and more robust
-  // for undo/redo replay than replaying a single splice: it applies
-  // identically regardless of how many moves happened between the
-  // snapshot and now. currentIdx and the compare A/B slot indices are
-  // re-derived by id after reordering (reordering never changes *which*
-  // scene occupies a role, only its position), so this is correct for
-  // both directions without needing separate before/after copies of them.
+  // `order` is the full target list of scene ids that were part of this
+  // reorder (not a from/to move) — same full-snapshot shape as U9's
+  // compare-set arrays, and more robust for undo/redo replay than
+  // replaying a single splice: it applies identically regardless of how
+  // many moves happened between the snapshot and now.
+  //
+  // Required fix (Review Agent #4890280247 on PR #49): U7 (scene add/
+  // image update) isn't implemented yet, so a scene added *after* this
+  // history entry was recorded is untracked by it. `order` only lists the
+  // ids this specific reorder actually snapshotted, so this must never
+  // rebuild the whole `scenes` array from `order` alone (that would
+  // silently drop any scene outside the snapshot). Instead: find every
+  // array position CURRENTLY occupied by a snapshotted id, and overwrite
+  // only those positions, in order, with the snapshot's target sequence.
+  // Any scene not in `order` (or a snapshotted id no longer present,
+  // e.g. since deleted) is never read or written at all — same array
+  // position, same object reference, same id, same content, throughout.
+  //
+  // currentIdx and the compare A/B slot indices are re-derived by id
+  // after reordering (reordering never changes *which* scene occupies a
+  // role, only its position), so this is correct for both directions
+  // without needing separate before/after copies of them.
   function applySceneOrder(order) {
     const byId = new Map(scenes.map(s => [s.id, s]));
     const currentSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
     const sceneAId = compareState.sceneAIndex >= 0 ? scenes[compareState.sceneAIndex]?.id : null;
     const sceneBId = compareState.sceneBIndex >= 0 ? scenes[compareState.sceneBIndex]?.id : null;
 
-    scenes.length = 0;
-    order.forEach(id => { const s = byId.get(id); if (s) scenes.push(s); });
+    const orderSet = new Set(order);
+    const trackedPositions = [];
+    scenes.forEach((s, i) => { if (orderSet.has(s.id)) trackedPositions.push(i); });
+    const targetIds = order.filter(id => byId.has(id));
+    trackedPositions.forEach((pos, i) => { scenes[pos] = byId.get(targetIds[i]); });
 
     if (currentSceneId != null) currentIdx = scenes.findIndex(s => s.id === currentSceneId);
     if (sceneAId != null) compareState.sceneAIndex = scenes.findIndex(s => s.id === sceneAId);

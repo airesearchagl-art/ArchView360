@@ -19,6 +19,7 @@ const FIXTURES = path.join(__dirname, '..', 'fixtures');
 const FIXTURE_A = path.join(FIXTURES, 'fixture-a.png');
 const FIXTURE_B = path.join(FIXTURES, 'fixture-b.png');
 const FIXTURE_C = path.join(FIXTURES, 'fixture-c.png');
+const FIXTURE_D = path.join(FIXTURES, 'lifecycle-scene-a.png');
 
 async function historyCounts(page) {
   return page.evaluate(() => ({
@@ -105,6 +106,60 @@ test.describe('Scene reorder history (undo/redo)', () => {
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
     await expect(sceneNames(page)).resolves.toEqual(['fixture-b', 'fixture-c', 'fixture-a']);
     await expect(page.locator('#current-scene-name')).toHaveText('fixture-a');
+
+    expectNoErrors(errors);
+  });
+
+  // Required fix (Review Agent #4890280247 on PR #49): applySceneOrder()
+  // must not silently drop a scene that was added *after* a reorder's
+  // history entry was recorded -- U7 (scene add/image update) isn't
+  // implemented yet, so adding a scene is currently an untracked
+  // mutation, and naively rebuilding the whole `scenes` array from only
+  // the snapshot's ids would erase anything outside that snapshot.
+  // Reorder must only ever touch the relative order of the scenes it
+  // actually snapshotted; anything else present in `scenes` (by id and
+  // object identity) must survive both undo and redo untouched.
+  test('a scene added after a reorder survives that reorder\'s undo and redo, unchanged and with the same id', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    await dragReorderScene(page, 0, 2); // A/B/C -> B/C/A
+    expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
+    await expect(sceneNames(page)).resolves.toEqual(['fixture-b', 'fixture-c', 'fixture-a']);
+
+    // A scene add is untracked (no U7 yet) -- happens entirely outside
+    // this reorder's history entry. #add-img-btn just forwards to
+    // #file-input's own click(); feeding the file input directly is the
+    // same pattern loadThreeScenes() above already uses.
+    await page.locator('#file-input').setInputFiles(FIXTURE_D);
+    await expect(sceneNames(page)).resolves.toEqual(['fixture-b', 'fixture-c', 'fixture-a', 'lifecycle-scene-a']);
+    // No scene-id test hook exists in this codebase (or is needed here):
+    // the fix leaves an untracked scene's array slot completely untouched
+    // (same object reference), so its name -- unique within this test and
+    // never reassigned -- is a sufficient, already-established proxy for
+    // "same id, same content", matching how this same spec file already
+    // verifies scene identity elsewhere via #current-scene-name text
+    // rather than a raw id.
+
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    // D must still be present, unchanged, while only A/B/C's relative
+    // order reverts to pre-reorder (A/B/C). D's own position relative to
+    // the group is not specified by the fix (only "exists, same id/
+    // content, and A/B/C's relative order is what's restored") -- assert
+    // the set of names is exactly {A,B,C,D} and A/B/C's relative order
+    // (ignoring D) is back to A,B,C.
+    let names = await sceneNames(page);
+    expect(names).toContain('lifecycle-scene-a');
+    expect(names.filter(n => n !== 'lifecycle-scene-a')).toEqual(['fixture-a', 'fixture-b', 'fixture-c']);
+    expect(names).toHaveLength(4);
+
+    const redoResult = await page.evaluate(() => window.__historyManagerForTests.redo());
+    expect(redoResult).toBe(true);
+    names = await sceneNames(page);
+    expect(names).toContain('lifecycle-scene-a');
+    expect(names.filter(n => n !== 'lifecycle-scene-a')).toEqual(['fixture-b', 'fixture-c', 'fixture-a']);
+    expect(names).toHaveLength(4);
 
     expectNoErrors(errors);
   });
