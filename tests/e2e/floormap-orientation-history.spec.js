@@ -41,7 +41,10 @@ async function canvasFingerprint(page) {
 // marker-attrs-history.spec.js's loadSceneFloorplanAndMarker(): a marker
 // is required so orientation changes are actually visible on the canvas
 // (see canvasFingerprint() above), even though U2 itself never touches
-// marker data.
+// marker data. Since U5, placing this setup marker itself pushes one
+// history entry — clear() resets the stack afterward so every test below
+// still starts from the {undoCount:0, redoCount:0} baseline it was
+// written against.
 async function loadSceneFloorplanAndMarker(page) {
   await enterEditor(page);
   await page.locator('#file-input').setInputFiles(FIXTURE_A);
@@ -51,6 +54,7 @@ async function loadSceneFloorplanAndMarker(page) {
   await page.locator('#floormap-canvas').click({ position: MARKER_POS });
   await expect(page.locator('#floormap-info-panel')).toBeVisible();
   await page.locator('#floormap-place-btn').click(); // exit placement mode
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 test.describe('FloorMap orientation history (undo/redo)', () => {

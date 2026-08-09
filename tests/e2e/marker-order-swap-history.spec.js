@@ -76,6 +76,11 @@ async function loadTwoMarkers(page) {
 
   await page.locator('#floormap-place-btn').click(); // exit placement mode
   await expect(sceneOrderList(page)).resolves.toEqual(['fixture-a', 'fixture-b']);
+  // Since U5, placing these two setup markers itself pushes two history
+  // entries — clear() resets the stack afterward so every test below
+  // still starts from the {undoCount:0, redoCount:0} baseline it was
+  // written against.
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 // Same as loadTwoMarkers(), plus a third scene/marker (fixture-c, order 3)
@@ -102,6 +107,11 @@ async function loadThreeMarkers(page) {
 
   await page.locator('#floormap-place-btn').click(); // exit placement mode
   await expect(sceneOrderList(page)).resolves.toEqual(['fixture-a', 'fixture-b', 'fixture-c']);
+  // Since U5, placing these three setup markers itself pushes three
+  // history entries — clear() resets the stack afterward so every test
+  // below still starts from the {undoCount:0, redoCount:0} baseline it
+  // was written against.
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 async function rightClickCtxItem(page, pos, labelSubstring) {

@@ -49,6 +49,11 @@ async function canvasFingerprint(page) {
 // `if (isPlacementMode) return;` guard (pre-existing, unrelated to U1)
 // blocks marker drag from ever starting, which only matters for this
 // spec's drag coverage (rotate/rename are unaffected by placement mode).
+// Since U5, placing this setup marker itself pushes one history entry
+// (it didn't before U5 existed) — clear() resets the stack afterward so
+// every test below still starts from the {undoCount:0, redoCount:0}
+// baseline it was written against, with only the operation actually under
+// test contributing to the counts asserted later in each test.
 async function loadSceneFloorplanAndMarker(page) {
   await enterEditor(page);
   await page.locator('#file-input').setInputFiles(FIXTURE_A);
@@ -58,6 +63,7 @@ async function loadSceneFloorplanAndMarker(page) {
   await page.locator('#floormap-canvas').click({ position: MARKER_POS });
   await expect(infoPanel(page)).toBeVisible();
   await page.locator('#floormap-place-btn').click(); // exit placement mode
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 async function dragMarker(page, fromX, fromY, toX, toY) {

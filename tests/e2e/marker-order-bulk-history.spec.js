@@ -89,6 +89,12 @@ async function loadThreeMarkers(page) {
 
   await page.locator('#floormap-place-btn').click(); // exit placement mode
   await expect(markerRows(page)).resolves.toEqual(['fixture-a:1', 'fixture-b:2', 'fixture-c:3']);
+  // Since U5, placing these three setup markers itself pushes three
+  // history entries — clear() resets the stack afterward so every test
+  // below still starts from the {undoCount:0, redoCount:0} baseline it
+  // was written against (U4 predates U5; this spec's own assertions were
+  // never meant to count marker-placement history).
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 // Clicks a marker-list row's order-number chip, types a new value, and
@@ -390,6 +396,9 @@ test.describe('Bulk marker order history (undo/redo)', () => {
     await page.locator('#floormap-place-btn').click();
     await page.locator('#floormap-canvas').click({ position: POS_A });
     await page.locator('#floormap-place-btn').click();
+    // Since U5, placing this marker itself pushes a history entry; clear()
+    // isolates the order edit below as this test's actual subject.
+    await page.evaluate(() => window.__historyManagerForTests.clear());
     await editOrderChip(page, 0, 7);
     await expect(markerRows(page)).resolves.toEqual(['fixture-a:7']);
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
@@ -405,10 +414,13 @@ test.describe('Bulk marker order history (undo/redo)', () => {
     await page.locator('#floormap-canvas').click({ position: POS_B });
     await page.locator('#floormap-place-btn').click();
     await expect(markerRows(page)).resolves.toEqual(['fixture-a:1', 'fixture-b:2']);
+    // Same reasoning: isolate the drag reorder below from these two
+    // setup placements' own history entries.
+    await page.evaluate(() => window.__historyManagerForTests.clear());
 
     await dragReorderMarker(page, 0, 1); // swap the two floor-plan-2 markers
     await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']);
-    expect(await historyCounts(page)).toEqual({ undoCount: 2, redoCount: 0 });
+    expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
 
     // Back to floor plan 1: its marker's order (7) must be exactly as left.
     await page.locator('.floorplan-item').nth(0).click();
