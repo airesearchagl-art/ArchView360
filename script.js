@@ -6635,6 +6635,52 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     _updateInfoPanel();
   }
 
+  // ============================================================
+  // Marker creation / deletion — U5: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U5: マーカー配置・削除)
+  // ============================================================
+  // isPresent=false removes the marker (a live delete, or redo replaying
+  // one); isPresent=true restores it (undo of a delete, or redo replaying
+  // a create). Both directions operate purely by the marker's own id
+  // against projectState.markers — never rebuilding or iterating any
+  // other marker — so a different marker created/deleted after this
+  // entry was pushed is never read or written, structurally ruling out
+  // the class of data loss the U6 required fix guarded against for scene
+  // reorder. Deleting a marker never renumbers or shifts any other
+  // marker's order (confirmed by reading the pre-U5 deleteSelectedMarker()
+  // — it only ever filters the one marker out), so the order value the
+  // deleted marker held becomes a permanent gap until "番号を整理" (U4)
+  // is run; undo here simply restores the exact original marker object,
+  // gap and all, matching that existing no-renumber behavior exactly.
+  // Never calls historyManager.push() itself. Selecting the marker is
+  // part of the replayed state, not just a live-click nicety: isPresent
+  // =true always selects it (matching the live create's own selection),
+  // so undo of a delete restores exactly the pre-delete visual state
+  // (selection ring included) and _updateInfoPanel() shows the right
+  // marker immediately, before the live commit point below runs any
+  // further code of its own.
+  function applyMarkerLifecycle(marker, isPresent) {
+    const scene = scenes.find(s => s.id === marker.sceneId);
+    if (isPresent) {
+      if (!projectState.markers.some(m => m.id === marker.id)) {
+        projectState.markers.push({ ...marker });
+      }
+      if (scene) scene.floorplanId = marker.floorplanId;
+      selectedMarkerId = marker.id;
+    } else {
+      projectState.markers = projectState.markers.filter(m => m.id !== marker.id);
+      if (selectedMarkerId === marker.id) selectedMarkerId = null;
+      if (scene && !isScenePlaced(scene)) scene.floorplanId = null;
+    }
+    markProjectDirty(isPresent ? 'マーカー配置' : 'マーカー削除');
+    renderFloormapCanvas();
+    _updateInfoPanel();
+    renderMarkerList();
+    renderSceneList();
+    renderSceneFilterBar();
+    renderDashboard();
+  }
+
   // FloorMap canvas events
   floormapCanvas.addEventListener('mousedown', (e) => {
     if (isPlacementMode) return;
@@ -6780,23 +6826,51 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
     const isNew = !mk;
     if (mk) {
-      mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
+      // Existing marker on this scene/floor plan: re-placing it moves it.
+      // U5 Required Fix (review #4891276690): this click-based reposition
+      // used to be untracked, which let an older, still-tracked create
+      // entry for this same marker resurrect a stale position on redo
+      // after this untracked move (create at P1 [tracked] -> reposition
+      // to P2 [untracked] -> undo replays the create's P1 snapshot,
+      // removing the marker -> redo recreates it at P1, silently losing
+      // P2). Now routed through the same U1 applyMarkerPosition()/
+      // applyMarkerRotation() apply functions the drag-based move and
+      // rotate-button paths already use — position and rotation change
+      // atomically as a single user gesture here, so both are replayed
+      // together as exactly one history entry.
+      const markerId = mk.id;
+      const oldX = mk.x, oldY = mk.y, oldRotation = mk.rotation || 0;
+      const newX = coords.x, newY = coords.y, newRotation = initialRot;
+      curScene.floorplanId = activeFloorplanId;
+      selectedMarkerId = markerId;
+      if (newX === oldX && newY === oldY && newRotation === oldRotation) {
+        // Genuine no-op (re-placing at the exact same spot/orientation) —
+        // no mutation, no history push.
+        renderFloormapCanvas();
+        _updateInfoPanel();
+      } else {
+        applyMarkerPosition(markerId, newX, newY);
+        applyMarkerRotation(markerId, newRotation);
+        renderMarkerList();
+        renderSceneList();
+        renderSceneFilterBar();
+        historyManager.push({
+          label: 'Reposition marker',
+          undo: () => { applyMarkerPosition(markerId, oldX, oldY); applyMarkerRotation(markerId, oldRotation); },
+          redo: () => { applyMarkerPosition(markerId, newX, newY); applyMarkerRotation(markerId, newRotation); },
+        });
+      }
     } else {
       mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id,
              x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name,
              order: _nextMarkerOrder() };
-      projectState.markers.push(mk);
+      applyMarkerLifecycle(mk, true);
+      historyManager.push({
+        label: 'Place marker',
+        undo: () => applyMarkerLifecycle(mk, false),
+        redo: () => applyMarkerLifecycle(mk, true),
+      });
     }
-    // Auto-associate scene with current floor plan
-    curScene.floorplanId = activeFloorplanId;
-    selectedMarkerId = mk.id;
-    markProjectDirty('マーカー配置');
-    renderFloormapCanvas();
-    _updateInfoPanel();
-    renderMarkerList();
-    renderSceneList();
-    renderSceneFilterBar();
-    if (isNew) renderDashboard();
     showToast(`「${curScene.name}」のマーカーを配置しました（向き: ${initialRot}°）`);
   });
 
@@ -6848,16 +6922,18 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!assertEditorMode('マーカー削除')) return;
     const mk = projectState.markers.find(m => m.id === selectedMarkerId);
     if (mk) {
-      const sceneId = mk.sceneId;
-      projectState.markers = projectState.markers.filter(m => m.id !== selectedMarkerId);
-      // If scene has no more markers, clear its floorplanId
-      const scene = scenes.find(s => s.id === sceneId);
-      if (scene && !isScenePlaced(scene)) scene.floorplanId = null;
-      markProjectDirty('マーカー削除');
+      const markerSnapshot = { ...mk };
+      applyMarkerLifecycle(markerSnapshot, false);
+      historyManager.push({
+        label: 'Delete marker',
+        undo: () => applyMarkerLifecycle(markerSnapshot, true),
+        redo: () => applyMarkerLifecycle(markerSnapshot, false),
+      });
+    } else {
+      selectedMarkerId = null;
+      renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
+      renderSceneList(); renderSceneFilterBar(); renderDashboard();
     }
-    selectedMarkerId = null;
-    renderFloormapCanvas(); _updateInfoPanel(); renderMarkerList();
-    renderSceneList(); renderSceneFilterBar(); renderDashboard();
     showToast('マーカーを削除しました');
   }
 
