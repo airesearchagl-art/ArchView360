@@ -1026,15 +1026,32 @@ function init() {
   }
 
   // Set marker order and resolve duplicates (v2.8)
+  // U4: Undo/Redo expansion — snapshots the whole floor plan's marker
+  // order before/after (conflict resolution can shift markers other than
+  // the one directly edited), then pushes a single history entry via
+  // applyMarkerOrders(). Genuinely a no-op (typed the same value, no
+  // conflicts to resolve) if the before/after snapshots are identical —
+  // matches every other applyXxx() commit point's no-op-guard rule.
   function setMarkerOrder(markerId, newOrder) {
     if (!assertEditorMode('マーカー番号変更')) return false;
     const v = parseInt(newOrder, 10);
     if (!Number.isInteger(v) || v < 1) return false;
     const mk = projectState.markers.find(m => m.id === markerId);
     if (!mk) return false;
+    const floorplanId = mk.floorplanId;
+    const before = _snapshotMarkerOrders(floorplanId);
     mk.order = v;
-    _resolveOrderConflicts(mk.floorplanId, markerId);
-    markProjectDirty('マーカー番号変更');
+    _resolveOrderConflicts(floorplanId, markerId);
+    const after = _snapshotMarkerOrders(floorplanId);
+    const changed = before.length !== after.length
+      || before.some((b, i) => b.id !== after[i].id || b.order !== after[i].order);
+    if (!changed) return true;
+    applyMarkerOrders(after);
+    historyManager.push({
+      label: 'Marker order (direct edit)',
+      undo: () => applyMarkerOrders(before),
+      redo: () => applyMarkerOrders(after),
+    });
     return true;
   }
 
@@ -1055,6 +1072,10 @@ function init() {
   }
 
   // Re-sequence to 1,2,3... in current order (v2.8)
+  // U4: Undo/Redo expansion — no-op guarded before any mutation happens
+  // (stricter than setMarkerOrder: here the mutation itself is trivially
+  // avoidable when already 1,2,3...), then a single history entry via
+  // applyMarkerOrders().
   function resequenceMarkers() {
     if (!activeFloorplanId) return;
     if (!assertEditorMode('マーカー番号整理')) return;
@@ -1062,9 +1083,17 @@ function init() {
       .filter(m => m.floorplanId === activeFloorplanId)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
     if (!targets.length) return; // nothing to renumber — not a mutation
+    const alreadySequential = targets.every((m, i) => (m.order || 0) === i + 1);
+    if (alreadySequential) return; // already 1,2,3... in this order — not a mutation
+    const before = _snapshotMarkerOrders(activeFloorplanId);
     targets.forEach((m, i) => { m.order = i + 1; });
-    markProjectDirty('マーカー番号整理');
-    renderMarkerList(); renderFloormapCanvas();
+    const after = _snapshotMarkerOrders(activeFloorplanId);
+    applyMarkerOrders(after);
+    historyManager.push({
+      label: 'Resequence markers',
+      undo: () => applyMarkerOrders(before),
+      redo: () => applyMarkerOrders(after),
+    });
     showToast('番号を整理しました');
   }
 
@@ -6373,13 +6402,24 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         const isBefore = e.clientY < li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2;
         let insertAt = isBefore ? listIdx : listIdx + 1;
         if (_mkDragSrcIdx < insertAt) insertAt--;
+        // U4: Undo/Redo — insertAt can land back on the source slot after
+        // the above adjustment even when listIdx !== _mkDragSrcIdx (e.g.
+        // dropping "after" the item immediately before the source); that's
+        // a genuine no-op gesture and must not mutate or push history.
+        if (insertAt === _mkDragSrcIdx) return;
+        const before = _snapshotMarkerOrders(activeFloorplanId);
         // Reorder: remove from src, insert at dest
         const moved = markers.splice(_mkDragSrcIdx, 1)[0];
         markers.splice(insertAt, 0, moved);
         // Re-sequence orders 1,2,3...
         markers.forEach((m, i) => { m.order = i + 1; });
-        markProjectDirty('マーカー並び替え');
-        renderMarkerList(); renderFloormapCanvas();
+        const after = _snapshotMarkerOrders(activeFloorplanId);
+        applyMarkerOrders(after);
+        historyManager.push({
+          label: 'Marker order (drag reorder)',
+          undo: () => applyMarkerOrders(before),
+          redo: () => applyMarkerOrders(after),
+        });
         showToast('マーカーを並び替えました');
       });
 
@@ -6559,6 +6599,40 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     renderMarkerList();
     renderFloormapCanvas();
     if (selectedMarkerId === markerIdA || selectedMarkerId === markerIdB) _updateInfoPanel();
+  }
+
+  // ============================================================
+  // Bulk marker order — U4: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U4: マーカー番号一括変更)
+  // ============================================================
+  // Same applyXxx()/historyManager.push() separation as U1/U2/U3/U6/U9, but
+  // this operation can touch an arbitrary number of markers in one user
+  // gesture (direct number edit's conflict resolution, list drag reorder,
+  // and the "番号を整理" resequence button can all renumber every marker on
+  // the active floor plan at once) — so the snapshot is a full {id, order}
+  // array for every marker on the affected floor plan, captured before and
+  // after the mutation, rather than a per-field value pair. A marker id
+  // missing from the live array when this replays (deleted since the entry
+  // was pushed) is silently skipped, same as the other applyXxx()
+  // functions. Never calls historyManager.push() itself — only the three
+  // live-edit commit points (setMarkerOrder, the list drag/drop handler,
+  // and resequenceMarkers) do, exactly once, each guarded so a no-op
+  // gesture never pushes an entry.
+  function _snapshotMarkerOrders(floorplanId) {
+    return projectState.markers
+      .filter(m => m.floorplanId === floorplanId)
+      .map(m => ({ id: m.id, order: m.order }));
+  }
+
+  function applyMarkerOrders(orders) {
+    orders.forEach(({ id, order }) => {
+      const mk = projectState.markers.find(m => m.id === id);
+      if (mk) mk.order = order;
+    });
+    markProjectDirty('マーカー番号変更');
+    renderMarkerList();
+    renderFloormapCanvas();
+    _updateInfoPanel();
   }
 
   // FloorMap canvas events
