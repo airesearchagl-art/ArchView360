@@ -119,18 +119,125 @@ test.describe('Marker place/delete history (undo/redo)', () => {
     expectNoErrors(errors);
   });
 
-  test('re-placing on a scene that already has a marker is a move, not a create — no second history entry', async ({ page }) => {
+  // Required Fix (review #4891276690 on PR #51): re-placing on a scene
+  // that already has a marker moves it (position + rotation, atomically,
+  // as one click) -- this used to be untracked, which let an older
+  // still-tracked create entry for the same marker resurrect a stale
+  // position on redo after the untracked move. Now routed through the
+  // same U1 applyMarkerPosition()/applyMarkerRotation() apply functions
+  // the drag-based move and rotate-button paths already use, pushing
+  // exactly one additional history entry (distinct from the create's own
+  // entry) per reposition click.
+  test('re-placing on a scene that already has a marker moves it and pushes its own history entry', async ({ page }) => {
     const errors = await gotoApp(page);
     await loadSceneAndFloorplan(page, [FIXTURE_A]);
     await page.locator('#floormap-place-btn').click();
     await page.locator('#floormap-canvas').click({ position: POS_A });
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
     await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']);
+    const afterCreate = await canvasFingerprint(page);
 
     await page.locator('#floormap-canvas').click({ position: POS_B }); // still same scene -> moves the existing marker
 
+    expect(await historyCounts(page)).toEqual({ undoCount: 2, redoCount: 0 }); // create + reposition
+    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']); // still exactly one marker, same order
+    const afterReposition = await canvasFingerprint(page);
+    expect(afterReposition).not.toBe(afterCreate);
+
+    // Undoing just the reposition restores the marker to its post-create
+    // (P1) position, not absence.
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 1 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']);
+    expect(await canvasFingerprint(page)).toBe(afterCreate);
+
+    expectNoErrors(errors);
+  });
+
+  // Clicking at the exact same position/orientation the marker is already
+  // at is a genuine no-op and must not push a redundant entry.
+  test('re-placing at the exact same spot is a no-op and pushes nothing', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadSceneAndFloorplan(page, [FIXTURE_A]);
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_A });
+    expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 });
+    const afterCreate = await canvasFingerprint(page);
+
+    await page.locator('#floormap-canvas').click({ position: POS_A }); // identical click -> identical x/y/rotation
+
     expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 0 }); // unchanged
-    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']); // still exactly one marker
+    expect(await canvasFingerprint(page)).toBe(afterCreate);
+
+    expectNoErrors(errors);
+  });
+
+  // The exact regression scenario from review #4891276690: a tracked
+  // create followed by an (until this fix) untracked reposition let undo
+  // replay the create's stale snapshot and redo silently lose the later
+  // position. Walks the full create -> reposition -> undo -> undo -> redo
+  // -> redo cycle and confirms the final position (P2) is never lost, a
+  // bystander marker on another scene is never touched, and id/order stay
+  // stable throughout.
+  test('create then reposition survives a full undo-undo-redo-redo cycle without losing the final position', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadSceneAndFloorplan(page, [FIXTURE_A, FIXTURE_B]);
+
+    // Bystander marker on a different scene, untouched by anything below.
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#scene-list .scene-item').nth(1).click();
+    await page.locator('#floormap-canvas').click({ position: POS_C });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1']);
+
+    // Create the subject marker at P1 (scene fixture-a, POS_A).
+    await page.locator('#scene-list .scene-item').nth(0).click();
+    await page.locator('#floormap-canvas').click({ position: POS_A });
+    expect(await historyCounts(page)).toEqual({ undoCount: 2, redoCount: 0 }); // bystander create + this create
+    // Bystander (fixture-b) was created first, so it holds order 1; the
+    // subject marker (fixture-a) was created second and holds order 2 --
+    // markerRows() is sorted by order ascending, so it lists fixture-b
+    // first throughout this test.
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']);
+    const atP1 = await canvasFingerprint(page);
+
+    // Reposition it to P2 (POS_B), still the same scene/marker.
+    await page.locator('#floormap-canvas').click({ position: POS_B });
+    await page.locator('#floormap-place-btn').click(); // exit placement mode
+    expect(await historyCounts(page)).toEqual({ undoCount: 3, redoCount: 0 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']);
+    const atP2 = await canvasFingerprint(page);
+    expect(atP2).not.toBe(atP1);
+
+    // Undo #1: reposition -> back to P1, marker still present.
+    let r = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(r).toBe(true);
+    expect(await historyCounts(page)).toEqual({ undoCount: 2, redoCount: 1 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']);
+    expect(await canvasFingerprint(page)).toBe(atP1);
+
+    // Undo #2: create -> marker absent entirely; bystander untouched.
+    r = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(r).toBe(true);
+    expect(await historyCounts(page)).toEqual({ undoCount: 1, redoCount: 2 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1']);
+
+    // Redo #1: create -> back at P1.
+    r = await page.evaluate(() => window.__historyManagerForTests.redo());
+    expect(r).toBe(true);
+    expect(await historyCounts(page)).toEqual({ undoCount: 2, redoCount: 1 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']);
+    expect(await canvasFingerprint(page)).toBe(atP1);
+
+    // Redo #2: reposition -> back at P2. This is the exact assertion the
+    // review's reported bug would have failed: the pre-fix code had no
+    // second history entry at all, so this redo() would have returned
+    // false and the marker would have stayed stuck at P1.
+    r = await page.evaluate(() => window.__historyManagerForTests.redo());
+    expect(r).toBe(true);
+    expect(await historyCounts(page)).toEqual({ undoCount: 3, redoCount: 0 });
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1', 'fixture-a:2']); // id/order preserved throughout
+    expect(await canvasFingerprint(page)).toBe(atP2); // P2 is not lost
 
     expectNoErrors(errors);
   });
@@ -324,6 +431,41 @@ test.describe('Marker place/delete history (undo/redo)', () => {
     await page.locator('#app-mode-toggle-btn').click({ force: true });
     await expect(page.locator('body')).toHaveClass(/mode-editor/);
     await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']); // still present
+
+    expectNoErrors(errors);
+  });
+
+  // Review #4891276690 recommendation: verify what happens to selection
+  // when undoing a create while a DIFFERENT marker was selected
+  // beforehand. Creating a marker has always stolen selection (the live
+  // commit point sets selectedMarkerId = the new marker's id, matching
+  // pre-U5 behavior) -- undoing that create clears selection entirely
+  // rather than restoring the marker that was selected before the create,
+  // since selectedMarkerId is not part of any apply function's snapshot
+  // (consistent with every other U1/U3/U4/U6/U9 apply function: none of
+  // them restore "whatever was selected before", only the entity being
+  // directly acted on). This is intentional, pre-existing non-history UI
+  // state, not a data-loss regression: no error, no stale/wrong marker
+  // shown, just no selection -- so it is documented here rather than
+  // "fixed".
+  test('undoing a create clears selection rather than restoring a previously-selected different marker (documented, not a regression)', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadSceneAndFloorplan(page, [FIXTURE_A, FIXTURE_B]);
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_A }); // first marker, on fixture-a
+    await page.locator('#floormap-place-btn').click();
+    await expect(infoName(page)).toHaveText('fixture-a'); // selected after its own creation
+
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#scene-list .scene-item').nth(1).click();
+    await page.locator('#floormap-canvas').click({ position: POS_B });
+    await page.locator('#floormap-place-btn').click();
+    await expect(infoName(page)).toHaveText('fixture-b'); // creating the 2nd marker steals selection (pre-existing behavior)
+
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']); // fixture-b's marker is gone
+    await expect(infoPanel(page)).toBeHidden(); // selection cleared, NOT restored to fixture-a's marker
 
     expectNoErrors(errors);
   });

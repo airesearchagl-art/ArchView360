@@ -6826,20 +6826,40 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     let mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
     const isNew = !mk;
     if (mk) {
-      // Existing marker on this scene/floor plan: re-placing it just
-      // moves it — out of U5 scope (a position/rotation change, not a
-      // create/delete). U1's applyMarkerPosition() covers the drag-based
-      // move path; this click-based reposition path is a separate,
-      // pre-existing gap left untouched here, same as it was before U5.
-      mk.x = coords.x; mk.y = coords.y; mk.rotation = initialRot;
+      // Existing marker on this scene/floor plan: re-placing it moves it.
+      // U5 Required Fix (review #4891276690): this click-based reposition
+      // used to be untracked, which let an older, still-tracked create
+      // entry for this same marker resurrect a stale position on redo
+      // after this untracked move (create at P1 [tracked] -> reposition
+      // to P2 [untracked] -> undo replays the create's P1 snapshot,
+      // removing the marker -> redo recreates it at P1, silently losing
+      // P2). Now routed through the same U1 applyMarkerPosition()/
+      // applyMarkerRotation() apply functions the drag-based move and
+      // rotate-button paths already use — position and rotation change
+      // atomically as a single user gesture here, so both are replayed
+      // together as exactly one history entry.
+      const markerId = mk.id;
+      const oldX = mk.x, oldY = mk.y, oldRotation = mk.rotation || 0;
+      const newX = coords.x, newY = coords.y, newRotation = initialRot;
       curScene.floorplanId = activeFloorplanId;
-      selectedMarkerId = mk.id;
-      markProjectDirty('マーカー配置');
-      renderFloormapCanvas();
-      _updateInfoPanel();
-      renderMarkerList();
-      renderSceneList();
-      renderSceneFilterBar();
+      selectedMarkerId = markerId;
+      if (newX === oldX && newY === oldY && newRotation === oldRotation) {
+        // Genuine no-op (re-placing at the exact same spot/orientation) —
+        // no mutation, no history push.
+        renderFloormapCanvas();
+        _updateInfoPanel();
+      } else {
+        applyMarkerPosition(markerId, newX, newY);
+        applyMarkerRotation(markerId, newRotation);
+        renderMarkerList();
+        renderSceneList();
+        renderSceneFilterBar();
+        historyManager.push({
+          label: 'Reposition marker',
+          undo: () => { applyMarkerPosition(markerId, oldX, oldY); applyMarkerRotation(markerId, oldRotation); },
+          redo: () => { applyMarkerPosition(markerId, newX, newY); applyMarkerRotation(markerId, newRotation); },
+        });
+      }
     } else {
       mk = { id: genId(), floorplanId: activeFloorplanId, sceneId: curScene.id,
              x: coords.x, y: coords.y, rotation: initialRot, name: curScene.name,
