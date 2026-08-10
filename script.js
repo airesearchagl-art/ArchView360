@@ -5832,45 +5832,153 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   // Floor Plan Management
   // ============================================================
+  // ============================================================
+  // FloorMap (floorplan) add / delete — U8: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U8: FloorMap追加・削除)
+  // ============================================================
+  // Same image-binary retention pattern already established for scenes
+  // (handleFiles()/applySceneRemoval(), U6): the floorplan object keeps
+  // its original `file` (the File picked by the user) permanently, and
+  // blobUrl/imgEl are only ever a disposable *view* of that File,
+  // regenerated fresh via URL.createObjectURL(fp.file) + new Image()
+  // every time the floorplan becomes present again (first live add, undo
+  // of a delete, or redo of an add) and revoked every time it becomes
+  // absent (live delete, undo of an add, or redo of a delete). No new
+  // production test hook is needed to observe this: renderFloormapCanvas()
+  // already self-registers `imgEl.onload = () => renderFloormapCanvas()`
+  // when the image isn't loaded yet, so a freshly (re)created Image
+  // naturally ends up rendered once ready, and its actual pixel content
+  // is externally observable via the FloorMap canvas's own toDataURL().
+  //
+  // Both operate purely by floorplan id (and, for cascade-deleted
+  // markers, by marker id) against the live arrays — never rebuilding
+  // projectState.floorplans/markers from the snapshot alone — so a
+  // different floorplan or marker added after this entry was pushed is
+  // never read or written, same discipline as U5/U6's id-scoped replay.
+  //
+  // applyFloorplanAdd(floorplans, isPresent): floorplans is the array of
+  // {id, name, fileName, file, rotationOffset} objects created by one
+  // file-selection batch (one <input multiple> confirm = one undo unit,
+  // covering however many floor plans that batch added).
+  function applyFloorplanAdd(floorplans, isPresent) {
+    if (isPresent) {
+      floorplans.forEach(fp => {
+        if (projectState.floorplans.some(f => f.id === fp.id)) return;
+        fp.blobUrl = URL.createObjectURL(fp.file);
+        fp.imgEl = new Image();
+        fp.imgEl.src = fp.blobUrl;
+        projectState.floorplans.push(fp);
+      });
+      if (!activeFloorplanId && projectState.floorplans.length)
+        activeFloorplanId = projectState.floorplans[0].id;
+    } else {
+      const ids = new Set(floorplans.map(fp => fp.id));
+      floorplans.forEach(fp => { if (fp.blobUrl) URL.revokeObjectURL(fp.blobUrl); });
+      projectState.floorplans = projectState.floorplans.filter(f => !ids.has(f.id));
+      if (ids.has(activeFloorplanId)) activeFloorplanId = projectState.floorplans[0]?.id || null;
+      if (ids.has(sceneFilterFloorplanId)) sceneFilterFloorplanId = null;
+    }
+    markProjectDirty(isPresent ? '平面図追加' : '平面図追加取消');
+    renderFloorplanList();
+    renderFloormap();
+    renderSceneFilterBar();
+    renderDashboard();
+  }
+
   function handleFloorplanFiles(fileList) {
     if (!assertEditorMode('平面図追加')) return;
     const allowed = new Set(['image/jpeg','image/png','image/webp']);
     const valid   = Array.from(fileList).filter(f => allowed.has(f.type) && f.size <= 50*1024*1024);
     if (!valid.length) return;
-    valid.forEach(f => {
-      const blobUrl = URL.createObjectURL(f);
-      const imgEl   = new Image();
-      imgEl.src = blobUrl;
-      const fp = { id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, blobUrl, file: f, imgEl, rotationOffset: 0 };
-      imgEl.onload = () => { if (!activeFloorplanId) setActiveFloorplan(fp.id); renderFloormap(); };
-      projectState.floorplans.push(fp);
+    const newFloorplans = valid.map(f => ({
+      id: genId(), name: f.name.replace(/\.[^.]+$/, ''), fileName: f.name, file: f, rotationOffset: 0,
+    }));
+    applyFloorplanAdd(newFloorplans, true);
+    historyManager.push({
+      label: 'Add floor plan',
+      undo: () => applyFloorplanAdd(newFloorplans, false),
+      redo: () => applyFloorplanAdd(newFloorplans, true),
     });
-    if (!activeFloorplanId && projectState.floorplans.length)
-      activeFloorplanId = projectState.floorplans[0].id;
-    markProjectDirty('平面図追加');
-    renderFloorplanList();
-    renderSceneFilterBar();
-    renderDashboard();
     showToast(`平面図を ${valid.length} 件追加しました`);
+  }
+
+  // isPresent=true restores the deleted floorplan (undo of a delete);
+  // isPresent=false removes it (a live delete, or redo replaying one).
+  // Cascade-deleted markers are restored/removed the same way U6's
+  // applySceneRemoval() handles a scene's markers: pushed back by
+  // reference on restore (never rebuilding the whole markers array), and
+  // removed by id set on delete. scene.floorplanId is only ever restored
+  // from the snapshot's affectedSceneIds (the live array can no longer
+  // answer "which scenes used to point here" once it's already null) and
+  // only ever cleared via a live re-scan (matching the exact pre-U8
+  // deleteFloorplan() behavior, so a redo reflects whatever currently
+  // references this floorplan, not a stale snapshot).
+  //
+  // selectedMarkerId is nulled on delete if it pointed to a
+  // cascade-deleted marker, but never proactively restored on undo —
+  // same "not part of any apply function's snapshot" rule already
+  // established for marker create/delete (U5): no error results, no
+  // stale/wrong marker is shown, just no selection. activeFloorplanId
+  // IS restored (to its exact pre-delete value), since deleteFloorplan()
+  // itself already treats it as real state to keep in sync, not ephemeral
+  // UI focus.
+  function applyFloorplanRemoval(snapshot, isPresent) {
+    const { floorplan, index, markers, affectedSceneIds } = snapshot;
+    if (isPresent) {
+      floorplan.blobUrl = URL.createObjectURL(floorplan.file);
+      floorplan.imgEl = new Image();
+      floorplan.imgEl.src = floorplan.blobUrl;
+      if (!projectState.floorplans.some(f => f.id === floorplan.id)) {
+        projectState.floorplans.splice(index, 0, floorplan);
+      }
+      markers.forEach(mk => {
+        if (!projectState.markers.some(m => m.id === mk.id)) projectState.markers.push(mk);
+      });
+      affectedSceneIds.forEach(sid => {
+        const s = scenes.find(sc => sc.id === sid);
+        if (s) s.floorplanId = floorplan.id;
+      });
+      activeFloorplanId = snapshot.beforeActiveFloorplanId;
+    } else {
+      URL.revokeObjectURL(floorplan.blobUrl);
+      projectState.floorplans = projectState.floorplans.filter(f => f.id !== floorplan.id);
+      const markerIds = new Set(markers.map(m => m.id));
+      projectState.markers = projectState.markers.filter(m => !markerIds.has(m.id));
+      if (markerIds.has(selectedMarkerId)) selectedMarkerId = null;
+      // Clear floorplanId from scenes that currently reference this
+      // floorplan — matches pre-U8 deleteFloorplan()'s exact live re-scan.
+      scenes.forEach(s => { if (s.floorplanId === floorplan.id) s.floorplanId = null; });
+      if (activeFloorplanId === floorplan.id)
+        activeFloorplanId = projectState.floorplans[0]?.id || null;
+      if (sceneFilterFloorplanId === floorplan.id) sceneFilterFloorplanId = null;
+    }
+    markProjectDirty(isPresent ? '平面図削除取消' : '平面図削除');
+    renderFloorplanList();
+    renderFloormap();
+    renderSceneFilterBar();
+    renderSceneList();
+    renderMarkerList();
+    _updateInfoPanel();
+    renderDashboard();
   }
 
   function deleteFloorplan(id) {
     if (!assertEditorMode('平面図削除')) return;
     const fp = projectState.floorplans.find(f => f.id === id);
-    if (fp) URL.revokeObjectURL(fp.blobUrl);
-    projectState.floorplans = projectState.floorplans.filter(f => f.id !== id);
-    projectState.markers    = projectState.markers.filter(m => m.floorplanId !== id);
-    // Clear floorplanId from scenes that referenced deleted floor plan
-    scenes.forEach(s => { if (s.floorplanId === id) s.floorplanId = null; });
-    if (activeFloorplanId === id)
-      activeFloorplanId = projectState.floorplans[0]?.id || null;
-    if (sceneFilterFloorplanId === id) sceneFilterFloorplanId = null;
-    markProjectDirty('平面図削除');
-    renderFloorplanList();
-    renderFloormap();
-    renderSceneFilterBar();
-    renderSceneList();
-    renderDashboard();
+    if (!fp) return;
+    const snapshot = {
+      floorplan: fp,
+      index: projectState.floorplans.indexOf(fp),
+      markers: projectState.markers.filter(m => m.floorplanId === id),
+      affectedSceneIds: scenes.filter(s => s.floorplanId === id).map(s => s.id),
+      beforeActiveFloorplanId: activeFloorplanId,
+    };
+    applyFloorplanRemoval(snapshot, false);
+    historyManager.push({
+      label: 'Delete floor plan',
+      undo: () => applyFloorplanRemoval(snapshot, true),
+      redo: () => applyFloorplanRemoval(snapshot, false),
+    });
   }
 
   function setActiveFloorplan(id) {

@@ -71,6 +71,10 @@ async function loadSceneAndFloorplan(page, fixtures) {
   await expect(page.locator('#scene-list .scene-item')).toHaveCount(fixtures.length);
   await page.locator('#add-floorplan-btn').click();
   await page.locator('#floorplan-input').setInputFiles(FLOORPLAN_1);
+  // U8 wired floor plan add into HistoryManager, so this setup step now
+  // legitimately pushes an entry; clear it so the {undoCount:0} baseline
+  // this suite's tests assert on still holds.
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 test.describe('Marker place/delete history (undo/redo)', () => {

@@ -31,6 +31,11 @@ async function loadSceneAndFloorplan(page) {
   await page.locator('#add-floorplan-btn').click();
   await page.locator('#floorplan-input').setInputFiles(FIXTURE_B);
   await expect(floorplanNameEl(page)).toHaveText('fixture-b');
+  // U8 wired floor plan add into HistoryManager, so this setup step now
+  // legitimately pushes an entry; clear it so the {undoCount:0} baseline
+  // this suite's tests assert on still holds (same fixup U5 needed for
+  // marker-placement setup helpers elsewhere).
+  await page.evaluate(() => window.__historyManagerForTests.clear());
 }
 
 async function renameFloorplan(page, newName) {
