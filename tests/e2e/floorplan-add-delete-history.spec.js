@@ -456,4 +456,129 @@ test.describe('FloorMap (floorplan) add/delete history (undo/redo)', () => {
 
     expectNoErrors(errors);
   });
+
+  // ============================================================
+  // PR #52 Required Fix regression (review #4893987323)
+  // ============================================================
+  // Both tests below capture a history entry's own undo/redo closure
+  // directly off window.__historyManagerForTests's already-exposed
+  // internal stack (historyManager itself, not a wrapper -- _undoStack/
+  // _redoStack are plain properties on it, not a new production test
+  // hook) rather than relying on the app's own sequential undo()/redo().
+  // That's necessary because the buggy replay state isn't reachable
+  // through strictly-LIFO sequential undo()/redo() calls: any marker
+  // placed after a floor plan operation sits *above* that operation's
+  // entry on the stack, so undoing back to that entry would always undo
+  // the marker's own placement first -- which would remove the marker
+  // through its own dedicated undo and mask whichever cascade bug is
+  // under test. Capturing the closure and invoking it directly exercises
+  // applyFloorplanRemoval()/applyFloorplanAdd()'s cascade logic exactly
+  // as a same-slot replay would, independent of stack ordering.
+
+  test('Required Fix: redo-replaying a delete removes markers added to the restored floor plan afterward, never touching unrelated data', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await enterEditor(page);
+    await page.locator('#file-input').setInputFiles([FIXTURE_A, FIXTURE_B]);
+    await addFloorplan(page, FLOORPLAN_1);
+    await addFloorplan(page, FLOORPLAN_2); // FP1 stays active
+
+    // An unrelated marker on FP2 -- must survive untouched throughout.
+    await page.locator('.floorplan-item').filter({ hasText: 'lifecycle-scene-b' }).click();
+    await page.locator('#scene-list .scene-item').nth(1).click(); // fixture-b scene
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_A });
+    await page.locator('#floormap-place-btn').click();
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1']);
+
+    // Switch back to FP1 (still marker-free) and delete it.
+    await page.locator('.floorplan-item').filter({ hasText: 'lifecycle-scene-a' }).click();
+    await deleteFloorplanByName(page, 'lifecycle-scene-a');
+    await expect(floorplanNames(page)).resolves.toEqual(['lifecycle-scene-b']);
+
+    const undoResult = await page.evaluate(() => window.__historyManagerForTests.undo());
+    expect(undoResult).toBe(true);
+    await expect(floorplanNames(page)).resolves.toEqual(['lifecycle-scene-a', 'lifecycle-scene-b']);
+
+    // Capture the original delete entry's redo closure before the
+    // upcoming marker placement truncates the real redo stack.
+    await page.evaluate(() => {
+      const hm = window.__historyManagerForTests;
+      window.__staleRedoEntry = hm._redoStack[hm._redoStack.length - 1];
+    });
+
+    // Place a NEW marker on the just-restored FP1 -- the original delete
+    // snapshot (captured before this marker existed) never saw it.
+    await page.locator('.floorplan-item').filter({ hasText: 'lifecycle-scene-a' }).click();
+    await page.locator('#scene-list .scene-item').nth(0).click(); // fixture-a scene
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_B });
+    await page.locator('#floormap-place-btn').click();
+    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']);
+
+    // Confirm the real redo stack really was truncated by that push, so
+    // this genuinely is a state the app's own redo() can no longer reach.
+    expect(await historyCounts(page)).toEqual({ undoCount: 4, redoCount: 0 });
+
+    // Invoke the stale closure directly -- what a same-slot redo would
+    // have run pre-fix.
+    await page.evaluate(() => window.__staleRedoEntry.redo());
+
+    // FP1 is gone again, and the marker placed on it after the undo must
+    // be gone too -- not dangling. FP2's unrelated marker survives.
+    await expect(floorplanNames(page)).resolves.toEqual(['lifecycle-scene-b']);
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1']);
+
+    // #project-dashboard's marker count is project-wide (unfiltered by
+    // active floor plan) -- the only DOM-observable proxy for "nothing
+    // left dangling in projectState.markers" without a new test hook.
+    const markerCountText = await page.locator('#project-dashboard .dashboard-cell').nth(2).locator('.dashboard-val').textContent();
+    expect(markerCountText).toBe('1');
+
+    expectNoErrors(errors);
+  });
+
+  test('Required Fix: undoing a floor-plan add cascades to markers and scene.floorplanId placed on it afterward, never touching unrelated data', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await enterEditor(page);
+    await page.locator('#file-input').setInputFiles([FIXTURE_A, FIXTURE_B]);
+
+    await addFloorplan(page, FLOORPLAN_1);
+    // Capture the "Add floor plan" entry's own undo closure right after
+    // it's pushed (top of the real stack at this point).
+    await page.evaluate(() => {
+      const hm = window.__historyManagerForTests;
+      window.__staleAddUndoEntry = hm._undoStack[hm._undoStack.length - 1];
+    });
+
+    // Place a marker on FP1 -- this also sets fixture-a's scene.floorplanId.
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_A });
+    await page.locator('#floormap-place-btn').click();
+    await expect(markerRows(page)).resolves.toEqual(['fixture-a:1']);
+    await expect(sceneFloorBadge(page, 0)).toHaveText('lifecycle-scene-a');
+
+    // Unrelated control: FP2 with its own marker + scene association,
+    // which must survive completely untouched.
+    await addFloorplan(page, FLOORPLAN_2);
+    await page.locator('.floorplan-item').filter({ hasText: 'lifecycle-scene-b' }).click();
+    await page.locator('#scene-list .scene-item').nth(1).click(); // fixture-b scene
+    await page.locator('#floormap-place-btn').click();
+    await page.locator('#floormap-canvas').click({ position: POS_B });
+    await page.locator('#floormap-place-btn').click();
+    await expect(sceneFloorBadge(page, 1)).toHaveText('lifecycle-scene-b');
+
+    // Directly invoke the captured, now-stale "Add FP1" undo closure --
+    // applyFloorplanAdd([fp1], false) must cascade entirely on its own.
+    await page.evaluate(() => window.__staleAddUndoEntry.undo());
+
+    await expect(floorplanNames(page)).resolves.toEqual(['lifecycle-scene-b']);
+    await expect(sceneFloorBadge(page, 0)).toHaveCount(0); // no dangling floorplanId
+    await expect(markerRows(page)).resolves.toEqual(['fixture-b:1']); // FP1's marker gone, FP2's survives
+    await expect(sceneFloorBadge(page, 1)).toHaveText('lifecycle-scene-b'); // unrelated, untouched
+
+    const markerCountText = await page.locator('#project-dashboard .dashboard-cell').nth(2).locator('.dashboard-val').textContent();
+    expect(markerCountText).toBe('1'); // no dangling marker left in projectState.markers
+
+    expectNoErrors(errors);
+  });
 });

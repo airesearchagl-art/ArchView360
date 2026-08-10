@@ -5875,6 +5875,16 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       const ids = new Set(floorplans.map(fp => fp.id));
       floorplans.forEach(fp => { if (fp.blobUrl) URL.revokeObjectURL(fp.blobUrl); });
       projectState.floorplans = projectState.floorplans.filter(f => !ids.has(f.id));
+      // Undoing an add must behave like deleting these floorplans: live-scan
+      // for whatever currently references them (a marker placed on one, or
+      // a scene pointed at one, after the add) rather than assuming nothing
+      // changed since. Required Fix (PR #52 review #4893987323).
+      const liveMarkerIds = new Set(
+        projectState.markers.filter(m => ids.has(m.floorplanId)).map(m => m.id)
+      );
+      projectState.markers = projectState.markers.filter(m => !liveMarkerIds.has(m.id));
+      if (liveMarkerIds.has(selectedMarkerId)) selectedMarkerId = null;
+      scenes.forEach(s => { if (ids.has(s.floorplanId)) s.floorplanId = null; });
       if (ids.has(activeFloorplanId)) activeFloorplanId = projectState.floorplans[0]?.id || null;
       if (ids.has(sceneFilterFloorplanId)) sceneFilterFloorplanId = null;
     }
@@ -5882,6 +5892,9 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     renderFloorplanList();
     renderFloormap();
     renderSceneFilterBar();
+    renderSceneList();
+    renderMarkerList();
+    _updateInfoPanel();
     renderDashboard();
   }
 
@@ -5904,15 +5917,18 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   // isPresent=true restores the deleted floorplan (undo of a delete);
   // isPresent=false removes it (a live delete, or redo replaying one).
-  // Cascade-deleted markers are restored/removed the same way U6's
-  // applySceneRemoval() handles a scene's markers: pushed back by
-  // reference on restore (never rebuilding the whole markers array), and
-  // removed by id set on delete. scene.floorplanId is only ever restored
-  // from the snapshot's affectedSceneIds (the live array can no longer
-  // answer "which scenes used to point here" once it's already null) and
-  // only ever cleared via a live re-scan (matching the exact pre-U8
-  // deleteFloorplan() behavior, so a redo reflects whatever currently
-  // references this floorplan, not a stale snapshot).
+  // Restore (isPresent=true) pushes the snapshot's original marker
+  // objects back by reference (never rebuilding the whole markers array) —
+  // those are the exact markers that existed at delete time, and the live
+  // array can no longer answer "which markers were on this floorplan"
+  // once they're already removed. Delete/redo (isPresent=false) instead
+  // live-scans projectState.markers for whatever currently has
+  // floorplanId === floorplan.id, rather than trusting the snapshot's
+  // marker list: a redo replays this branch, and a marker may have been
+  // added to the floorplan during the undo window that the original
+  // snapshot never saw (Required Fix, PR #52 review #4893987323).
+  // scene.floorplanId is symmetric: restored from the snapshot's
+  // affectedSceneIds on undo, cleared via a live re-scan on delete/redo.
   //
   // selectedMarkerId is nulled on delete if it pointed to a
   // cascade-deleted marker, but never proactively restored on undo —
@@ -5942,9 +5958,18 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     } else {
       URL.revokeObjectURL(floorplan.blobUrl);
       projectState.floorplans = projectState.floorplans.filter(f => f.id !== floorplan.id);
-      const markerIds = new Set(markers.map(m => m.id));
-      projectState.markers = projectState.markers.filter(m => !markerIds.has(m.id));
-      if (markerIds.has(selectedMarkerId)) selectedMarkerId = null;
+      // Live-scan for markers currently on this floorplan rather than
+      // trusting the delete-time snapshot's marker list: a redo replays
+      // this same branch, and by then a marker may have been added to the
+      // (undo-restored) floorplan that the original snapshot never saw.
+      // Required Fix (PR #52 review #4893987323) — using the stale
+      // snapshot here left such markers dangling (floorplanId pointing at
+      // a deleted floorplan) after delete -> undo -> add marker -> redo.
+      const liveMarkerIds = new Set(
+        projectState.markers.filter(m => m.floorplanId === floorplan.id).map(m => m.id)
+      );
+      projectState.markers = projectState.markers.filter(m => !liveMarkerIds.has(m.id));
+      if (liveMarkerIds.has(selectedMarkerId)) selectedMarkerId = null;
       // Clear floorplanId from scenes that currently reference this
       // floorplan — matches pre-U8 deleteFloorplan()'s exact live re-scan.
       scenes.forEach(s => { if (s.floorplanId === floorplan.id) s.floorplanId = null; });
