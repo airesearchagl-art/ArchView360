@@ -1266,6 +1266,80 @@ function init() {
   }
 
   // ============================================================
+  // Scene add — U7: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U7: シーン追加)
+  // ============================================================
+  // entries: [{scene, index}], captured once at the live add — one
+  // <input multiple> file-selection batch is one undo unit (same design
+  // decision as U8's floorplan add), covering however many scenes that
+  // batch created. isPresent=true (re)inserts each scene at its captured
+  // index and regenerates blobUrl/thumbUrl from the retained `file`;
+  // isPresent=false removes them and revokes blobUrl. Never calls
+  // historyManager.push() itself, and never touches this project's
+  // *first* file selection (the empty->non-empty "open a project" load,
+  // handled inline in handleFiles() below) — that's a load, not a
+  // trackable edit, same "intentionally out of Undo/Redo scope" category
+  // as Import/Export (see HistoryManager's own class comment).
+  //
+  // Undo (isPresent=false) live-scans projectState.markers for whatever
+  // CURRENTLY references any of these scene ids — there was nothing to
+  // snapshot at add time, since the scenes (and therefore any marker
+  // that could reference them) didn't exist yet — matching the
+  // referential-invariant fix applied to FloorMap add/delete in U8 (PR
+  // #52 reviews #4893987323 / #4894418976): a marker placed for one of
+  // these scenes after the add must never survive that scene becoming
+  // absent again. compareState's A/B slot indices are clamped back into
+  // range (never restored to a specific prior value — out of Undo/Redo
+  // scope, same as U6's deleteScene) so they can never point past the
+  // end of a shrunken scenes array.
+  function applySceneAdd(entries, isPresent) {
+    if (isPresent) {
+      entries.forEach(({ scene, index }) => {
+        if (scenes.some(s => s.id === scene.id)) return;
+        scene.blobUrl = URL.createObjectURL(scene.file);
+        const at = Math.min(index, scenes.length);
+        scenes.splice(at, 0, scene);
+        generateThumb(scene.blobUrl, (dataUrl) => {
+          scene.thumbUrl = dataUrl;
+          renderSceneList();
+        });
+      });
+      markProjectDirty('画像追加');
+      renderSceneFilterBar();
+      renderDashboard();
+      renderSceneList();
+      if (compareState.mode !== 'single') updateCompareSelects();
+      updateCompareBtns();
+    } else {
+      const ids = new Set(entries.map(e => e.scene.id));
+      const curSceneId = currentIdx >= 0 ? scenes[currentIdx]?.id : null;
+      const wasCurrentRemoved = curSceneId != null && ids.has(curSceneId);
+      if (wasCurrentRemoved) stopRender();
+      projectState.markers = projectState.markers.filter(m => !ids.has(m.sceneId));
+      entries.forEach(({ scene }) => { if (scene.blobUrl) URL.revokeObjectURL(scene.blobUrl); });
+      scenes = scenes.filter(s => !ids.has(s.id));
+      if (compareState.sceneAIndex >= scenes.length) compareState.sceneAIndex = Math.max(0, scenes.length - 1);
+      if (compareState.sceneBIndex >= scenes.length) compareState.sceneBIndex = Math.max(0, scenes.length - 1);
+      if (compareState.sceneAIndex === compareState.sceneBIndex && scenes.length >= 2) {
+        compareState.sceneBIndex = compareState.sceneAIndex === 0 ? 1 : 0;
+      }
+      updateCompareBtns();
+      markProjectDirty('画像追加取消');
+      renderSceneFilterBar();
+      renderDashboard();
+      if (wasCurrentRemoved) {
+        currentIdx = -1;
+        if (scenes.length) switchToScene(0);
+        else renderSceneList();
+      } else {
+        currentIdx = curSceneId != null ? scenes.findIndex(s => s.id === curSceneId) : -1;
+        renderSceneList();
+      }
+      if (compareState.mode !== 'single') updateCompareSelects();
+    }
+  }
+
+  // ============================================================
   // Scene management
   // ============================================================
   function handleFiles(fileList) {
@@ -1291,29 +1365,32 @@ function init() {
     // funnel into this one function via the shared fileInput.
     if (!wasEmpty && !assertEditorMode('画像追加')) return;
 
-    valid.forEach(f => {
-      const blobUrl = URL.createObjectURL(f);
-      const scene = {
+    const newEntries = valid.map((f, i) => ({
+      scene: {
         id:          genId(),
         name:        f.name.replace(/\.[^.]+$/, ''),
         fileName:    f.name,
-        blobUrl,
         file:        f, // v2.12: retained for ZIP package export
         flipH:       false,
         thumbUrl:    null,
         floorplanId: activeFloorplanId || null, // auto-associate with current floor plan
         groupId:     null,
-      };
-      scenes.push(scene);
-      generateThumb(blobUrl, (dataUrl) => {
-        scene.thumbUrl = dataUrl;
-        renderSceneList();
-      });
-    });
+      },
+      index: firstNewIdx + i,
+    }));
 
     if (wasEmpty) {
       // Opening files as a fresh project is a load, not an edit — always
-      // ends clean, regardless of which mode opened it in.
+      // ends clean, regardless of which mode opened it in, and is never
+      // tracked by HistoryManager (see applySceneAdd()'s comment above).
+      newEntries.forEach(({ scene }) => {
+        scene.blobUrl = URL.createObjectURL(scene.file);
+        scenes.push(scene);
+        generateThumb(scene.blobUrl, (dataUrl) => {
+          scene.thumbUrl = dataUrl;
+          renderSceneList();
+        });
+      });
       markProjectClean('新規プロジェクトを開く');
       showViewerLayout();
       initThree();
@@ -1323,10 +1400,12 @@ function init() {
       });
       renderCompareSets();
     } else {
-      markProjectDirty('画像追加');
-      renderSceneList();
-      if (compareState.mode !== 'single') updateCompareSelects();
-      updateCompareBtns();
+      applySceneAdd(newEntries, true);
+      historyManager.push({
+        label: 'Add scene',
+        undo: () => applySceneAdd(newEntries, false),
+        redo: () => applySceneAdd(newEntries, true),
+      });
       showToast(`${valid.length} 件のシーンを追加しました`);
       sceneListEl.querySelectorAll('.scene-item')[firstNewIdx]
         ?.scrollIntoView({ block: 'nearest' });
@@ -1336,10 +1415,55 @@ function init() {
   }
 
   // ============================================================
-  // Scene image replacement (v2.9.1) — keeps scene.id and all
-  // references (markers/compareSets/groups/floorplan linkage) intact,
-  // only swaps the image data (blobUrl/thumbUrl/fileName).
+  // Scene image update — U7: Undo/Redo expansion
+  // (docs/UndoRedo_Expansion_Implementation_Plan.md U7: シーン画像の更新)
   // ============================================================
+  // Same "set to this value" shape as U1's applyXxx(id, value) functions
+  // (marker move/rotate, FloorMap name), extended to a paired
+  // {file, fileName} value since the scene's image is a File, not a
+  // primitive. scene.id and every other reference (markers/compareSets/
+  // groups/floorplanId) stay untouched — this only ever swaps
+  // file/fileName/blobUrl/thumbUrl. Never calls historyManager.push()
+  // itself; the commit point below (replaceSceneInput's 'change'
+  // listener) pushes exactly once, passing the exact before/after
+  // File objects as the undo/redo closures' arguments.
+  //
+  // scene.file is now kept as the live source of truth for the
+  // currently-displayed image (previously only blobUrl/fileName were
+  // updated on replace, leaving `file` pointing at the original upload
+  // forever) — required so undo/redo can regenerate blobUrl from `file`
+  // exactly like every other File-retaining entity in this codebase
+  // (scenes on delete/restore, FloorMap add/delete).
+  function applySceneImage(id, file, fileName) {
+    const s = scenes.find(x => x.id === id);
+    if (!s) return;
+    const oldBlobUrl = s.blobUrl;
+
+    s.file     = file;
+    s.fileName = fileName;
+    s.blobUrl  = URL.createObjectURL(file);
+    s.thumbUrl = null;
+    markProjectDirty('シーン画像の更新');
+
+    generateThumb(s.blobUrl, (dataUrl) => {
+      s.thumbUrl = dataUrl;
+      renderSceneList();
+    });
+
+    const idx = scenes.indexOf(s);
+    if (idx === currentIdx && compareState.mode === 'single') {
+      loadPanorama(s.blobUrl, s.name, s.flipH);
+    }
+    if (compareState.mode !== 'single') {
+      if (idx === compareState.sceneAIndex) loadCompareSphere('a', idx);
+      if (idx === compareState.sceneBIndex) loadCompareSphere('b', idx);
+      updateCompareSelects();
+    }
+
+    URL.revokeObjectURL(oldBlobUrl);
+    renderSceneList();
+  }
+
   let _replaceTargetIdx = -1;
   function openReplaceScenePicker(idx) {
     if (!assertEditorMode('シーン画像の更新')) return;
@@ -1367,31 +1491,18 @@ function init() {
     }
 
     const s = scenes[idx];
-    const oldBlobUrl = s.blobUrl;
-    const newBlobUrl = URL.createObjectURL(f);
+    const sceneId       = s.id;
+    const beforeFile     = s.file;
+    const beforeFileName = s.fileName;
+    const afterFile       = f;
+    const afterFileName   = f.name;
 
-    s.blobUrl  = newBlobUrl;
-    s.fileName = f.name;
-    s.thumbUrl = null;
-    // scene.id, markers, compareSets, groups, floorplanId, projectInfo references all untouched
-    markProjectDirty('シーン画像の更新');
-
-    generateThumb(newBlobUrl, (dataUrl) => {
-      s.thumbUrl = dataUrl;
-      renderSceneList();
+    applySceneImage(sceneId, afterFile, afterFileName);
+    historyManager.push({
+      label: 'Update scene image',
+      undo: () => applySceneImage(sceneId, beforeFile, beforeFileName),
+      redo: () => applySceneImage(sceneId, afterFile, afterFileName),
     });
-
-    if (idx === currentIdx && compareState.mode === 'single') {
-      loadPanorama(s.blobUrl, s.name, s.flipH);
-    }
-    if (compareState.mode !== 'single') {
-      if (idx === compareState.sceneAIndex) loadCompareSphere('a', idx);
-      if (idx === compareState.sceneBIndex) loadCompareSphere('b', idx);
-      updateCompareSelects();
-    }
-
-    URL.revokeObjectURL(oldBlobUrl);
-    renderSceneList();
     showToast('シーンを更新しました');
   });
 
