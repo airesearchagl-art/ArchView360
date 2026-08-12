@@ -7479,7 +7479,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   function _buildProjectData() {
     return {
-      appVersion:  '2.22.0',
+      appVersion:  '2.23.0',
       exportedAt:  new Date().toISOString(),
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
