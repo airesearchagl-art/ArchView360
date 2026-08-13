@@ -59,7 +59,7 @@ test.describe('JSON save', () => {
 
     const savedPath = await download.path();
     const data = JSON.parse(fs.readFileSync(savedPath, 'utf8'));
-    expect(data.appVersion).toBe('2.22.0');
+    expect(data.appVersion).toBe('2.23.0');
     expect(data.scenes).toHaveLength(2);
     await download.delete();
 

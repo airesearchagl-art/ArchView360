@@ -1,7 +1,7 @@
 {
   "name": "archview360",
   "private": true,
-  "version": "2.22.0",
+  "version": "2.23.0",
   "description": "Automated smoke test baseline for ArchView360 (static site, no build step).",
   "engines": {
     "node": ">=18"

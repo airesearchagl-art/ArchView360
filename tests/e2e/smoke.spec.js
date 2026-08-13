@@ -49,7 +49,7 @@ function dirtyIndicator(page) {
 test.describe('ArchView360 smoke baseline', () => {
   test('A. initial load: no fatal errors, correct version, initial mode', async ({ page }) => {
     const errors = await gotoApp(page);
-    await expect(page.locator('#app-version-badge')).toHaveText('v2.22.0');
+    await expect(page.locator('#app-version-badge')).toHaveText('v2.23.0');
     await expect(page.locator('body')).toHaveClass(/mode-viewer/);
     await expect(page.locator('#app-mode-label')).toHaveText('Viewer');
     expectNoErrors(errors);
