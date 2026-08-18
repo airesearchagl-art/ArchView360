@@ -153,35 +153,65 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 
 `enabled` は Scene Ring の段階導入時に「リンクは定義済みだが VR には出さない」という状態を作れるため、初期スキーマに含めておくことを推奨する。
 
+### 5.1 Identity / duplicate semantics（B2 開始前の確定契約）
+
+- **identity は `id` のみ。** 検索・更新・削除・history の replay はすべて `id` で行う。`sourceSceneId` + `targetSceneId` の組を identity として扱わない。
+- **同一 `id` の重複は禁止。** 復元系（undo / import）は push 前に `sceneLinks.some(l => l.id === x.id)` を確認し、既存なら push しない（`applyMarkerLifecycle()` の既存ガードと同型）。
+- **同一 `sourceSceneId` + `targetSceneId` の別 id リンク**: **B2 では `enabled` なものを 1 件までとする。** 既に enabled な同一ペアが存在する状態での新規作成は **no-op**（作成せず history も push しない）とし、既存リンクの heading 編集へ誘導する。
+  - 理由: 「A から見て B はどちらの方向か」は本質的に 1 つであり、複数許可すると VR ring に同一 target が重複表示される。
+  - `enabled: false` のリンクはこの制約の対象外（無効化して別方向で作り直す運用を許容）。
+- **将来拡張**: 経路が複数ある（別の出口から同じ部屋へ行ける）ケースが必要になった時点で、この 1 件制限のみを緩める。id 中心の identity と cascade 契約は変更不要。
+- **import 時**: 同一 id が既存と衝突する場合は既存を優先して読み飛ばす（markers の `newMarkerIds` による差し替えと同様の扱いを B2 で確定する）。
+
 ## 6. Direction Convention
 
 **曖昧さを排除するため、基準・正負・回転方向をすべて明示する。**
 
+記法: `normalize(d) = ((d mod 360) + 360) mod 360`、`sign = scene.flipH ? -1 : 1`。
+
 ### 6.1 基準の定義
 
-- **格納空間**: `sceneLink.heading` は **`marker.rotation` と完全に同じ値空間**（以下「floor-space 度」）に格納する。
+- **格納空間**: `sceneLink.heading` は **`marker.rotation` と完全に同じ値空間**（以下「marker-space 度」）に格納する。
   - 単位: 度（整数）、範囲 `0 ≤ heading < 360`
   - `floorplan.rotationOffset` を**加算する前**の生の値（現行 `marker.rotation` と同様、offset は描画時のみ適用）
+  - **marker-space は world-space ではない**。`heading = normalize(sign · θ°)` であり、`flipH = true` の scene では **world 方向を得るのに `sign` を再度適用して θ を復元する必要がある**（6.2）。
 - **0° の意味**: FloorMap canvas 上で `rotationOffset = 0` のとき、**画面上方向（−Y、north）**。
-- **回転方向**: 度が増えると **画面上で時計回り**（`ctx.rotate(+deg)` は Y 下向き座標系で時計回り）。
-- **世界座標との対応**: floor-space 度 `D` は、Three.js 世界座標の水平方向ベクトル `(x, z) = (cos D°, sin D°)` に対応する。
-  - 検証: `D = 0` → `(1, 0)` = +X 軸。カメラは `θ = 0` のとき `(cos 0, sin 0) = (1, 0)` を向き、`thetaToFloorRotation(0, false) = 0` なので一致。
-  - 検証: `D = 90` → `(0, 1)` = +Z 軸。カメラ `θ = 90°` は `(0, 1)` を向き、`thetaToFloorRotation` も 90 を返す。
+- **回転方向（FloorMap 上）**: 度が増えると **画面上で時計回り**（`ctx.rotate(+deg)` は Y 下向き座標系で時計回り）。
+- **world 座標との対応**: **復元した θ** が world 水平方向 `(x, z) = (cos θ°, sin θ°)` に対応する（カメラの `lookAt` の水平成分そのもの）。
 
 ### 6.2 変換規則（式）
 
-`sign = flipH ? -1 : 1` とする。
+**すべての world / VR 変換は、heading から直接ではなく「θ を復元してから」行う。**
 
 | 変換 | 式 | 備考 |
 |---|---|---|
-| カメラ → heading | `heading = thetaToFloorRotation(theta, sourceScene.flipH)` | 既存関数をそのまま再利用（新規実装しない） |
-| heading → カメラ θ（度） | `theta° = ((sign · heading) mod 360 + 360) mod 360` | 上式の逆。`sign² = 1` より成立 |
-| heading → FloorMap 表示角 | `displayDeg = ((heading + floorplan.rotationOffset) mod 360 + 360) mod 360` | marker と同一。`ctx.rotate(displayDeg · π/180)` |
-| heading → VR Scene Ring 配置角 | `a = ((heading + 90) mod 360) · π/180`、`x = sin(a) · R`、`z = −cos(a) · R` | 導出は下記 |
-| heading → 世界方向ベクトル | `(x, z) = (cos(heading°), sin(heading°))` | 6.1 の対応 |
+| カメラ → heading（保存） | `heading = thetaToFloorRotation(theta, sourceScene.flipH)` = `normalize(sign · θ°)` | 既存関数をそのまま再利用（新規実装しない） |
+| heading → カメラ θ（度）**復元** | `θ° = normalize(sign · heading)` | 上式の逆（`sign² = 1`）。**world/VR 系の入口は必ずここを通す** |
+| heading → FloorMap 表示角 | `displayDeg = normalize(heading + floorplan.rotationOffset)` | marker と同一。`ctx.rotate(displayDeg · π/180)`。**θ 復元は不要**（marker-space のまま） |
+| heading → world 方向ベクトル | `θ° = normalize(sign · heading)` → `(x, z) = (cos θ°, sin θ°)` | heading から直接 `(cos heading, sin heading)` としない |
+| heading → VR Scene Ring 配置角 | `θ° = normalize(sign · heading)` → `a = normalize(θ° + 90°)` → `x = sin(a·π/180) · R`、`z = −cos(a·π/180) · R` | **`a = heading + 90°` を無条件に使わない**。導出は下記 |
 
-**VR ring 配置角の導出**: 現行 `_populateVrRingItems()` は `x = sin(a)·R`, `z = −cos(a)·R` で配置する。方向ベクトルは `(sin a, −cos a)`。これを `(cos D, sin D)` に一致させると `sin a = cos D` かつ `−cos a = sin D` となり、**`a = D + 90°`**。
-検証: `D = 0` → `a = 90°` → `(sin 90, −cos 90) = (1, 0)` = +X（正しい）。`D = 90` → `a = 180°` → `(0, 1)` = +Z（正しい）。
+**VR ring 配置角の導出**: 現行 `_populateVrRingItems()` は `x = sin(a)·R`, `z = −cos(a)·R` で配置するので、方向ベクトルは `(sin a, −cos a)`。これを world 方向 `(cos θ, sin θ)` に一致させると `sin a = cos θ` かつ `−cos a = sin θ` となり、**`a = θ + 90°`**。
+
+### 6.2.1 検証（flipH = false / true の両方）
+
+`sign = flipH ? -1 : 1`、ring 方向ベクトル = `(sin a, −cos a)`。
+
+**flipH = false（sign = +1）**
+
+| heading | θ = normalize(+1·heading) | world (x,z) | a = θ+90 | ring (sin a, −cos a) | 一致 |
+|---|---|---|---|---|---|
+| 0 | 0 | (1, 0) = +X | 90 | (1, 0) | ✔ |
+| 90 | 90 | (0, 1) = +Z | 180 | (0, 1) | ✔ |
+
+**flipH = true（sign = −1）**
+
+| heading | θ = normalize(−1·heading) | world (x,z) | a = θ+90 | ring (sin a, −cos a) | 一致 |
+|---|---|---|---|---|---|
+| 0 | 0 | (1, 0) = +X | 90 | (1, 0) | ✔ |
+| 90 | 270 | (0, −1) = −Z | normalize(360) = 0 | (0, −1) | ✔ |
+
+**旧式との差異（この修正が必要な理由）**: `flipH = true, heading = 90` の場合、誤った `a = heading + 90 = 180` は `(0, +1) = +Z` を指し、正しい `−Z` と **180° 反転（ミラー）** する。反転 scene のリンクが VR で真逆に出るため、B2 開始前に確定が必要。
 
 ### 6.3 rotationOffset の適用範囲（重要）
 
@@ -189,7 +219,28 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 - したがって **VR Scene Ring の配置には rotationOffset を適用してはならない**。VR 世界座標はカメラ θ に直結しており、FloorMap 画像の貼り付け向きとは無関係。
 - 適用するのは FloorMap canvas 描画時のみ。
 
-### 6.4 既存の不整合への対応
+### 6.4 flipH 変更時の heading 移行（B2 開始前の確定契約）
+
+`heading` は marker-space（`sign · θ`）で保存するため、**source scene の `flipH` が変わると、同じ heading 値が指す world 方向が反転してしまう**。これを放置すると、scene を反転しただけでリンクが物理的に逆を向く。
+
+**決定: world（物理）方向を維持する。** source scene の `flipH` を変更する際、その scene を `sourceSceneId` に持つ全リンクの heading を再計算する。
+
+```
+θ          = normalize(oldSign · oldHeading)   // 旧規約で world 方向を復元
+newHeading = normalize(newSign · θ)            // 新規約へ再エンコード
+```
+
+反転は必ず `newSign = −oldSign` なので、実質的に **`newHeading = normalize(−oldHeading)` = `(360 − oldHeading) mod 360`**（`heading = 0` は 0 のまま）。
+
+検証: `oldFlip=false (sign=+1), oldHeading=90` → `θ=90` → `newFlip=true (sign=−1)` → `newHeading = normalize(−90) = 270`。新規約で復元すると `θ = normalize(−1·270) = 90` となり world 方向は不変 ✔。
+
+**既存 `marker.rotation` との差異（意図的）**: 現行 `applySceneFlip()` は `scene.flipH` とテクスチャ反転のみを行い、**`marker.rotation` を再計算しない**（実装で確認済み）。したがって marker は反転後も数値を保ち、その数値が意味する world 方向のほうが変わる。sceneLink はこれと**逆**の方針を採る。
+
+理由: `marker.rotation` は「FloorMap という平面図注記の上で、ピンの矢印がどちらを向いて描かれるか」という**図面空間の見た目**であり、反転しても図面上の見え方が保たれるのが自然。一方 `sceneLink.heading` は「この scene から見て別の scene が物理的にどちらにあるか」という**空間関係**であり、パノラマの反転という表示上の都合で実際の位置関係が変わってはならない。VR Scene Ring はこの物理方向をそのまま使うため、後者の一貫性を優先する。
+
+実装上の位置づけ: この再計算は `applySceneFlip()` から呼ぶのではなく、**flip の確定操作側**（`toggleFlipSingle()` 等の commit 地点）で 1 つの history entry に含める（apply 関数自身は push しない既存原則を維持）。flip の undo で heading も元へ戻る必要があるため、flip と heading 再計算は**同一 entry で原子的に**扱う。
+
+### 6.5 既存の不整合への対応
 
 1.5 で述べた `_thetaToFloorDeg`（`90 − θ°`）とは**異なる規約**を採用する。sceneLink は `thetaToFloorRotation`（`sign · θ°`）側に統一する。理由は、`marker.rotation` という**実際に永続化され UI に出ている値**がそちらの空間であり、sceneLink の heading を marker と同じ空間に置くことで FloorMap 上での併記・比較・編集がそのまま成立するため。Observer Mode 側の不整合は**既存の別問題**として本調査の対象外とし、14 章の Open Questions に残す。
 
@@ -233,7 +284,46 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 | label 変更 | `applySceneLinkLabel(linkId, label)` | no-op ガード（同値なら push しない） |
 | order 変更 | `applySceneLinkOrder(...)` | U3/U4 の marker order 系と同型 |
 
-**cascade（重要）**: scene 削除 / 復元時に、その scene を `sourceSceneId` **または** `targetSceneId` に持つリンクを対称に除去・復元する。U8 の Required Fix と同じ理由で、削除時点の固定 snapshot ではなく **replay 時の live-scan** で対象を決めること（undo 窓の間に追加されたリンクを取りこぼさないため）。
+### 8.1 scene 削除 cascade: execution-scoped snapshot 契約（B2 の実装契約）
+
+scene 削除時は、その scene を `sourceSceneId` **または** `targetSceneId` に持つリンクを対称に除去する。ただし **「固定 snapshot をそのまま復元する」も「live-scan だけで復元する」も不十分**である。
+
+- 固定 snapshot をそのまま復元 → その後の状態に属さないリンクを**復活させてしまう**（U8 で問題化した resurrection）
+- live-scan のみ → 削除された link オブジェクトは既に配列に無いため、**undo で復元する対象を再構築できない**
+
+したがって **execution-scoped cascade snapshot** を採用する。「どの実行が何を実際に取り除いたか」を、その実行ごとに保持する。
+
+**delete / redo 実行時**
+
+1. live な `projectState.sceneLinks` を scan する
+2. `l.sourceSceneId === deletedSceneId || l.targetSceneId === deletedSceneId` を満たし、**その時点で実在する**リンクを取得する
+3. **その実行で実際に取り除くリンクオブジェクト**を、その実行の cascade snapshot として保持する
+4. live 配列から除去する
+5. snapshot は、対になる undo 専用の復元元として保持する
+
+**undo 実行時**
+
+1. **直前の delete / redo 実行が capture した snapshot のみ**を対象とする
+2. 各リンクの `sourceSceneId` / `targetSceneId` の scene が現時点でも有効か確認する
+3. 同一 `id` が既に存在しないことを確認する（重複復元の禁止、5.1）
+4. 条件を満たすものだけ復元する
+5. **無関係なリンク・新規追加されたリンクには一切触れない**
+
+**次の redo 実行時**
+
+- 古い snapshot を**盲目的に再利用しない**
+- 改めて live-scan し、その redo 実行で実際に取り除いた集合で **snapshot を置き換える**
+
+**undo 窓の間に起きた変化の扱い**
+
+| 窓内で起きたこと | 次の redo での扱い |
+|---|---|
+| 対象 scene に紐づくリンクが新規追加された | 次 redo の live-scan が拾い、除去対象になる（取りこぼさない） |
+| snapshot 内のリンクが手動削除された | 次 redo 時点で存在しないため snapshot 対象にならない（二重削除しない） |
+| 無関係なリンク | 常に保持される（触れない） |
+| 同一 id が既に存在する | undo で二重復元しない（5.1 のガード） |
+
+この契約は U6（snapshot 外データの消失）と U8（古い snapshot による誤復活）の**両方**を同時に防ぐことを目的とする。floorplan 削除 cascade についても、リンクが floorplan を直接参照しない設計（案 C）のため sceneLink 側の追加対応は不要だが、floorplan 削除に伴って scene が消えるわけではない点は B2 のテストで確認する。
 
 ## 9. Viewer / Editor Responsibilities
 
@@ -257,7 +347,7 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 再有効化に必要な条件:
 
 1. `sceneLink.heading` が定義済みであること（本設計の実装完了）
-2. `_populateVrRingItems()` の配置角を、等間隔 `(i / n) · 2π` から **`a = (heading + 90°)`**（6.2）へ置換
+2. `_populateVrRingItems()` の配置角を、等間隔 `(i / n) · 2π` から **6.2 の復元済み θ 基準**へ置換する。すなわち各リンクについて `θ° = normalize(sign · heading)`（`sign` は **source scene**（＝現在 scene）の `flipH`）を復元し、`a = normalize(θ° + 90°)` を用いる。**`a = heading + 90°` を無条件に使ってはならない**（反転 scene で 180° ミラーする。6.2.1 参照）。`rotationOffset` は適用しない（6.3）
 3. **左 Menu の入力再割当**: 現在 `button[12]` は minimap の compact/expanded 切替に用途変更済み。フラグを `true` に戻すだけでは復帰しない旨がコードコメントに明記されている。Ring 表示 ON/OFF をどのボタンへ割り当てるか（または minimap と排他にするか）を別途決める必要がある
 4. 現在 scene の除外は既存実装（`others = order.filter(idx => idx !== currentIdx)`）を踏襲
 5. **link 未定義 scene の fallback**: 現在 scene に sceneLink が 1 件も無い場合の挙動を決める。推奨は「ring を表示しない」（合成配置に戻すと、無効化の原因となった disorienting な体験が再発するため）
@@ -271,8 +361,10 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 |---|---|
 | データモデル / history | `window.__historyManagerForTests` の undo/redo カウントと、JSON export 内容の突き合わせ（marker 系 spec と同型） |
 | 永続化往復 | export JSON を読んで `sceneLinks` を検証。旧 JSON（`sceneLinks` 不在）を import して既存挙動が変わらないことを確認 |
-| cascade | scene 削除 → inbound / outbound リンクが消える → undo で復活。U6/U8 と同じ live-scan 観点で、undo 窓中に追加したリンクが redo 後も壊れないことを確認 |
-| 方向変換 | heading を既知値に設定 → FloorMap canvas の `toDataURL()` fingerprint 比較（`marker-attrs-history.spec.js` の確立手法） |
+| cascade | 8.1 の契約を各行ごとに検証: ①delete→undo で元の集合だけが戻る ②undo 窓中に追加した matching link が次 redo で除去される ③undo 窓中に手動削除した link が次 redo で二重削除されない ④無関係な link が常に不変 ⑤同一 id が二重復元されない |
+| 方向変換 | heading を既知値に設定 → FloorMap canvas の `toDataURL()` fingerprint 比較（`marker-attrs-history.spec.js` の確立手法）。**flipH = true / false の両方**で、6.2.1 の期待値と一致することを確認する |
+| flipH 移行 | scene を反転 → export JSON 上で heading が `(360 − old) mod 360` へ再エンコードされる → undo で flip と heading が同時に戻る（6.4） |
+| duplicate | 同一 source→target の enabled リンクを二重作成 → no-op（history が増えない）ことを確認（5.1） |
 | Viewer ガード | Viewer で編集操作を試み、export JSON が不変であることを確認（PR #58 で確立した「DOM ではなく export で検証する」手法） |
 | VR | Playwright では検証しきれない。Scene Ring 再有効化（B5）は **Quest 3 実機確認**が前提 |
 
@@ -295,16 +387,22 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 ## 13. Risks
 
 - **方向規約の取り違え**: 6 章の変換式を実装時に誤ると、FloorMap 上は正しいのに VR で 90° ずれる（またはミラーする）といった、実機でしか気付けない不具合になる。B2 の時点で FloorMap fingerprint による方向テストを入れ、B5 の実機確認前に規約を固定しておくこと。
-- **flipH の伝播**: `heading → θ` の逆変換は scene の `flipH` に依存する。リンク元 scene が後から反転（U 系の flip 操作）された場合に heading をどう扱うか（据え置き / 符号反転）が未決。14 章参照。
+- **flipH の伝播**: `heading → θ` の逆変換は scene の `flipH` に依存する。方針は 6.4 で確定済み（world 方向を維持するため flip 時に heading を再エンコード）だが、**flip と heading 再計算を同一 history entry で原子的に扱わないと undo で不整合が残る**点が実装上の注意。
 - **既存 `_thetaToFloorDeg` 不整合**: 本設計は `thetaToFloorRotation` 側に統一するが、Observer Mode と併用した際に「2 種類のコーンが別方向を向く」既存の見た目の齟齬は残る。
-- **cascade 漏れ**: inbound リンクの掃除を忘れると dangling reference が残る。U8 Required Fix と同じ失敗パターンなので、live-scan での対称 filter を必須とする。
+- **cascade 漏れ / 誤復活**: inbound リンクの掃除を忘れると dangling reference が残り、逆に古い snapshot を盲目的に復元すると誤復活する。8.1 の execution-scoped 契約を必須とする。
 - **VR 実機依存**: B5 のみ Playwright で完結せず、Quest 3 検証が必要。
 
 ## 14. Open Questions
 
-- **flipH 変更時の heading**: リンク元 scene の `flipH` がリンク作成後に変更された場合、既存 heading を据え置くか符号反転するか。`marker.rotation` は現状据え置き（反転時に再計算しない）なので、それに合わせて据え置きが一貫するが、実利用上どちらが自然かは未確認。
+### Resolved（本改訂で B2 開始前の契約として確定）
+
+- ~~**flipH 変更時の heading**~~ → **6.4 で確定**: world 方向を維持する。`θ = normalize(oldSign · oldHeading)` → `newHeading = normalize(newSign · θ)`（実質 `(360 − oldHeading) mod 360`）。flip と同一 history entry で原子的に適用する。`marker.rotation` は据え置きのままとし、差異の理由も 6.4 に明記した。
+- ~~**同一 source→target の重複**~~ → **5.1 で確定**: identity は `id` のみ。同一 id 重複は禁止。同一 source→target の **enabled** なリンクは B2 では 1 件まで（重複作成は no-op）。
+
+### 未解決
+
 - **VR ring の fallback**: リンク未定義 scene で ring を非表示にする案を推奨したが、「一部の scene だけ ring が出る」体験が許容できるかは実機確認が必要。
-- **リンク数の上限 / 重複**: 同一 source→target の重複リンク、および 1 scene あたりのリンク数上限を設けるかは未検討。
+- **1 scene あたりのリンク数上限**: 上限を設けるかは未検討（ring の視認性の観点から B5 で再評価）。
 - **Observer Mode の方向規約不整合**（1.5）を将来どう解消するか（`_thetaToFloorDeg` を廃止して `thetaToFloorRotation` に寄せるのが自然に見えるが、Observer の外部入力仕様が不明なため本調査では判断しない）。
 - **パノラマ内 hotspot 表示**: 本設計は heading を持つため将来 hotspot 描画へ発展可能だが、球面上への配置・当たり判定は本調査の範囲外。
 - **compare mode との関係**: リンク遷移は単一表示前提。compare 中にリンクを踏んだ場合の挙動（無効化 / 単一へ戻る）は B4 で決める。
@@ -312,7 +410,9 @@ projectState.sceneLinks = [{ id, sourceSceneId, targetSceneId, heading, label, o
 ## 15. Recommendation
 
 1. **データモデルは案 C（トップレベル `projectState.sceneLinks[]`）を採用する。** FloorMap 未配置 scene でもリンクでき、`projectState.markers` と同形のため既存 cascade / Undo/Redo パターンをそのまま流用でき、inbound / outbound を対称に掃除できる。
-2. **heading は `marker.rotation` と同じ floor-space 度（0–359、rotationOffset 適用前）で格納し**、変換は 6.2 の式に厳密に従う。VR ring 配置角は `a = heading + 90°`、rotationOffset は VR には適用しない。
+2. **heading は `marker.rotation` と同じ marker-space 度（0–359、rotationOffset 適用前）で格納し**、変換は 6.2 の式に厳密に従う。**world / VR 系へ渡す前に必ず `θ° = normalize(sign · heading)` で θ を復元**し、VR ring 配置角は `a = normalize(θ° + 90°)` とする（`heading + 90°` を無条件に使わない）。rotationOffset は FloorMap 描画時のみ適用し、VR には適用しない。
+2.1. **flipH 変更時は world 方向を維持するため heading を再エンコードする**（6.4）。flip と同一 history entry で原子的に扱う。
+2.2. **identity は `id` のみ。同一 source→target の enabled リンクは B2 では 1 件まで**（5.1）。
 3. **既存 navigation は置換せず共存させる。** sceneLink 未定義時は現行挙動が完全に維持される。
 4. **schema version 機構は追加しない。** `sceneLinks` は加算的・省略可能で、旧 JSON も新 JSON も安全に読める。
 5. **次の実装 PR は B2（データモデル + 永続化 + Undo/Redo、UI なし）とする。**
