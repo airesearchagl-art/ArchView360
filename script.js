@@ -3536,6 +3536,98 @@ function init() {
   const SENSITIVITY = 0.3;
 
   let _floormapRotRafPending = false;
+
+  // ---- Panorama-drag rotation: one gesture = one history entry ----
+  // rotate() writes the current scene's marker.rotation on every mousemove
+  // so the FloorMap cone follows the view live, and that value is persisted
+  // (markers round-trip through _buildProjectData()). Those per-move writes
+  // are treated as display-only here: they never mark the project dirty and
+  // never push history. Instead the gesture is bracketed — the heading is
+  // snapshotted on mousedown/touchstart and committed once on
+  // mouseup/touchend — so a drag behaves like every other tracked edit
+  // (dirty + exactly one undoable entry), matching the click-based marker
+  // reposition path in the FloorMap canvas handler, which already snapshots
+  // old values and pushes a single entry at the end of the gesture.
+  let _rotDragMarkerId = null;
+  let _rotDragBeforeRotation = 0;
+
+  // The marker panorama rotation writes to: the one on the active floorplan
+  // belonging to the current scene (same lookup rotate() itself uses).
+  function _rotationDragMarker() {
+    if (!activeFloorplanId || currentIdx < 0) return null;
+    const curScene = scenes[currentIdx];
+    if (!curScene) return null;
+    return projectState.markers
+      .find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id) || null;
+  }
+
+  function _beginRotationDrag() {
+    const mk = _rotationDragMarker();
+    _rotDragMarkerId = mk ? mk.id : null;
+    _rotDragBeforeRotation = mk ? (mk.rotation || 0) : 0;
+  }
+
+  // Puts a marker back on the heading a gesture started from, WITHOUT going
+  // through applyMarkerRotation() — a rolled-back gesture must leave no trace,
+  // so this deliberately skips markProjectDirty() and pushes no history. Used
+  // by both the explicit cancel and the identity-mismatch path below, since a
+  // discarded gesture may already have written live headings during its moves.
+  function _rollbackRotationTo(markerId, rotation) {
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk || (mk.rotation || 0) === rotation) return;
+    mk.rotation = rotation;
+    if (activeFloorplanId) renderFloormapCanvas();
+    if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
+  // Abandons the pending gesture: nothing is committed, the project is not
+  // dirtied, no history entry is pushed, and any heading the gesture already
+  // wrote live is rolled back. Called when the interaction stops being the
+  // single-pointer rotation gesture it started as (a second finger turning it
+  // into a pinch).
+  function _cancelRotationDrag() {
+    const markerId = _rotDragMarkerId;
+    _rotDragMarkerId = null;
+    if (markerId == null) return;
+    _rollbackRotationTo(markerId, _rotDragBeforeRotation);
+  }
+
+  function _commitRotationDrag() {
+    const markerId = _rotDragMarkerId;
+    _rotDragMarkerId = null;
+    if (markerId == null) return;
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk) return; // marker deleted mid-gesture — nothing to commit
+    // Identity re-check. rotate()'s live writes resolve the marker from
+    // whatever scene/floorplan is current at that moment, while this snapshot
+    // was taken from the marker current when the gesture began. If the scene
+    // or floorplan changed mid-gesture those are different markers, and
+    // committing would attach this gesture's before/after to the wrong one.
+    // Discard instead, rolling the original marker back to where it started.
+    const live = _rotationDragMarker();
+    if (!live || live.id !== markerId) {
+      _rollbackRotationTo(markerId, _rotDragBeforeRotation);
+      return;
+    }
+    const before = _rotDragBeforeRotation;
+    const after  = mk.rotation || 0;
+    // A press-and-release with no movement, or a drag that lands back on the
+    // same rounded heading, is a genuine no-op: no dirty, no history entry.
+    if (after === before) return;
+    // The live moves already wrote `after` straight onto the marker; replay it
+    // through applyMarkerRotation() so markProjectDirty() and the info-panel
+    // refresh happen exactly once per gesture, at the same point history is
+    // pushed. applyMarkerRotation() never pushes history itself, so undo/redo
+    // replaying it can never record a new entry.
+    applyMarkerRotation(markerId, after);
+    renderMarkerList();
+    historyManager.push({
+      label: 'Rotate panorama',
+      undo: () => applyMarkerRotation(markerId, before),
+      redo: () => applyMarkerRotation(markerId, after),
+    });
+  }
+
   function rotate(dx, dy, pane) {
     const r = Math.PI / 180;
     if (!compareState.syncViews && pane === 'a') {
@@ -3550,12 +3642,26 @@ function init() {
       theta -= dx * SENSITIVITY * r;
       phi   -= dy * SENSITIVITY * r;
       phi    = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
-      // Update current scene's marker rotation in real time
-      if (activeFloorplanId && currentIdx >= 0) {
+      // Update current scene's marker rotation in real time.
+      // canMutateProject() gate: marker.rotation is persisted project data,
+      // so writing it while Viewing would let a viewer silently change what a
+      // later Editor session exports — the same hidden-mutation class the
+      // existing assertEditorMode()/canMutateProject() guards exist to stop.
+      // The silent variant is used (not assertEditorMode) because this runs on
+      // every mousemove: a toast per frame would be unusable. Looking around
+      // in Viewer therefore leaves the cone on the marker's stored heading
+      // instead of following the camera.
+      if (activeFloorplanId && currentIdx >= 0 && canMutateProject()) {
         const curScene = scenes[currentIdx];
         if (curScene) {
           const mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
-          if (mk) mk.rotation = Math.round(thetaToFloorRotation(theta, curScene.flipH || false));
+          // Only the marker this gesture snapshotted may be written. If the
+          // scene or floorplan changed mid-gesture, the newly-current marker
+          // has no snapshot of its own, so writing it here would leave a
+          // heading that nothing can undo or roll back.
+          if (mk && mk.id === _rotDragMarkerId) {
+            mk.rotation = Math.round(thetaToFloorRotation(theta, curScene.flipH || false));
+          }
         }
       }
     }
@@ -3595,6 +3701,7 @@ function init() {
       isDragging = true; draggingPane = pane;
       lastX = e.clientX; lastY = e.clientY;
       canvas.style.cursor = 'grabbing';
+      _beginRotationDrag();
     });
 
     canvas.addEventListener('wheel', (e) => {
@@ -3609,8 +3716,14 @@ function init() {
         isDragging = true;
         lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
         lastPinchDist = null;
-      } else if (e.touches.length === 2) {
-        lastPinchDist = pinchDist(e.touches);
+        _beginRotationDrag();
+      } else if (e.touches.length >= 2) {
+        // A second finger ends the single-pointer rotation gesture and turns
+        // this into a pinch. The pending snapshot must be cancelled here, or
+        // the eventual touchend would commit a heading from an interaction the
+        // user stopped performing.
+        _cancelRotationDrag();
+        if (e.touches.length === 2) lastPinchDist = pinchDist(e.touches);
       }
       lastTouches = e.touches;
     }, { passive: false });
@@ -3632,6 +3745,9 @@ function init() {
       isDragging = false; draggingPane = null;
       lastTouches = null; lastPinchDist = null;
       canvas.style.cursor = 'grab';
+      // Safe after a pinch too: _beginRotationDrag() only ran for a
+      // single-touch start, so otherwise there is no pending gesture to commit.
+      _commitRotationDrag();
     });
   }
 
@@ -3655,6 +3771,7 @@ function init() {
     if (!isDragging) return;
     isDragging = false; draggingPane = null;
     [viewerCanvas, canvasA, canvasB].forEach(c => { c.style.cursor = 'grab'; });
+    _commitRotationDrag();
   });
 
   sliderDivider.addEventListener('mousedown', (e) => {
