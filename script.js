@@ -7161,32 +7161,73 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     });
   }
 
-  // ---- Import validation (docs 7.1) ----
-  // Keeps only links whose two endpoints both resolve to a restored scene,
-  // drops self-links and malformed rows, and never introduces a duplicate
-  // id. Returns the links actually adopted.
+  // ---- Import validation (docs 7.1 / 5.1) ----
+  // createSceneLink()/setSceneLinkTarget() enforce the docs 5.1 invariants at
+  // the commit point, but a project JSON is hand-editable and can also come
+  // from an older build, so the import path re-derives them instead of
+  // trusting the payload. Rejected on the way in:
+  //   - a missing id, or an id repeated inside the same payload
+  //   - a missing endpoint, a self-link, or an endpoint that is not a scene
+  //     in the post-merge scene set
+  //   - a second ENABLED sourceSceneId -> targetSceneId edge. Disabled rows
+  //     are exempt: 5.1 constrains the enabled edge set only, so any number
+  //     of disabled links may sit on the same pair.
+  // Headings are normalised so hand-written or legacy degrees can't leak in
+  // out of range or fractional.
+  //
+  // Merge shape follows the marker merge in the importer (merge-with-
+  // replace-by-id): an imported link replaces the existing link that shares
+  // its id, and links the payload never mentions are kept. Import appends
+  // scenes (scenes.push(...newScenes)) rather than replacing them, so those
+  // links' endpoints are still present afterwards and dropping them would be
+  // silent data loss.
+  //
+  // Returns the links actually adopted from the payload.
   function _restoreSceneLinksFromData(data) {
-    const validIds = new Set(scenes.map(s => s.id));
-    const seen     = new Set(projectState.sceneLinks.map(l => l.id));
-    const restored = [];
-    ((data && data.sceneLinks) || []).forEach((ld) => {
-      if (!ld || !ld.id || seen.has(ld.id)) return;
+    const incoming = (data && data.sceneLinks) || [];
+    if (!Array.isArray(incoming)) return [];
+
+    const validIds    = new Set(scenes.map(s => s.id));
+    const incomingIds = new Set();
+    const candidates  = [];
+
+    incoming.forEach((ld) => {
+      if (!ld || !ld.id || incomingIds.has(ld.id)) return;
       if (!ld.sourceSceneId || !ld.targetSceneId) return;
       if (ld.sourceSceneId === ld.targetSceneId) return;
       if (!validIds.has(ld.sourceSceneId) || !validIds.has(ld.targetSceneId)) return;
-      const link = {
+      incomingIds.add(ld.id);
+      candidates.push({
         id:            ld.id,
         sourceSceneId: ld.sourceSceneId,
         targetSceneId: ld.targetSceneId,
         heading:       _normDeg(ld.heading || 0),
         label:         ld.label || '',
-        order:         ld.order || (restored.length + 1),
+        order:         ld.order || (candidates.length + 1),
         enabled:       ld.enabled !== false,
-      };
-      seen.add(link.id);
-      restored.push(link);
-      projectState.sceneLinks.push(link);
+      });
     });
+
+    // Everything the payload did not address by id survives. These already
+    // satisfy the enabled-pair invariant, so they seed the pair set and win
+    // any clash against an incoming row.
+    const kept        = projectState.sceneLinks.filter(l => !incomingIds.has(l.id));
+    // \u0000 as the join: it cannot occur in a scene id, so the pair key
+    // is unambiguous even for hand-written ids containing separators.
+    const pairKey     = l => `${l.sourceSceneId}\u0000${l.targetSceneId}`;
+    const enabledPair = new Set(kept.filter(l => l.enabled).map(pairKey));
+
+    const restored = [];
+    candidates.forEach((link) => {
+      if (link.enabled) {
+        const key = pairKey(link);
+        if (enabledPair.has(key)) return;
+        enabledPair.add(key);
+      }
+      restored.push(link);
+    });
+
+    projectState.sceneLinks = [...kept, ...restored];
     return restored;
   }
 

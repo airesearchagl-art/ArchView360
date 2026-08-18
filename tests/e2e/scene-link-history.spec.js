@@ -68,6 +68,16 @@ async function exportJson(page) {
   return data;
 }
 
+// Same export, but keeps the file on disk so it can be fed straight back
+// through the real #json-import-input path.
+async function exportDownloadPath(page) {
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('#export-json-btn', { force: true }),
+  ]);
+  return download.path();
+}
+
 test.describe('sceneLink: data model, persistence and validation', () => {
   test('a project with no links exports an empty sceneLinks array and stays backward compatible', async ({ page }) => {
     const errors = await gotoApp(page);
@@ -165,6 +175,192 @@ test.describe('sceneLink: data model, persistence and validation', () => {
     expect(all.map(l => l.heading).sort((x, y) => x - y)).toEqual([90, 270]);
 
     expectNoErrors(errors);
+  });
+});
+
+// createSceneLink() enforces the docs §5.1 invariants at the UI commit point,
+// but a project JSON is hand-editable and can also come from an older build,
+// so the import path has to re-derive them rather than trust the payload.
+// These pin the import side of the same contract.
+test.describe('sceneLink: import invariants', () => {
+  test('import keeps only the first of two enabled links for the same source->target pair', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-first',  sourceSceneId: ids[0], targetSceneId: ids[1], heading: 10, enabled: true },
+          { id: 'lk-second', sourceSceneId: ids[0], targetSceneId: ids[1], heading: 20, enabled: true },
+        ],
+      });
+    });
+    expect(imported.map(l => l.id)).toEqual(['lk-first']);
+    expect(await links(page)).toHaveLength(1);
+
+    expectNoErrors(errors);
+  });
+
+  test('import rejects an enabled link duplicating a pair the project already has', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b] = await loadThreeScenes(page);
+    const existing = await createLink(page, a, b, 90, 'existing');
+    expect(existing).toBeTruthy();
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-clash', sourceSceneId: ids[0], targetSceneId: ids[1], heading: 200, enabled: true },
+        ],
+      });
+    });
+    expect(imported).toEqual([]);
+    const all = await links(page);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: existing, heading: 90, label: 'existing' });
+
+    expectNoErrors(errors);
+  });
+
+  test('import allows several DISABLED links for a pair that already has an enabled one', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-on',  sourceSceneId: ids[0], targetSceneId: ids[1], heading: 10, enabled: true },
+          { id: 'lk-off', sourceSceneId: ids[0], targetSceneId: ids[1], heading: 20, enabled: false },
+          { id: 'lk-off2', sourceSceneId: ids[0], targetSceneId: ids[1], heading: 30, enabled: false },
+        ],
+      });
+    });
+    // §5.1 constrains the ENABLED edge set only — disabled duplicates are data,
+    // not a second edge, so they survive.
+    expect(imported.map(l => l.id)).toEqual(['lk-on', 'lk-off', 'lk-off2']);
+
+    expectNoErrors(errors);
+  });
+
+  test('import rejects a link id repeated inside the same payload', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'dup', sourceSceneId: ids[0], targetSceneId: ids[1], heading: 10, enabled: true },
+          { id: 'dup', sourceSceneId: ids[0], targetSceneId: ids[2], heading: 20, enabled: true },
+        ],
+      });
+    });
+    expect(imported).toHaveLength(1);
+    expect(imported[0]).toMatchObject({ id: 'dup', heading: 10 });
+
+    expectNoErrors(errors);
+  });
+
+  test('import normalizes headings from hand-edited or legacy JSON', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-over',  sourceSceneId: ids[0], targetSceneId: ids[1], heading: 450,   enabled: true },
+          { id: 'lk-under', sourceSceneId: ids[0], targetSceneId: ids[2], heading: -90,   enabled: true },
+          { id: 'lk-frac',  sourceSceneId: ids[1], targetSceneId: ids[2], heading: 12.6,  enabled: true },
+        ],
+      });
+    });
+    expect(imported.map(l => l.heading)).toEqual([90, 270, 13]);
+
+    expectNoErrors(errors);
+  });
+
+  // Merge semantics: the import path appends scenes (scenes.push(...newScenes))
+  // and merges markers with replace-by-id, so sceneLinks follow the marker
+  // rule — an imported link replaces the existing link with the same id, and
+  // links the payload never mentions are kept, because their endpoint scenes
+  // are still present after the merge.
+  test('an imported link replaces the existing link that shares its id', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b, c] = await loadThreeScenes(page);
+    const id = await createLink(page, a, b, 90, 'before');
+    expect(id).toBeTruthy();
+
+    const imported = await page.evaluate(
+      ([linkId, src, tgt]) => window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: linkId, sourceSceneId: src, targetSceneId: tgt, heading: 5, label: 'after', enabled: true },
+        ],
+      }),
+      [id, a, c]
+    );
+    expect(imported).toHaveLength(1);
+
+    const all = await links(page);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id, sourceSceneId: a, targetSceneId: c, heading: 5, label: 'after' });
+
+    expectNoErrors(errors);
+  });
+
+  test('links the imported payload does not mention are kept', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b, c] = await loadThreeScenes(page);
+    const kept = await createLink(page, a, b, 90, 'kept');
+    expect(kept).toBeTruthy();
+
+    await page.evaluate(
+      ([src, tgt]) => window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-new', sourceSceneId: src, targetSceneId: tgt, heading: 45, enabled: true },
+        ],
+      }),
+      [c, a]
+    );
+
+    const all = await links(page);
+    expect(all.map(l => l.id).sort()).toEqual([kept, 'lk-new'].sort());
+
+    expectNoErrors(errors);
+  });
+
+  test('a real project import merges its links alongside the ones already loaded', async ({ page }) => {
+    // Session 1 — build and export a donor project that carries its own link.
+    const errors1 = await gotoApp(page);
+    const [d1, d2] = await loadThreeScenes(page);
+    const donorLink = await createLink(page, d1, d2, 120, 'donor');
+    expect(donorLink).toBeTruthy();
+    const donorJson = await exportDownloadPath(page);
+    expectNoErrors(errors1);
+
+    // Session 2 — a different project, with a link of its own between two
+    // scenes that the import will NOT touch.
+    const errors2 = await gotoApp(page);
+    const [h1, h2] = await loadThreeScenes(page);
+    const hostLink = await createLink(page, h1, h2, 30, 'host');
+    expect(hostLink).toBeTruthy();
+
+    await page.locator('#json-import-input').setInputFiles(donorJson);
+    await page.locator('#import-images-input').setInputFiles([FIXTURE_A, FIXTURE_B, FIXTURE_C]);
+    await expect(page.locator('#dirty-confirm-modal')).toBeVisible(); // the host link made it dirty
+    await page.click('#dirty-confirm-discard-btn', { force: true });
+    await expect(page.locator('#import-modal')).toBeHidden();
+    await expect.poll(() => sceneItems(page).count()).toBe(6); // 3 host + 3 donor, appended
+
+    // The host link's endpoints both survived the merge, so dropping it would
+    // be silent data loss; the donor link arrives alongside it.
+    await expect.poll(async () => (await links(page)).map(l => l.label).sort())
+      .toEqual(['donor', 'host']);
+
+    expectNoErrors(errors2);
   });
 });
 
