@@ -19,6 +19,7 @@ const { gotoApp, expectNoErrors, dirtyIndicator, enterEditor } = require('./help
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
 const FIXTURE_A = path.join(FIXTURES, 'fixture-a.png');
 const FIXTURE_B = path.join(FIXTURES, 'fixture-b.png');
+const FIXTURE_C = path.join(FIXTURES, 'fixture-c.png');
 const MARKER_POS = { x: 50, y: 50 };
 
 function infoDir(page) { return page.locator('#floormap-info-dir'); }
@@ -88,6 +89,124 @@ async function dragPanorama(page, dx, dy, steps = 10) {
   await page.mouse.move(cx + dx, cy + dy, { steps });
   await page.mouse.up();
 }
+
+// Two scenes, one floorplan, and a marker for EACH scene — the state a
+// mid-gesture scene change needs, so the "wrong marker" the gesture could
+// wrongly commit to actually exists rather than merely being absent.
+// Leaves scene 1 current, so a gesture starts on scene 1's marker.
+async function loadTwoScenesFloorplanAndMarkers(page) {
+  await enterEditor(page);
+  await page.locator('#file-input').setInputFiles([FIXTURE_A, FIXTURE_B]);
+  await expect(sceneItems(page)).toHaveCount(2);
+  await page.locator('#add-floorplan-btn').click();
+  await page.locator('#floorplan-input').setInputFiles(FIXTURE_C);
+
+  // The 1x1 fixture floorplan is letterboxed to a square centred in the
+  // canvas, so only positions near the centre land inside the drawn image —
+  // _canvasToImage() returns null (and places nothing) outside it.
+  const fmBox = await page.locator('#floormap-canvas').boundingBox();
+  const midX = Math.round(fmBox.width / 2);
+  const midY = Math.round(fmBox.height / 2);
+
+  await page.locator('#floormap-place-btn').click();
+  await page.locator('#floormap-canvas').click({ position: { x: midX - 20, y: midY - 20 } });
+  await page.locator('#floormap-place-btn').click();
+
+  await sceneItems(page).nth(1).click();
+  await page.locator('#floormap-place-btn').click();
+  await page.locator('#floormap-canvas').click({ position: { x: midX + 20, y: midY + 20 } });
+  await page.locator('#floormap-place-btn').click();
+
+  await sceneItems(page).nth(0).click();
+  await expect(page.locator('#current-scene-name')).toHaveText('fixture-a');
+}
+
+function sceneItems(page) { return page.locator('#scene-list .scene-item'); }
+
+// Dispatches a real TouchEvent on the panorama canvas. Playwright's own
+// touchscreen API is single-tap only, and the pinch transition under test is
+// specifically about a SECOND touch arriving mid-gesture, so the events are
+// constructed directly with the standard Touch/TouchEvent constructors
+// (Chromium) — no production test hook is involved. Offsets are relative to
+// the canvas centre.
+async function dispatchTouch(page, type, offsets) {
+  await page.evaluate(({ type, offsets }) => {
+    const el = document.getElementById('viewer-canvas');
+    const r = el.getBoundingClientRect();
+    const touches = offsets.map((o, i) => new Touch({
+      identifier: i,
+      target: el,
+      clientX: r.left + r.width / 2 + o.dx,
+      clientY: r.top + r.height / 2 + o.dy,
+    }));
+    el.dispatchEvent(new TouchEvent(type, {
+      bubbles: true, cancelable: true,
+      touches, targetTouches: touches, changedTouches: touches,
+    }));
+  }, { type, offsets });
+}
+
+test.describe('panorama rotation gesture lifecycle (cancel / identity)', () => {
+  // Required Fix (review #4957197858) A: a second finger turns the gesture
+  // into a pinch. The pending single-pointer rotation snapshot must be
+  // cancelled — not committed on the eventual touchend — and the heading
+  // written by the single-touch part of the gesture must not survive.
+  test('a single-touch drag that becomes a pinch commits nothing and leaves the heading unchanged', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadSceneFloorplanAndMarker(page);
+    const before = await rotationDeg(page);
+
+    await dispatchTouch(page, 'touchstart', [{ dx: 0, dy: 0 }]);
+    await dispatchTouch(page, 'touchmove', [{ dx: 120, dy: 0 }]);
+    // Second finger lands: from here the gesture is a pinch, not a rotation.
+    await dispatchTouch(page, 'touchstart', [{ dx: 120, dy: 0 }, { dx: -60, dy: 40 }]);
+    await dispatchTouch(page, 'touchmove', [{ dx: 150, dy: 0 }, { dx: -90, dy: 60 }]);
+    await dispatchTouch(page, 'touchend', [{ dx: 150, dy: 0 }]);
+
+    expect(await historyCounts(page)).toEqual({ undoCount: 0, redoCount: 0 });
+    await expect(dirtyIndicator(page)).toBeHidden();
+
+    const data = await exportJsonToClean(page);
+    expect(data.markers[0].rotation).toBe(before);
+
+    expectNoErrors(errors);
+  });
+
+  // Required Fix (review #4957197858) B: the live writes in rotate() are
+  // keyed to whatever scene/floorplan is current now, while the snapshot is
+  // keyed to the marker current at gesture start. If the scene changes
+  // mid-gesture the two describe different markers, and neither may end up
+  // with a history entry or a half-applied heading.
+  test('a scene change mid-gesture commits nothing and leaves both markers unchanged', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadTwoScenesFloorplanAndMarkers(page);
+    const baseline = await exportJsonToClean(page);
+    await page.evaluate(() => window.__historyManagerForTests.clear());
+    expect(baseline.markers).toHaveLength(2);
+    const beforeById = Object.fromEntries(baseline.markers.map(m => [m.id, m.rotation]));
+
+    const box = await page.locator('#viewer-canvas').boundingBox();
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 120, cy, { steps: 10 }); // rotates scene 1's marker
+    await page.keyboard.press('ArrowRight');            // scene changes mid-gesture
+    await expect(page.locator('#current-scene-name')).toHaveText('fixture-b');
+    await page.mouse.move(cx + 200, cy, { steps: 10 }); // must not touch scene 2's marker
+    await page.mouse.up();
+
+    expect(await historyCounts(page)).toEqual({ undoCount: 0, redoCount: 0 });
+    await expect(dirtyIndicator(page)).toBeHidden();
+
+    const after = await exportJsonToClean(page);
+    for (const m of after.markers) {
+      expect(m.rotation).toBe(beforeById[m.id]);
+    }
+
+    expectNoErrors(errors);
+  });
+});
 
 test.describe('panorama rotation history (undo/redo)', () => {
   test('dragging the panorama marks the project dirty and pushes exactly one history entry', async ({ page }) => {

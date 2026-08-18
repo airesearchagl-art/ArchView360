@@ -3567,12 +3567,48 @@ function init() {
     _rotDragBeforeRotation = mk ? (mk.rotation || 0) : 0;
   }
 
+  // Puts a marker back on the heading a gesture started from, WITHOUT going
+  // through applyMarkerRotation() — a rolled-back gesture must leave no trace,
+  // so this deliberately skips markProjectDirty() and pushes no history. Used
+  // by both the explicit cancel and the identity-mismatch path below, since a
+  // discarded gesture may already have written live headings during its moves.
+  function _rollbackRotationTo(markerId, rotation) {
+    const mk = projectState.markers.find(m => m.id === markerId);
+    if (!mk || (mk.rotation || 0) === rotation) return;
+    mk.rotation = rotation;
+    if (activeFloorplanId) renderFloormapCanvas();
+    if (selectedMarkerId === markerId) _updateInfoPanel();
+  }
+
+  // Abandons the pending gesture: nothing is committed, the project is not
+  // dirtied, no history entry is pushed, and any heading the gesture already
+  // wrote live is rolled back. Called when the interaction stops being the
+  // single-pointer rotation gesture it started as (a second finger turning it
+  // into a pinch).
+  function _cancelRotationDrag() {
+    const markerId = _rotDragMarkerId;
+    _rotDragMarkerId = null;
+    if (markerId == null) return;
+    _rollbackRotationTo(markerId, _rotDragBeforeRotation);
+  }
+
   function _commitRotationDrag() {
     const markerId = _rotDragMarkerId;
     _rotDragMarkerId = null;
     if (markerId == null) return;
     const mk = projectState.markers.find(m => m.id === markerId);
     if (!mk) return; // marker deleted mid-gesture — nothing to commit
+    // Identity re-check. rotate()'s live writes resolve the marker from
+    // whatever scene/floorplan is current at that moment, while this snapshot
+    // was taken from the marker current when the gesture began. If the scene
+    // or floorplan changed mid-gesture those are different markers, and
+    // committing would attach this gesture's before/after to the wrong one.
+    // Discard instead, rolling the original marker back to where it started.
+    const live = _rotationDragMarker();
+    if (!live || live.id !== markerId) {
+      _rollbackRotationTo(markerId, _rotDragBeforeRotation);
+      return;
+    }
     const before = _rotDragBeforeRotation;
     const after  = mk.rotation || 0;
     // A press-and-release with no movement, or a drag that lands back on the
@@ -3619,7 +3655,13 @@ function init() {
         const curScene = scenes[currentIdx];
         if (curScene) {
           const mk = projectState.markers.find(m => m.floorplanId === activeFloorplanId && m.sceneId === curScene.id);
-          if (mk) mk.rotation = Math.round(thetaToFloorRotation(theta, curScene.flipH || false));
+          // Only the marker this gesture snapshotted may be written. If the
+          // scene or floorplan changed mid-gesture, the newly-current marker
+          // has no snapshot of its own, so writing it here would leave a
+          // heading that nothing can undo or roll back.
+          if (mk && mk.id === _rotDragMarkerId) {
+            mk.rotation = Math.round(thetaToFloorRotation(theta, curScene.flipH || false));
+          }
         }
       }
     }
@@ -3675,8 +3717,13 @@ function init() {
         lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
         lastPinchDist = null;
         _beginRotationDrag();
-      } else if (e.touches.length === 2) {
-        lastPinchDist = pinchDist(e.touches);
+      } else if (e.touches.length >= 2) {
+        // A second finger ends the single-pointer rotation gesture and turns
+        // this into a pinch. The pending snapshot must be cancelled here, or
+        // the eventual touchend would commit a heading from an interaction the
+        // user stopped performing.
+        _cancelRotationDrag();
+        if (e.touches.length === 2) lastPinchDist = pinchDist(e.touches);
       }
       lastTouches = e.touches;
     }, { passive: false });
