@@ -9,6 +9,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { gotoApp, expectNoErrors, dirtyIndicator, enterEditor } = require('./helpers');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures');
@@ -361,6 +362,124 @@ test.describe('sceneLink: import invariants', () => {
       .toEqual(['donor', 'host']);
 
     expectNoErrors(errors2);
+  });
+
+  // Replacement has to be transactional per id: the existing link is only
+  // given up once its replacement has cleared every invariant. Removing it up
+  // front and validating afterwards loses it whenever the candidate is
+  // rejected late — the incoming row is discarded AND the row it was meant to
+  // replace is already gone.
+  test('a replacement rejected by the enabled-pair rule leaves the existing link untouched', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b, c] = await loadThreeScenes(page);
+    const x = await createLink(page, a, b, 90, 'X');  // X: a -> b
+    const y = await createLink(page, b, c, 45, 'Y');  // Y: b -> c
+    expect(x).toBeTruthy();
+    expect(y).toBeTruthy();
+
+    // Incoming X wants to become b -> c, which Y already owns as an enabled
+    // edge, so the replacement must be refused outright.
+    const imported = await page.evaluate(
+      ([linkId, src, tgt]) => window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: linkId, sourceSceneId: src, targetSceneId: tgt, heading: 200, label: 'X2', enabled: true },
+        ],
+      }),
+      [x, b, c]
+    );
+    expect(imported).toEqual([]);
+
+    const all = await links(page);
+    expect(all).toHaveLength(2);
+    expect(all.find(l => l.id === x)).toMatchObject({
+      sourceSceneId: a, targetSceneId: b, heading: 90, label: 'X',
+    });
+    expect(all.find(l => l.id === y)).toMatchObject({
+      sourceSceneId: b, targetSceneId: c, heading: 45, label: 'Y',
+    });
+
+    expectNoErrors(errors);
+  });
+
+  test('a replacement onto the pair the existing link already owns is still accepted', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b] = await loadThreeScenes(page);
+    const x = await createLink(page, a, b, 90, 'before');
+    expect(x).toBeTruthy();
+
+    // Same edge, same id — the only enabled a->b link is the one being
+    // replaced, so it must not be treated as its own collision.
+    const imported = await page.evaluate(
+      ([linkId, src, tgt]) => window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: linkId, sourceSceneId: src, targetSceneId: tgt, heading: 7, label: 'after', enabled: true },
+        ],
+      }),
+      [x, a, b]
+    );
+    expect(imported).toHaveLength(1);
+
+    const all = await links(page);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: x, sourceSceneId: a, targetSceneId: b, heading: 7, label: 'after' });
+
+    expectNoErrors(errors);
+  });
+
+  test('a rejected replacement arriving through the real import path also keeps the existing link', async ({ page }) => {
+    const errors = await gotoApp(page);
+    const [a, b, c] = await loadThreeScenes(page);
+    const x = await createLink(page, a, b, 90, 'X');
+    const y = await createLink(page, b, c, 45, 'Y');
+    expect(x).toBeTruthy();
+    expect(y).toBeTruthy();
+
+    // Export to learn the real ids (and to leave the project clean, so the
+    // import below needs no unsaved-changes confirmation), then hand-edit the
+    // payload the way a user could: X repointed onto the edge Y owns. Scenes
+    // are left out so the import only carries the link change.
+    const exported = await exportJson(page);
+    const incomingX = { ...exported.sceneLinks.find(l => l.id === x), sourceSceneId: b, targetSceneId: c };
+    const payload = path.join(os.tmpdir(), `scene-link-rejected-${Date.now()}.json`);
+    fs.writeFileSync(payload, JSON.stringify({
+      projectName: exported.projectName,
+      scenes: [], floorplans: [], markers: [],
+      sceneLinks: [incomingX],
+    }));
+
+    await expect(dirtyIndicator(page)).toBeHidden();
+    await page.locator('#json-import-input').setInputFiles(payload);
+    await page.locator('#import-images-input').setInputFiles([FIXTURE_A, FIXTURE_B, FIXTURE_C]);
+    await expect(page.locator('#import-modal')).toBeHidden();
+
+    await expect.poll(async () => {
+      const all = await links(page);
+      return all.map(l => `${l.label}:${l.sourceSceneId === a ? 'a' : 'b'}->${l.targetSceneId === b ? 'b' : 'c'}`).sort();
+    }).toEqual(['X:a->b', 'Y:b->c']);
+
+    fs.unlinkSync(payload);
+    expectNoErrors(errors);
+  });
+
+  test('a non-finite heading in hand-edited JSON does not become NaN', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    const imported = await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      return window.__sceneLinkTestHooks.importForTests({
+        sceneLinks: [
+          { id: 'lk-inf', sourceSceneId: ids[0], targetSceneId: ids[1], heading: Infinity, enabled: true },
+          { id: 'lk-str', sourceSceneId: ids[0], targetSceneId: ids[2], heading: 'north',  enabled: true },
+          { id: 'lk-num', sourceSceneId: ids[1], targetSceneId: ids[2], heading: '135',    enabled: true },
+        ],
+      });
+    });
+    // Unusable degrees fall back to 0, the same as a missing heading; a
+    // numeric string is still a number and is kept.
+    expect(imported.map(l => l.heading)).toEqual([0, 0, 135]);
+
+    expectNoErrors(errors);
   });
 });
 

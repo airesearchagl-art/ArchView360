@@ -7182,52 +7182,61 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // links' endpoints are still present afterwards and dropping them would be
   // silent data loss.
   //
+  // Replacement is transactional per id: a candidate is committed into the
+  // graph only once it has cleared every check, so rejecting it never costs
+  // the link it was going to replace. Dropping the old row up front and
+  // validating afterwards loses both - the incoming row is refused and the
+  // row it targeted is already gone (existing X: A->B and Y: C->D with an
+  // incoming X: C->D would otherwise leave Y alone).
+  //
   // Returns the links actually adopted from the payload.
   function _restoreSceneLinksFromData(data) {
     const incoming = (data && data.sceneLinks) || [];
     if (!Array.isArray(incoming)) return [];
 
-    const validIds    = new Set(scenes.map(s => s.id));
-    const incomingIds = new Set();
-    const candidates  = [];
+    const validIds = new Set(scenes.map(s => s.id));
+    // Encoded rather than string-joined, so the key stays unambiguous even
+    // for hand-written ids that contain whatever separator we would pick.
+    const pairKey  = l => JSON.stringify([l.sourceSceneId, l.targetSceneId]);
+
+    // Working copy of the live graph, written to only on acceptance.
+    const merged   = projectState.sceneLinks.slice();
+    const consumed = new Set(); // ids already claimed by a row in this payload
+    const restored = [];
 
     incoming.forEach((ld) => {
-      if (!ld || !ld.id || incomingIds.has(ld.id)) return;
+      if (!ld || !ld.id || consumed.has(ld.id)) return;
       if (!ld.sourceSceneId || !ld.targetSceneId) return;
       if (ld.sourceSceneId === ld.targetSceneId) return;
       if (!validIds.has(ld.sourceSceneId) || !validIds.has(ld.targetSceneId)) return;
-      incomingIds.add(ld.id);
-      candidates.push({
+      consumed.add(ld.id);
+
+      // Unusable degrees (absent, Infinity, non-numeric) fall back to 0
+      // rather than poisoning the heading with NaN.
+      const deg  = Number(ld.heading);
+      const link = {
         id:            ld.id,
         sourceSceneId: ld.sourceSceneId,
         targetSceneId: ld.targetSceneId,
-        heading:       _normDeg(ld.heading || 0),
+        heading:       _normDeg(Number.isFinite(deg) ? deg : 0),
         label:         ld.label || '',
-        order:         ld.order || (candidates.length + 1),
+        order:         ld.order || (restored.length + 1),
         enabled:       ld.enabled !== false,
-      });
-    });
+      };
 
-    // Everything the payload did not address by id survives. These already
-    // satisfy the enabled-pair invariant, so they seed the pair set and win
-    // any clash against an incoming row.
-    const kept        = projectState.sceneLinks.filter(l => !incomingIds.has(l.id));
-    // \u0000 as the join: it cannot occur in a scene id, so the pair key
-    // is unambiguous even for hand-written ids containing separators.
-    const pairKey     = l => `${l.sourceSceneId}\u0000${l.targetSceneId}`;
-    const enabledPair = new Set(kept.filter(l => l.enabled).map(pairKey));
-
-    const restored = [];
-    candidates.forEach((link) => {
+      // The row being replaced is excluded from its own collision check, so
+      // an incoming link may keep the edge its predecessor already held.
+      const at = merged.findIndex(l => l.id === link.id);
       if (link.enabled) {
         const key = pairKey(link);
-        if (enabledPair.has(key)) return;
-        enabledPair.add(key);
+        if (merged.some((l, i) => i !== at && l.enabled && pairKey(l) === key)) return;
       }
+
+      if (at >= 0) merged[at] = link; else merged.push(link);
       restored.push(link);
     });
 
-    projectState.sceneLinks = [...kept, ...restored];
+    projectState.sceneLinks = merged;
     return restored;
   }
 
