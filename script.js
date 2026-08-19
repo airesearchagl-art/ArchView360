@@ -958,6 +958,13 @@ function init() {
     floorplans: [], // { id, name, fileName, blobUrl, imgEl }
     markers:    [], // { id, floorplanId, sceneId, x, y, rotation, name }
     groups:     [], // { id, name } — scene groupings
+    // sceneLink / tour graph (B2, docs/SceneLink_TourGraph_Investigation.md):
+    // directed scene-to-scene links. Top-level (not attached to a marker or
+    // scene) so a scene that was never placed on a FloorMap can still be
+    // linked, and so deleting a scene can clear inbound and outbound links
+    // with one symmetric filter — the same shape `markers` already has.
+    // { id, sourceSceneId, targetSceneId, heading, label, order, enabled }
+    sceneLinks: [],
   };
 
   // Reflects HistoryManager's current undo/redo availability onto the
@@ -1304,6 +1311,8 @@ function init() {
           renderSceneList();
         });
       });
+      // Scenes are back in `scenes` above, so both endpoints resolve.
+      _cascadeRestoreSceneLinks(entries);
       markProjectDirty('画像追加');
       renderSceneFilterBar();
       renderDashboard();
@@ -1316,6 +1325,10 @@ function init() {
       const wasCurrentRemoved = curSceneId != null && ids.has(curSceneId);
       if (wasCurrentRemoved) stopRender();
       projectState.markers = projectState.markers.filter(m => !ids.has(m.sceneId));
+      // Undoing an add removes scenes too, so links attached to them since
+      // the add must cascade — same execution-scoped capture as a delete,
+      // stored on the closure-captured `entries` array (docs 8.1).
+      _cascadeRemoveSceneLinks(ids, entries);
       entries.forEach(({ scene }) => { if (scene.blobUrl) URL.revokeObjectURL(scene.blobUrl); });
       scenes = scenes.filter(s => !ids.has(s.id));
       if (compareState.sceneAIndex >= scenes.length) compareState.sceneAIndex = Math.max(0, scenes.length - 1);
@@ -1703,12 +1716,17 @@ function init() {
       scene.blobUrl = URL.createObjectURL(scene.file);
       scenes.splice(index, 0, scene);
       projectState.markers.push(...markers);
+      // After the scene is back in `scenes`, so both endpoints resolve.
+      _cascadeRestoreSceneLinks(snapshot);
     } else {
       URL.revokeObjectURL(scene.blobUrl);
       const at = scenes.findIndex(s => s.id === scene.id);
       if (at < 0) return; // already absent — nothing to do
       scenes.splice(at, 1);
       projectState.markers = projectState.markers.filter(m => m.sceneId !== scene.id);
+      // Execution-scoped: re-scan and replace the capture on every
+      // delete/redo rather than replaying a stale one (docs 8.1).
+      _cascadeRemoveSceneLinks(new Set([scene.id]), snapshot);
     }
     markProjectDirty('シーン削除');
     if (activeFloorplanId) { renderFloormapCanvas(); renderMarkerList(); }
@@ -1881,6 +1899,7 @@ function init() {
     projectState.floorplans = [];
     projectState.markers    = [];
     projectState.groups     = [];
+    projectState.sceneLinks = [];
     projectState.projectInfo = { client: '', author: '', date: '', notes: '' };
     activeFloorplanId        = null;
     selectedMarkerId         = null;
@@ -3385,6 +3404,12 @@ function init() {
   function applySceneFlip(sceneId, flipH) {
     const s = scenes.find(sc => sc.id === sceneId);
     if (!s) return;
+    // docs 6.4: re-encode outgoing sceneLink headings so the physical
+    // direction survives the flip. Guarded on an actual change so
+    // re-applying the same value can never double-encode; involutive, so
+    // this same call on undo restores the original headings inside the
+    // flip's own history entry.
+    if (s.flipH !== flipH) _migrateSceneLinkHeadingsForFlip(sceneId);
     s.flipH = flipH;
     if (currentIdx >= 0 && scenes[currentIdx] && scenes[currentIdx].id === sceneId) {
       if (flipBtn) flipBtn.classList.toggle('active', flipH);
@@ -6939,6 +6964,307 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   }
 
   // ============================================================
+  // sceneLink / tour graph — B2: data model, history, cascade
+  // (docs/SceneLink_TourGraph_Investigation.md)
+  // ============================================================
+  // Directed scene-to-scene links. `heading` is stored in the SAME
+  // marker-space degrees as marker.rotation — heading = normalize(sign · θ°)
+  // with sign = flipH ? -1 : 1, exactly what thetaToFloorRotation() produces.
+  // marker-space is NOT world space: every world/VR consumer must first
+  // recover θ° = normalize(sign · heading) (docs section 6.2). B2 only
+  // stores, validates and migrates the value — nothing renders it yet (the
+  // Editor UI is B3, Viewer navigation B4, VR Scene Ring B5).
+  //
+  // Identity is `id` alone (docs section 5.1): a duplicate id is never
+  // created or restored, and at most one *enabled* link may exist for a
+  // given source->target pair in B2.
+  //
+  // The apply* functions mutate and mark dirty only; they never call
+  // historyManager.push(). The commit points below push exactly one entry
+  // per user action, so undo/redo replaying an apply function can never
+  // record a new entry — the same split every U1-U9 operation uses.
+
+  function _normDeg(d) { return ((Math.round(d) % 360) + 360) % 360; }
+
+  // marker-space heading -> camera/world theta in degrees (docs 6.2).
+  // Exposed to tests so the flip migration can be asserted on the physical
+  // direction rather than on the stored number.
+  function _sceneLinkThetaDeg(link) {
+    const src = scenes.find(s => s.id === link.sourceSceneId);
+    const sign = (src && src.flipH) ? -1 : 1;
+    return _normDeg(sign * link.heading);
+  }
+
+  function applySceneLinkLifecycle(link, isPresent) {
+    if (isPresent) {
+      if (projectState.sceneLinks.some(l => l.id === link.id)) return; // never duplicate an id
+      projectState.sceneLinks.push(link);
+    } else {
+      projectState.sceneLinks = projectState.sceneLinks.filter(l => l.id !== link.id);
+    }
+    markProjectDirty(isPresent ? 'リンク作成' : 'リンク削除');
+  }
+
+  function applySceneLinkHeading(linkId, heading) {
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    l.heading = _normDeg(heading);
+    markProjectDirty('リンク方向の変更');
+  }
+
+  function applySceneLinkTarget(linkId, targetSceneId) {
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    l.targetSceneId = targetSceneId;
+    markProjectDirty('リンク先の変更');
+  }
+
+  function applySceneLinkLabel(linkId, label) {
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    l.label = label;
+    markProjectDirty('リンク名称の変更');
+  }
+
+  // ---- Commit points (Editor-only, exactly one history entry each) ----
+
+  // Returns the new link's id, or null when rejected. A rejection is a
+  // silent no-op: no mutation, no dirty, no history entry.
+  function createSceneLink({ sourceSceneId, targetSceneId, heading, label } = {}) {
+    if (!assertEditorMode('リンク作成')) return null;
+    if (!sourceSceneId || !targetSceneId || sourceSceneId === targetSceneId) return null;
+    if (!scenes.some(s => s.id === sourceSceneId)) return null;
+    if (!scenes.some(s => s.id === targetSceneId)) return null;
+    // docs 5.1: at most one enabled link per source->target pair in B2.
+    if (projectState.sceneLinks.some(l => l.enabled &&
+        l.sourceSceneId === sourceSceneId && l.targetSceneId === targetSceneId)) return null;
+    const link = {
+      id: genId(),
+      sourceSceneId,
+      targetSceneId,
+      heading: _normDeg(heading || 0),
+      label:   label || '',
+      order:   projectState.sceneLinks.filter(l => l.sourceSceneId === sourceSceneId).length + 1,
+      enabled: true,
+    };
+    applySceneLinkLifecycle(link, true);
+    historyManager.push({
+      label: 'Create scene link',
+      undo: () => applySceneLinkLifecycle(link, false),
+      redo: () => applySceneLinkLifecycle(link, true),
+    });
+    return link.id;
+  }
+
+  function deleteSceneLink(linkId) {
+    if (!assertEditorMode('リンク削除')) return;
+    const link = projectState.sceneLinks.find(l => l.id === linkId);
+    if (!link) return;
+    applySceneLinkLifecycle(link, false);
+    historyManager.push({
+      label: 'Delete scene link',
+      undo: () => applySceneLinkLifecycle(link, true),
+      redo: () => applySceneLinkLifecycle(link, false),
+    });
+  }
+
+  function setSceneLinkHeading(linkId, heading) {
+    if (!assertEditorMode('リンク方向の変更')) return;
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    const before = l.heading;
+    const after  = _normDeg(heading);
+    if (after === before) return; // genuine no-op
+    applySceneLinkHeading(linkId, after);
+    historyManager.push({
+      label: 'Scene link heading',
+      undo: () => applySceneLinkHeading(linkId, before),
+      redo: () => applySceneLinkHeading(linkId, after),
+    });
+  }
+
+  function setSceneLinkTarget(linkId, targetSceneId) {
+    if (!assertEditorMode('リンク先の変更')) return;
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    if (!scenes.some(s => s.id === targetSceneId)) return;
+    if (targetSceneId === l.sourceSceneId) return;
+    const before = l.targetSceneId;
+    if (targetSceneId === before) return;
+    // Retargeting must not create a duplicate enabled pair either.
+    if (projectState.sceneLinks.some(x => x.id !== linkId && x.enabled &&
+        x.sourceSceneId === l.sourceSceneId && x.targetSceneId === targetSceneId)) return;
+    applySceneLinkTarget(linkId, targetSceneId);
+    historyManager.push({
+      label: 'Scene link target',
+      undo: () => applySceneLinkTarget(linkId, before),
+      redo: () => applySceneLinkTarget(linkId, targetSceneId),
+    });
+  }
+
+  function setSceneLinkLabel(linkId, label) {
+    if (!assertEditorMode('リンク名称の変更')) return;
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    const before = l.label || '';
+    const after  = label || '';
+    if (after === before) return; // genuine no-op
+    applySceneLinkLabel(linkId, after);
+    historyManager.push({
+      label: 'Scene link label',
+      undo: () => applySceneLinkLabel(linkId, before),
+      redo: () => applySceneLinkLabel(linkId, after),
+    });
+  }
+
+  // ---- Scene-removal cascade: execution-scoped snapshot (docs 8.1) ----
+  // Every delete/redo execution live-scans, captures exactly the links IT
+  // removed into `box.removedSceneLinks` (replacing any capture from an
+  // earlier execution), and removes them. The paired undo restores only that
+  // captured set, skipping links whose endpoints are gone or whose id is
+  // already present. Replacing the capture each time is what stops a redo
+  // from resurrecting links that no longer belong to the replayed state (the
+  // U8 failure class) while still catching links added during the undo
+  // window (the U6 one).
+  function _cascadeRemoveSceneLinks(sceneIdSet, box) {
+    const removed = projectState.sceneLinks.filter(
+      l => sceneIdSet.has(l.sourceSceneId) || sceneIdSet.has(l.targetSceneId)
+    );
+    box.removedSceneLinks = removed;
+    if (!removed.length) return;
+    const ids = new Set(removed.map(l => l.id));
+    projectState.sceneLinks = projectState.sceneLinks.filter(l => !ids.has(l.id));
+  }
+
+  function _cascadeRestoreSceneLinks(box) {
+    const captured = box.removedSceneLinks || [];
+    captured.forEach((l) => {
+      if (projectState.sceneLinks.some(x => x.id === l.id)) return;         // no duplicate restore
+      if (!scenes.some(s => s.id === l.sourceSceneId)) return;              // endpoint gone
+      if (!scenes.some(s => s.id === l.targetSceneId)) return;
+      projectState.sceneLinks.push(l);
+    });
+  }
+
+  // ---- flipH migration (docs 6.4) ----
+  // heading is marker-space, so flipping the SOURCE scene would otherwise
+  // silently reverse the physical direction the link describes. Re-encode
+  // under the new sign so the world direction is preserved:
+  //   θ = normalize(oldSign · oldHeading) ; new = normalize(newSign · θ)
+  // For a flip (newSign = -oldSign) that reduces to normalize(-heading),
+  // which is involutive — so undoing the flip restores the original headings
+  // through the flip's own history entry, with no separate entry of its own.
+  function _migrateSceneLinkHeadingsForFlip(sceneId) {
+    projectState.sceneLinks.forEach((l) => {
+      if (l.sourceSceneId !== sceneId) return;
+      l.heading = _normDeg(-l.heading);
+    });
+  }
+
+  // ---- Import validation (docs 7.1 / 5.1) ----
+  // createSceneLink()/setSceneLinkTarget() enforce the docs 5.1 invariants at
+  // the commit point, but a project JSON is hand-editable and can also come
+  // from an older build, so the import path re-derives them instead of
+  // trusting the payload. Rejected on the way in:
+  //   - a missing id, or an id repeated inside the same payload
+  //   - a missing endpoint, a self-link, or an endpoint that is not a scene
+  //     in the post-merge scene set
+  //   - a second ENABLED sourceSceneId -> targetSceneId edge. Disabled rows
+  //     are exempt: 5.1 constrains the enabled edge set only, so any number
+  //     of disabled links may sit on the same pair.
+  // Headings are normalised so hand-written or legacy degrees can't leak in
+  // out of range or fractional.
+  //
+  // Merge shape follows the marker merge in the importer (merge-with-
+  // replace-by-id): an imported link replaces the existing link that shares
+  // its id, and links the payload never mentions are kept. Import appends
+  // scenes (scenes.push(...newScenes)) rather than replacing them, so those
+  // links' endpoints are still present afterwards and dropping them would be
+  // silent data loss.
+  //
+  // Replacement is transactional per id: a candidate is committed into the
+  // graph only once it has cleared every check, so rejecting it never costs
+  // the link it was going to replace. Dropping the old row up front and
+  // validating afterwards loses both - the incoming row is refused and the
+  // row it targeted is already gone (existing X: A->B and Y: C->D with an
+  // incoming X: C->D would otherwise leave Y alone).
+  //
+  // Returns the links actually adopted from the payload.
+  function _restoreSceneLinksFromData(data) {
+    const incoming = (data && data.sceneLinks) || [];
+    if (!Array.isArray(incoming)) return [];
+
+    const validIds = new Set(scenes.map(s => s.id));
+    // Encoded rather than string-joined, so the key stays unambiguous even
+    // for hand-written ids that contain whatever separator we would pick.
+    const pairKey  = l => JSON.stringify([l.sourceSceneId, l.targetSceneId]);
+
+    // Working copy of the live graph, written to only on acceptance.
+    const merged   = projectState.sceneLinks.slice();
+    const consumed = new Set(); // ids already claimed by a row in this payload
+    const restored = [];
+
+    incoming.forEach((ld) => {
+      if (!ld || !ld.id || consumed.has(ld.id)) return;
+      if (!ld.sourceSceneId || !ld.targetSceneId) return;
+      if (ld.sourceSceneId === ld.targetSceneId) return;
+      if (!validIds.has(ld.sourceSceneId) || !validIds.has(ld.targetSceneId)) return;
+      consumed.add(ld.id);
+
+      // Unusable degrees (absent, Infinity, non-numeric) fall back to 0
+      // rather than poisoning the heading with NaN.
+      const deg  = Number(ld.heading);
+      const link = {
+        id:            ld.id,
+        sourceSceneId: ld.sourceSceneId,
+        targetSceneId: ld.targetSceneId,
+        heading:       _normDeg(Number.isFinite(deg) ? deg : 0),
+        label:         ld.label || '',
+        order:         ld.order || (restored.length + 1),
+        enabled:       ld.enabled !== false,
+      };
+
+      // The row being replaced is excluded from its own collision check, so
+      // an incoming link may keep the edge its predecessor already held.
+      const at = merged.findIndex(l => l.id === link.id);
+      if (link.enabled) {
+        const key = pairKey(link);
+        if (merged.some((l, i) => i !== at && l.enabled && pairKey(l) === key)) return;
+      }
+
+      if (at >= 0) merged[at] = link; else merged.push(link);
+      restored.push(link);
+    });
+
+    projectState.sceneLinks = merged;
+    return restored;
+  }
+
+  // Test-only hook. B2 ships the data model without any UI, so these are the
+  // same production commit points B3 will wire to buttons — reached here
+  // directly because no button exists yet. Same never-read-by-production
+  // rule as window.__historyManagerForTests / __viewerPreviewTestHooks /
+  // __activeCompareSetIdForTests.
+  window.__sceneLinkTestHooks = {
+    create:     createSceneLink,
+    remove:     deleteSceneLink,
+    setHeading: setSceneLinkHeading,
+    setTarget:  setSceneLinkTarget,
+    setLabel:   setSceneLinkLabel,
+    list:       () => projectState.sceneLinks.map(l => ({ ...l })),
+    sceneIds:   () => scenes.map(s => s.id),
+    thetaDegOf: (linkId) => {
+      const l = projectState.sceneLinks.find(x => x.id === linkId);
+      return l ? _sceneLinkThetaDeg(l) : null;
+    },
+    importForTests:      (data) => _restoreSceneLinksFromData(data),
+    deleteSceneForTests: (sceneId) => {
+      const idx = scenes.findIndex(s => s.id === sceneId);
+      if (idx >= 0) deleteScene(idx);
+    },
+  };
+
+  // ============================================================
   // Marker order swap — U3: Undo/Redo expansion
   // (docs/UndoRedo_Expansion_Implementation_Plan.md U3: マーカー番号swap)
   // ============================================================
@@ -7616,6 +7942,9 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
         rotationOffset: f.rotationOffset || 0,
       })),
       markers: projectState.markers.map((m, i) => ({ ...m, order: m.order || (i + 1) })),
+      // B2: additive and optional — an older build simply ignores this key,
+      // and a project written before B2 imports as an empty graph.
+      sceneLinks: projectState.sceneLinks.map(l => ({ ...l })),
       compareSets: _loadCompareSets(),
     };
   }
@@ -7877,6 +8206,11 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       ...newMarkers,
     ];
     const restoredMk = newMarkers.length;
+
+    // sceneLinks (B2) — after scenes are restored, so endpoint validation
+    // can resolve against the real scene set.
+    const restoredLinks = _restoreSceneLinksFromData(_importData).length;
+    void restoredLinks;
 
     // Compare sets
     let restoredCs = 0;
