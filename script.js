@@ -2080,6 +2080,12 @@ function init() {
 
     sceneListEl.querySelector('.scene-item.active')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+    // The sceneLink panel (B3) is scoped to the scene currently open, so it
+    // follows every repaint of this list: scene switch, add, delete, rename
+    // and import all land here. Link-only mutations repaint from the
+    // applySceneLink* functions instead, which is what covers undo/redo.
+    renderSceneLinkPanel();
   }
 
   function _createSceneItem(i) {
@@ -7003,6 +7009,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       projectState.sceneLinks = projectState.sceneLinks.filter(l => l.id !== link.id);
     }
     markProjectDirty(isPresent ? 'リンク作成' : 'リンク削除');
+    renderSceneLinkPanel();
   }
 
   function applySceneLinkHeading(linkId, heading) {
@@ -7010,6 +7017,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!l) return;
     l.heading = _normDeg(heading);
     markProjectDirty('リンク方向の変更');
+    renderSceneLinkPanel();
   }
 
   function applySceneLinkTarget(linkId, targetSceneId) {
@@ -7017,6 +7025,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!l) return;
     l.targetSceneId = targetSceneId;
     markProjectDirty('リンク先の変更');
+    renderSceneLinkPanel();
   }
 
   function applySceneLinkLabel(linkId, label) {
@@ -7024,6 +7033,15 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!l) return;
     l.label = label;
     markProjectDirty('リンク名称の変更');
+    renderSceneLinkPanel();
+  }
+
+  function applySceneLinkEnabled(linkId, enabled) {
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    l.enabled = !!enabled;
+    markProjectDirty('リンク有効/無効の変更');
+    renderSceneLinkPanel();
   }
 
   // ---- Commit points (Editor-only, exactly one history entry each) ----
@@ -7114,6 +7132,27 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       label: 'Scene link label',
       undo: () => applySceneLinkLabel(linkId, before),
       redo: () => applySceneLinkLabel(linkId, after),
+    });
+  }
+
+  // Re-enabling has to re-check the docs 5.1 invariant: a disabled link may
+  // sit on a pair another enabled link already owns, so switching it back on
+  // could otherwise create the second enabled edge the contract forbids.
+  // Disabling is always allowed.
+  function setSceneLinkEnabled(linkId, enabled) {
+    if (!assertEditorMode('リンク有効/無効の変更')) return;
+    const l = projectState.sceneLinks.find(x => x.id === linkId);
+    if (!l) return;
+    const before = l.enabled !== false;
+    const after  = !!enabled;
+    if (after === before) return; // genuine no-op
+    if (after && projectState.sceneLinks.some(x => x.id !== linkId && x.enabled &&
+        x.sourceSceneId === l.sourceSceneId && x.targetSceneId === l.targetSceneId)) return;
+    applySceneLinkEnabled(linkId, after);
+    historyManager.push({
+      label: 'Scene link enabled',
+      undo: () => applySceneLinkEnabled(linkId, before),
+      redo: () => applySceneLinkEnabled(linkId, after),
     });
   }
 
@@ -7262,6 +7301,238 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       const idx = scenes.findIndex(s => s.id === sceneId);
       if (idx >= 0) deleteScene(idx);
     },
+  };
+
+  // ============================================================
+  // sceneLink Editor UI — B3
+  // (docs/SceneLink_TourGraph_Investigation.md)
+  // ============================================================
+  // A sidebar section under the scene list showing the OUTGOING links of the
+  // scene currently open, because that is the only scene whose camera
+  // direction the user can actually read off the panorama. Every mutation
+  // goes through the B2 commit points above — this layer never touches
+  // projectState.sceneLinks itself, so one user action stays one history
+  // entry and undo/redo replay stays free of new entries. Rendering is
+  // driven from the apply* functions, which is what makes undo/redo repaint
+  // the panel without the UI knowing anything about HistoryManager.
+  //
+  // Editor-only twice over: the section carries `.editor-only` (CSS) and
+  // every handler bottoms out in a commit point that calls
+  // assertEditorMode(). PR #13's lesson is that CSS visibility is never the
+  // boundary, so a Viewer-side dispatchEvent() reaches a real guard.
+  //
+  // Out of scope here: Viewer link navigation (B4), panorama hotspots,
+  // FloorMap link drawing, the VR Scene Ring (B5), and `order` editing —
+  // order is still assigned at creation time only.
+
+  const sceneLinkSection   = $('scene-link-section');
+  const sceneLinkForm      = $('scene-link-form');
+  const sceneLinkAddBtn    = $('scene-link-add-btn');
+  const sceneLinkTargetSel = $('scene-link-target-select');
+  const sceneLinkHeadingIn = $('scene-link-heading-input');
+  const sceneLinkHeadCamBtn= $('scene-link-heading-cam-btn');
+  const sceneLinkLabelIn   = $('scene-link-label-input');
+  const sceneLinkCreateBtn = $('scene-link-create-btn');
+  const sceneLinkCancelBtn = $('scene-link-cancel-btn');
+  const sceneLinkListEl    = $('scene-link-list');
+  const sceneLinkEmptyEl   = $('scene-link-empty');
+
+  function _currentSceneForLinks() {
+    return currentIdx >= 0 ? scenes[currentIdx] : null;
+  }
+
+  // Camera yaw -> the same marker-space degrees sceneLink.heading stores
+  // (docs 6.2). thetaToFloorRotation() already applies the flipH sign, so
+  // this is exactly the encoding marker.rotation uses for the same camera.
+  function _currentCameraHeadingDeg() {
+    const s = _currentSceneForLinks();
+    if (!s) return 0;
+    return _normDeg(thetaToFloorRotation(theta, s.flipH || false));
+  }
+
+  function _sceneNameById(id) {
+    const s = scenes.find(x => x.id === id);
+    return s ? s.name : '(削除済みシーン)';
+  }
+
+  // Options are every scene except `excludeId` — the source scene can never
+  // be its own target (docs 5.1), so it is never offered in the first place
+  // rather than only rejected on commit.
+  function _fillSceneLinkTargetOptions(selectEl, excludeId, selectedId) {
+    selectEl.innerHTML = '';
+    scenes.forEach((s) => {
+      if (s.id === excludeId) return;
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (s.id === selectedId) opt.selected = true;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function _hideSceneLinkForm() {
+    if (sceneLinkForm) sceneLinkForm.style.display = 'none';
+  }
+
+  function _openSceneLinkForm() {
+    if (!canMutateProject()) return;
+    const src = _currentSceneForLinks();
+    if (!src || scenes.length < 2) { showToast('リンクを作成するにはシーンが2つ以上必要です'); return; }
+    _fillSceneLinkTargetOptions(sceneLinkTargetSel, src.id, null);
+    sceneLinkHeadingIn.value = String(_currentCameraHeadingDeg());
+    sceneLinkLabelIn.value = '';
+    sceneLinkForm.style.display = '';
+  }
+
+  function _commitSceneLinkForm() {
+    if (!canMutateProject()) return;
+    const src = _currentSceneForLinks();
+    if (!src) return;
+    const targetSceneId = sceneLinkTargetSel.value;
+    if (!targetSceneId) return;
+    const id = createSceneLink({
+      sourceSceneId: src.id,
+      targetSceneId,
+      heading: Number(sceneLinkHeadingIn.value),
+      label:   sceneLinkLabelIn.value.trim(),
+    });
+    if (!id) {
+      // The only rejection reachable from here: an enabled link for this
+      // pair already exists (self-target is not offered, both scenes exist).
+      showToast('同じリンク先への有効なリンクが既にあります');
+      return;
+    }
+    _hideSceneLinkForm();
+  }
+
+  // Builds one editable row. Rebuilt wholesale on every render — the rows
+  // hold no state of their own, so there is nothing to preserve across a
+  // repaint, and a stale row can never outlive the link it edits.
+  function _buildSceneLinkRow(link, sourceSceneId) {
+    const li = document.createElement('li');
+    li.className = 'scene-link-item' + (link.enabled ? '' : ' is-disabled');
+    li.dataset.linkId = link.id;
+
+    const top = document.createElement('div');
+    top.className = 'scene-link-item-row';
+
+    const enabled = document.createElement('input');
+    enabled.type = 'checkbox';
+    enabled.className = 'scene-link-item-enabled';
+    enabled.checked = link.enabled !== false;
+    enabled.title = '有効 / 無効';
+    enabled.addEventListener('change', () => {
+      setSceneLinkEnabled(link.id, enabled.checked);
+      // Re-enabling can be refused when another enabled link owns the pair;
+      // the box must go back to what state actually says.
+      renderSceneLinkPanel();
+    });
+
+    const name = document.createElement('span');
+    name.className = 'scene-link-item-name';
+    name.textContent = _sceneNameById(link.targetSceneId);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'scene-link-item-del';
+    del.textContent = '🗑';
+    del.title = 'このリンクを削除';
+    del.addEventListener('click', () => deleteSceneLink(link.id));
+
+    top.append(enabled, name, del);
+
+    const mid = document.createElement('div');
+    mid.className = 'scene-link-item-row';
+
+    const target = document.createElement('select');
+    target.className = 'scene-link-item-target';
+    target.title = 'リンク先シーン';
+    _fillSceneLinkTargetOptions(target, sourceSceneId, link.targetSceneId);
+    target.addEventListener('change', () => {
+      setSceneLinkTarget(link.id, target.value);
+      renderSceneLinkPanel(); // a refused retarget must not leave the picker lying
+    });
+
+    const heading = document.createElement('input');
+    heading.type = 'number';
+    heading.className = 'scene-link-item-heading';
+    heading.min = '0'; heading.max = '359'; heading.step = '1';
+    heading.value = String(link.heading);
+    heading.title = '向き (0-359°)';
+    heading.addEventListener('change', () => {
+      const v = Number(heading.value);
+      if (Number.isFinite(v) && heading.value !== '') setSceneLinkHeading(link.id, v);
+      // Repaint even when the commit was a no-op or was refused: 450 and 90
+      // are the same stored heading, so the field has to snap back to the
+      // canonical value instead of keeping whatever was typed.
+      renderSceneLinkPanel();
+    });
+
+    const cam = document.createElement('button');
+    cam.type = 'button';
+    cam.className = 'scene-link-item-cam';
+    cam.textContent = '📷';
+    cam.title = '現在のカメラ方向を取得';
+    cam.addEventListener('click', () => setSceneLinkHeading(link.id, _currentCameraHeadingDeg()));
+
+    mid.append(target, heading, cam);
+
+    const bottom = document.createElement('div');
+    bottom.className = 'scene-link-item-row';
+
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.className = 'scene-link-item-label';
+    label.maxLength = 60;
+    label.placeholder = 'ラベル (任意)';
+    label.value = link.label || '';
+    label.addEventListener('change', () => {
+      setSceneLinkLabel(link.id, label.value.trim());
+      renderSceneLinkPanel(); // snap back when trimming made the commit a no-op
+    });
+
+    bottom.append(label);
+
+    li.append(top, mid, bottom);
+    return li;
+  }
+
+  // Repaints the panel from projectState. Safe to call at any time — it is
+  // wired into renderSceneList() (scene switch/add/delete/import) and into
+  // the apply* functions (link mutations, including undo/redo replay), so
+  // no caller has to remember to refresh it.
+  function renderSceneLinkPanel() {
+    if (!sceneLinkSection || !sceneLinkListEl) return;
+    const src = _currentSceneForLinks();
+    sceneLinkListEl.innerHTML = '';
+    if (!src) {
+      _hideSceneLinkForm();
+      if (sceneLinkEmptyEl) sceneLinkEmptyEl.style.display = '';
+      return;
+    }
+    const outgoing = projectState.sceneLinks
+      .filter(l => l.sourceSceneId === src.id)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    outgoing.forEach(l => sceneLinkListEl.appendChild(_buildSceneLinkRow(l, src.id)));
+    if (sceneLinkEmptyEl) sceneLinkEmptyEl.style.display = outgoing.length ? 'none' : '';
+  }
+
+  if (sceneLinkAddBtn)     sceneLinkAddBtn.addEventListener('click', _openSceneLinkForm);
+  if (sceneLinkCreateBtn)  sceneLinkCreateBtn.addEventListener('click', _commitSceneLinkForm);
+  if (sceneLinkCancelBtn)  sceneLinkCancelBtn.addEventListener('click', _hideSceneLinkForm);
+  if (sceneLinkHeadCamBtn) sceneLinkHeadCamBtn.addEventListener('click', () => {
+    if (!canMutateProject()) return;
+    sceneLinkHeadingIn.value = String(_currentCameraHeadingDeg());
+  });
+
+  // Test-only hook, same never-read-by-production rule as
+  // window.__sceneLinkTestHooks / __historyManagerForTests. Exposes only the
+  // two things a UI test cannot otherwise observe: the camera-derived
+  // heading the 📷 buttons write, and an explicit repaint for the import
+  // path (import is driven directly in tests, bypassing renderSceneList()).
+  window.__sceneLinkUiTestHooks = {
+    currentCameraHeading: () => _currentCameraHeadingDeg(),
+    refresh:              () => renderSceneLinkPanel(),
   };
 
   // ============================================================
