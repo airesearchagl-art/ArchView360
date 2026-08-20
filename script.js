@@ -7109,8 +7109,13 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (targetSceneId === l.sourceSceneId) return;
     const before = l.targetSceneId;
     if (targetSceneId === before) return;
-    // Retargeting must not create a duplicate enabled pair either.
-    if (projectState.sceneLinks.some(x => x.id !== linkId && x.enabled &&
+    // Retargeting must not create a duplicate ENABLED pair — but only the
+    // edited link being enabled can create one. docs 5.1 constrains the
+    // enabled edge set alone, so a disabled link may freely land on a pair
+    // an enabled link already owns; refusing that would make this editor
+    // unable to express a state the model and the import path both allow.
+    // Re-enabling such a duplicate stays refused by setSceneLinkEnabled().
+    if (l.enabled !== false && projectState.sceneLinks.some(x => x.id !== linkId && x.enabled &&
         x.sourceSceneId === l.sourceSceneId && x.targetSceneId === targetSceneId)) return;
     applySceneLinkTarget(linkId, targetSceneId);
     historyManager.push({
@@ -7337,6 +7342,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   const sceneLinkListEl    = $('scene-link-list');
   const sceneLinkEmptyEl   = $('scene-link-empty');
 
+  // The scene the open create form belongs to, or null when no form is
+  // open. The form holds a heading read off THIS scene's panorama and a
+  // target list that excludes THIS scene, so it is meaningless anywhere
+  // else — tracking the id explicitly (rather than inferring validity from
+  // the form being visible) is what makes scene switch and scene deletion
+  // invalidate it in one place.
+  let sceneLinkFormSourceId = null;
+
   function _currentSceneForLinks() {
     return currentIdx >= 0 ? scenes[currentIdx] : null;
   }
@@ -7372,12 +7385,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   function _hideSceneLinkForm() {
     if (sceneLinkForm) sceneLinkForm.style.display = 'none';
+    sceneLinkFormSourceId = null;
   }
 
   function _openSceneLinkForm() {
     if (!canMutateProject()) return;
     const src = _currentSceneForLinks();
     if (!src || scenes.length < 2) { showToast('リンクを作成するにはシーンが2つ以上必要です'); return; }
+    sceneLinkFormSourceId = src.id;
     _fillSceneLinkTargetOptions(sceneLinkTargetSel, src.id, null);
     sceneLinkHeadingIn.value = String(_currentCameraHeadingDeg());
     sceneLinkLabelIn.value = '';
@@ -7387,7 +7402,14 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   function _commitSceneLinkForm() {
     if (!canMutateProject()) return;
     const src = _currentSceneForLinks();
-    if (!src) return;
+    // Re-check the binding at commit time: the form's heading and target
+    // options were built for sceneLinkFormSourceId, so combining them with
+    // any other current scene would silently store an A-derived heading on
+    // a B link. A mismatch is a closed form, never a create.
+    if (!src || !sceneLinkFormSourceId || src.id !== sceneLinkFormSourceId) {
+      _hideSceneLinkForm();
+      return;
+    }
     const targetSceneId = sceneLinkTargetSel.value;
     if (!targetSceneId) return;
     const id = createSceneLink({
@@ -7505,6 +7527,10 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     if (!sceneLinkSection || !sceneLinkListEl) return;
     const src = _currentSceneForLinks();
     sceneLinkListEl.innerHTML = '';
+    // An open form outlives neither a scene switch nor the deletion of the
+    // scene it was opened on. A rename leaves the id alone, so the form
+    // stays up with the heading the user already captured.
+    if (sceneLinkFormSourceId && (!src || src.id !== sceneLinkFormSourceId)) _hideSceneLinkForm();
     if (!src) {
       _hideSceneLinkForm();
       if (sceneLinkEmptyEl) sceneLinkEmptyEl.style.display = '';
@@ -7522,6 +7548,10 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   if (sceneLinkCancelBtn)  sceneLinkCancelBtn.addEventListener('click', _hideSceneLinkForm);
   if (sceneLinkHeadCamBtn) sceneLinkHeadCamBtn.addEventListener('click', () => {
     if (!canMutateProject()) return;
+    // Same binding rule as the commit: only write a heading into a form
+    // that belongs to the scene the camera is currently looking at.
+    const src = _currentSceneForLinks();
+    if (!src || src.id !== sceneLinkFormSourceId) return;
     sceneLinkHeadingIn.value = String(_currentCameraHeadingDeg());
   });
 

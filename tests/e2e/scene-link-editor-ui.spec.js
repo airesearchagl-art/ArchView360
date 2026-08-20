@@ -237,6 +237,138 @@ test.describe('sceneLink Editor UI: create, edit, delete', () => {
   });
 });
 
+// docs 5.1 constrains the ENABLED edge set only, so several disabled links
+// may share one source->target pair. The row target editor has to be able to
+// express that state, while re-enabling one of those duplicates stays
+// refused until the conflicting enabled edge is gone.
+test.describe('sceneLink Editor UI: disabled links and the enabled-pair rule', () => {
+  // Leaves the panel with L1 = a->b enabled (row 0) and L2 = a->c disabled
+  // (row 1), both created and disabled through the real UI.
+  async function twoLinksSecondDisabled(page) {
+    await createLinkViaUi(page, { targetName: 'fixture-b', heading: 10, label: 'L1' });
+    await createLinkViaUi(page, { targetName: 'fixture-c', heading: 20, label: 'L2' });
+    await expect(linkItems(page)).toHaveCount(2);
+    await linkItems(page).nth(1).locator('.scene-link-item-enabled').uncheck({ force: true });
+    await expect.poll(async () => (await links(page)).find(l => l.label === 'L2').enabled).toBe(false);
+  }
+
+  test('a disabled link can be retargeted onto a pair an enabled link already owns', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await twoLinksSecondDisabled(page);
+    const before = await historyCounts(page);
+
+    await linkItems(page).nth(1).locator('.scene-link-item-target').selectOption({ label: 'fixture-b' });
+
+    const all = await links(page);
+    const l2 = all.find(l => l.label === 'L2');
+    const l1 = all.find(l => l.label === 'L1');
+    expect(l2.targetSceneId).toBe(l1.targetSceneId); // both now a->b
+    expect(l2.enabled).toBe(false);                  // retargeting never re-enables
+    expect(l1.enabled).toBe(true);                   // exactly one enabled edge
+    expect(await historyCounts(page)).toEqual({ undoCount: before.undoCount + 1, redoCount: 0 });
+    await expect(linkItems(page).nth(1).locator('.scene-link-item-name')).toHaveText('fixture-b');
+
+    expectNoErrors(errors);
+  });
+
+  test('re-enabling a disabled duplicate is still refused and the checkbox re-syncs', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await twoLinksSecondDisabled(page);
+    await linkItems(page).nth(1).locator('.scene-link-item-target').selectOption({ label: 'fixture-b' });
+    await expect.poll(async () => (await links(page)).find(l => l.label === 'L2').targetSceneId)
+      .toBe((await links(page)).find(l => l.label === 'L1').targetSceneId);
+    const before = await historyCounts(page);
+
+    // click(), not check(): check() retries until the box reports checked,
+    // and the whole point here is that it must snap back to unchecked.
+    await linkItems(page).nth(1).locator('.scene-link-item-enabled').click({ force: true });
+
+    // The enabled edge a->b is already taken, so the commit is refused and
+    // the box must go back to what state actually says.
+    expect((await links(page)).find(l => l.label === 'L2').enabled).toBe(false);
+    expect(await historyCounts(page)).toEqual(before);
+    await expect(linkItems(page).nth(1).locator('.scene-link-item-enabled')).not.toBeChecked();
+
+    expectNoErrors(errors);
+  });
+});
+
+// The create form carries a heading read off the panorama of one specific
+// scene and a target list that excludes that same scene, so it is only ever
+// valid for the scene that opened it.
+test.describe('sceneLink Editor UI: create form is bound to its source scene', () => {
+  test('switching scenes closes an open form, and the stale form cannot create a link', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    await page.click('#scene-link-add-btn', { force: true });
+    await expect(page.locator('#scene-link-form')).toBeVisible();
+    await page.locator('#scene-link-heading-input').fill('123');
+    await page.locator('#scene-link-label-input').fill('stale');
+
+    await sceneItems(page).nth(1).click({ force: true });
+    await expect(page.locator('#current-scene-name')).toHaveText('fixture-b');
+    await expect(page.locator('#scene-link-form')).toBeHidden();
+
+    const before = await historyCounts(page);
+    // Hidden is not a boundary: drive the create button directly.
+    await page.evaluate(() => document.getElementById('scene-link-create-btn').click());
+
+    expect(await links(page)).toEqual([]);
+    expect(await historyCounts(page)).toEqual(before);
+    await expect(dirtyIndicator(page)).toBeHidden();
+    await expect(linkItems(page)).toHaveCount(0);
+
+    expectNoErrors(errors);
+  });
+
+  test('deleting the source scene closes an open form', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    await page.click('#scene-link-add-btn', { force: true });
+    await expect(page.locator('#scene-link-form')).toBeVisible();
+
+    await sceneItems(page).nth(0).locator('.scene-delete-btn').click({ force: true });
+    await expect(sceneItems(page)).toHaveCount(2);
+    await expect(page.locator('#scene-link-form')).toBeHidden();
+
+    const before = await historyCounts(page);
+    await page.evaluate(() => document.getElementById('scene-link-create-btn').click());
+    expect(await links(page)).toEqual([]);
+    expect(await historyCounts(page)).toEqual(before);
+
+    expectNoErrors(errors);
+  });
+
+  test('renaming the source scene keeps the form open with its captured heading', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    await page.click('#scene-link-add-btn', { force: true });
+    await page.locator('#scene-link-heading-input').fill('123');
+
+    // A rename repaints the panel but the scene id is unchanged, so the form
+    // is still valid and must survive.
+    const nameEl = page.locator('.scene-name').first();
+    await nameEl.dblclick();
+    await page.keyboard.type('renamed-a');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#current-scene-name')).toHaveText('renamed-a');
+
+    await expect(page.locator('#scene-link-form')).toBeVisible();
+    await expect(page.locator('#scene-link-heading-input')).toHaveValue('123');
+
+    await page.click('#scene-link-create-btn', { force: true });
+    await expect(linkItems(page)).toHaveCount(1);
+    expect((await links(page))[0].heading).toBe(123);
+
+    expectNoErrors(errors);
+  });
+});
+
 test.describe('sceneLink Editor UI: undo/redo', () => {
   test('undo/redo of a UI-created link updates the panel both ways', async ({ page }) => {
     const errors = await gotoApp(page);
