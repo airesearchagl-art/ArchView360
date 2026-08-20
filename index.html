@@ -121,6 +121,40 @@
 
         <ul id="scene-list" class="scene-list"></ul>
 
+        <!-- シーンリンク (B3): 現在のシーンから出ているリンクだけを扱う -->
+        <div id="scene-link-section" class="scene-link-section editor-only">
+          <div class="scene-link-hd">
+            <span class="scene-link-title">シーンリンク</span>
+            <button id="scene-link-add-btn" class="sidebar-btn" title="現在のシーンからのリンクを追加">＋ 追加</button>
+          </div>
+          <div id="scene-link-form" class="scene-link-form" style="display:none">
+            <label class="scene-link-field">
+              <span class="scene-link-field-label">リンク先</span>
+              <select id="scene-link-target-select" class="scene-link-input"></select>
+            </label>
+            <label class="scene-link-field">
+              <span class="scene-link-field-label">向き</span>
+              <span class="scene-link-heading-row">
+                <input id="scene-link-heading-input" class="scene-link-input scene-link-num" type="number" min="0" max="359" step="1" value="0">
+                <button id="scene-link-heading-cam-btn" type="button" class="scene-link-cam-btn" title="現在のカメラ方向を取得">📷 現在の向き</button>
+              </span>
+            </label>
+            <label class="scene-link-field">
+              <span class="scene-link-field-label">ラベル</span>
+              <input id="scene-link-label-input" class="scene-link-input" type="text" maxlength="60" placeholder="任意">
+            </label>
+            <div class="scene-link-form-actions">
+              <button id="scene-link-create-btn" type="button" class="sidebar-btn">作成</button>
+              <button id="scene-link-cancel-btn" type="button" class="sidebar-btn">キャンセル</button>
+            </div>
+          </div>
+          <ul id="scene-link-list" class="scene-link-list"></ul>
+          <div id="scene-link-empty" class="scene-link-empty">
+            <p>このシーンからのリンクはありません</p>
+            <p class="scene-link-empty-hint">「＋ 追加」でリンク先シーンを選びます</p>
+          </div>
+        </div>
+
         <!-- 平面図一覧 -->
         <div id="floorplan-section" class="floorplan-section">
           <div class="floorplan-section-hd">

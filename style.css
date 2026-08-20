@@ -854,6 +854,197 @@ body {
   display: block;
 }
 
+/* ===== Scene Link Section (sidebar, B3) ===== */
+/* Sits directly under the scene list because every row here belongs to the
+   currently open scene — same sidebar-section shape as .floorplan-section
+   below, just with editable rows instead of selectable ones. */
+.scene-link-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  max-height: 210px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.scene-link-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 10px 3px;
+  flex-shrink: 0;
+}
+
+.scene-link-title {
+  font-size: .67rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.scene-link-form {
+  flex-shrink: 0;
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.scene-link-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scene-link-field-label {
+  flex: 0 0 46px;
+  font-size: .64rem;
+  color: var(--text-muted);
+}
+
+.scene-link-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 5px;
+  font-size: .70rem;
+  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.scene-link-heading-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scene-link-num { flex: 0 0 60px; }
+
+.scene-link-cam-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: .62rem;
+  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-link-cam-btn:hover { border-color: var(--accent); color: var(--accent-h); }
+
+.scene-link-form-actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.scene-link-list {
+  overflow-y: auto;
+  flex: 1;
+  margin: 0;
+  padding: 2px 5px 3px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scene-link-item {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scene-link-item.is-disabled { opacity: .55; }
+
+.scene-link-item-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.scene-link-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: .70rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-link-item-del {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: .70rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scene-link-item-del:hover { color: var(--error); border-color: var(--error); }
+
+.scene-link-item-enabled { flex-shrink: 0; cursor: pointer; }
+
+.scene-link-item-target,
+.scene-link-item-heading,
+.scene-link-item-label {
+  padding: 2px 4px;
+  font-size: .66rem;
+  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.scene-link-item-target { flex: 1; }
+.scene-link-item-heading { flex: 0 0 54px; }
+.scene-link-item-label { flex: 1; }
+
+.scene-link-item-cam {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  font-size: .66rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scene-link-item-cam:hover { border-color: var(--accent); }
+
+.scene-link-empty {
+  padding: 4px 10px 6px;
+  font-size: .70rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.scene-link-empty-hint {
+  font-size: .64rem;
+  opacity: .7;
+}
+
 /* ===== Floor Plan Section (sidebar) ===== */
 .floorplan-section {
   flex-shrink: 0;
