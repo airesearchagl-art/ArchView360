@@ -1130,6 +1130,17 @@ function init() {
   // above.
   window.__activeCompareSetIdForTests = () => compareState.activeSetId;
 
+  // Same reasoning for the compare pair itself: the A/B badges in the scene
+  // list are only painted by renderSceneList(), which entering compare mode
+  // does not call, so they lag the real state and cannot be used to assert
+  // that something left the comparison untouched (B4 sceneLink navigation).
+  // Getter, never read by production code.
+  window.__compareStateForTests = () => ({
+    mode:        compareState.mode,
+    sceneAIndex: compareState.sceneAIndex,
+    sceneBIndex: compareState.sceneBIndex,
+  });
+
   // ---- Picker state ----
   let pickerActiveSide = null; // null | 'a' | 'b'
 
@@ -2086,6 +2097,7 @@ function init() {
     // and import all land here. Link-only mutations repaint from the
     // applySceneLink* functions instead, which is what covers undo/redo.
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   function _createSceneItem(i) {
@@ -7010,6 +7022,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     }
     markProjectDirty(isPresent ? 'リンク作成' : 'リンク削除');
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   function applySceneLinkHeading(linkId, heading) {
@@ -7018,6 +7031,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     l.heading = _normDeg(heading);
     markProjectDirty('リンク方向の変更');
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   function applySceneLinkTarget(linkId, targetSceneId) {
@@ -7026,6 +7040,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     l.targetSceneId = targetSceneId;
     markProjectDirty('リンク先の変更');
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   function applySceneLinkLabel(linkId, label) {
@@ -7034,6 +7049,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     l.label = label;
     markProjectDirty('リンク名称の変更');
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   function applySceneLinkEnabled(linkId, enabled) {
@@ -7042,6 +7058,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     l.enabled = !!enabled;
     markProjectDirty('リンク有効/無効の変更');
     renderSceneLinkPanel();
+    renderSceneLinkNav();
   }
 
   // ---- Commit points (Editor-only, exactly one history entry each) ----
@@ -7295,6 +7312,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     setHeading: setSceneLinkHeading,
     setTarget:  setSceneLinkTarget,
     setLabel:   setSceneLinkLabel,
+    setEnabled: setSceneLinkEnabled,
     list:       () => projectState.sceneLinks.map(l => ({ ...l })),
     sceneIds:   () => scenes.map(s => s.id),
     thetaDegOf: (linkId) => {
@@ -7306,6 +7324,12 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
       const idx = scenes.findIndex(s => s.id === sceneId);
       if (idx >= 0) deleteScene(idx);
     },
+    // Injects a link straight into state, past every validator. No
+    // production path can produce a dangling target — import drops them and
+    // scene deletion cascades them away — so the renderers' own
+    // target-must-exist guard is defence in depth that can only be
+    // exercised by planting one deliberately.
+    forceLinkForTests: (link) => { projectState.sceneLinks.push({ ...link }); },
   };
 
   // ============================================================
@@ -7555,6 +7579,104 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     sceneLinkHeadingIn.value = String(_currentCameraHeadingDeg());
   });
 
+  // ============================================================
+  // sceneLink Viewer navigation — B4
+  // (docs/SceneLink_TourGraph_Investigation.md section 9)
+  // ============================================================
+  // The read-only counterpart of the B3 editor above: it turns the stored
+  // graph into a way to actually move between scenes. Section 9 lists link
+  // display and link traversal as available to Viewer as well as Editor
+  // (traversal is a viewing action, not a mutation), so this section is
+  // deliberately NOT `.editor-only` and ships in viewer.html too.
+  //
+  // It is an ADDITIONAL route, not a replacement: the scene list, the
+  // ArrowLeft/ArrowRight shortcuts and the FloorMap navigator all keep
+  // working exactly as before, and this reuses their switchToScene() rather
+  // than loading panoramas its own way.
+  //
+  // Nothing here can mutate the project: the only interactive element is a
+  // button whose handler calls switchToScene(). No dirty, no history entry.
+  //
+  // Out of scope for B4: panorama hotspots, FloorMap link drawing, and the
+  // VR Scene Ring (B5). `heading` is deliberately NOT rendered here — it is
+  // reserved as the B5 input, so no direction-drawing logic is introduced
+  // ahead of that.
+
+  const sceneLinkNavSection = $('scene-link-nav-section');
+  const sceneLinkNavListEl  = $('scene-link-nav-list');
+
+  // Enabled outgoing links of the current scene whose target still resolves
+  // to a real scene, in `order`. Array#sort is stable, so links sharing an
+  // order keep the order they were created/imported in.
+  function _navigableLinksForCurrentScene() {
+    const src = _currentSceneForLinks();
+    if (!src) return [];
+    const byId = new Map(scenes.map(s => [s.id, s]));
+    return projectState.sceneLinks
+      .filter(l => l.sourceSceneId === src.id)
+      .filter(l => l.enabled !== false)
+      .filter(l => byId.has(l.targetSceneId))   // dangling target: not shown, not walkable
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }
+
+  function _navigateSceneLink(link) {
+    // Re-resolve at activation time rather than trusting the row: the graph
+    // can have changed since it was rendered.
+    const idx = scenes.findIndex(s => s.id === link.targetSceneId);
+    if (idx < 0) return;
+    if (idx === currentIdx) return;
+    // Same call the scene list makes, including while comparing — compare
+    // state is deliberately left alone here rather than inventing new
+    // compare semantics for links.
+    switchToScene(idx);
+  }
+
+  function _buildSceneLinkNavRow(link) {
+    const target = scenes.find(s => s.id === link.targetSceneId);
+    const name   = target ? target.name : '';
+    const label  = (link.label || '').trim();
+
+    const li  = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'scene-link-nav-btn';
+    btn.dataset.linkId = link.id;
+    btn.title = `${label || name} へ移動`;
+
+    // Primary line is the label when there is one, the target scene name
+    // otherwise; the secondary line only exists to name the destination when
+    // the label alone would not.
+    const primary = document.createElement('span');
+    primary.className = 'scene-link-nav-label';
+    primary.textContent = label || name;
+    btn.appendChild(primary);
+    if (label) {
+      const secondary = document.createElement('span');
+      secondary.className = 'scene-link-nav-target';
+      secondary.textContent = name;
+      btn.appendChild(secondary);
+    }
+
+    // A real <button>: focusable and Enter/Space activated for free, with
+    // its visible text as the accessible name.
+    btn.addEventListener('click', () => _navigateSceneLink(link));
+    li.appendChild(btn);
+    return li;
+  }
+
+  // Repainted from the same places the B3 panel is: renderSceneList() (scene
+  // switch, add, delete, rename, import) and the applySceneLink* functions
+  // (link mutations, undo/redo replay included).
+  function renderSceneLinkNav() {
+    if (!sceneLinkNavSection || !sceneLinkNavListEl) return;
+    const usable = _navigableLinksForCurrentScene();
+    sceneLinkNavListEl.innerHTML = '';
+    usable.forEach(l => sceneLinkNavListEl.appendChild(_buildSceneLinkNavRow(l)));
+    // Nothing to navigate to means the whole section goes away rather than
+    // sitting in the sidebar as an empty box.
+    sceneLinkNavSection.style.display = usable.length ? '' : 'none';
+  }
+
   // Test-only hook, same never-read-by-production rule as
   // window.__sceneLinkTestHooks / __historyManagerForTests. Exposes only the
   // two things a UI test cannot otherwise observe: the camera-derived
@@ -7562,7 +7684,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // path (import is driven directly in tests, bypassing renderSceneList()).
   window.__sceneLinkUiTestHooks = {
     currentCameraHeading: () => _currentCameraHeadingDeg(),
-    refresh:              () => renderSceneLinkPanel(),
+    refresh:              () => { renderSceneLinkPanel(); renderSceneLinkNav(); },
   };
 
   // ============================================================
