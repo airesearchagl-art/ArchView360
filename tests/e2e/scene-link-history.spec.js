@@ -719,7 +719,10 @@ test.describe('sceneLink: flipH heading migration', () => {
     const id = await createLink(page, a, b, 90);
 
     const thetaBefore = await page.evaluate((lid) => window.__sceneLinkTestHooks.thetaDegOf(lid), id);
-    expect(thetaBefore).toBe(90);
+    // sign = flipH ? 1 : -1 (v2.24 orientation fix), so an unflipped scene
+    // recovers theta = normalize(-90) = 270. The value that matters below is
+    // that this does not move when the scene is flipped.
+    expect(thetaBefore).toBe(270);
 
     // Scene A is current (index 0) — flip it through the real toolbar path.
     await page.locator('#flip-btn').click();
