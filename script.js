@@ -402,14 +402,15 @@ function init() {
   // evenly-spaced item layout doesn't correspond to the actual direction of
   // each linked scene inside the 360° panorama, which reads as disorienting
   // now that the minimap (below) offers a spatially-grounded alternative.
-  // Scene Ring is temporarily suspended via this single feature flag rather
-  // than removed — all ring functions/state below are left fully intact so
-  // the ring can be re-enabled in one line once a future version aligns ring
-  // item positions with real in-panorama link directions (or a spatial-link
-  // system replaces it outright). Flipping this back to `true` alone is NOT
-  // sufficient to restore the old Left Menu binding — see
-  // _toggleVrMinimapModeViaMenu()'s comment for that half of the handoff.
-  const VR_SCENE_RING_ENABLED = false;
+  // v2.24 (B5-2): re-enabled. The alignment this was waiting for now exists
+  // — ring items are placed from sceneLink `heading` via
+  // _sceneLinkRingLayout()/_sceneLinkRingPosition(), so each item sits in the
+  // real in-panorama direction of the scene it links to instead of on a
+  // synthetic evenly-spaced circle. The Left Menu handoff was NOT taken
+  // back: button[12] stays the minimap compact/expanded control and the ring
+  // has no visibility toggle of its own — it simply appears when the current
+  // scene has links to show, and is empty when it does not.
+  const VR_SCENE_RING_ENABLED = true;
   let vrRingGroup = null;      // THREE.Group holding the ring item sprites (VR-only, never created outside a session)
   let vrRingItems = [];        // { mesh, sceneIdx, name, normalTexture, hoverTexture, baseScale }[]
   // Hover is tracked per hand so each laser can only be confirmed by the
@@ -453,24 +454,17 @@ function init() {
   const VR_RING_FADE_STEP = 0.06;  // per-frame opacity step (~0.3s at 60fps each way)
   const VR_RING_FADE_TIMEOUT_FRAMES = 300; // ~5s at 60fps: force fade-in if the texture never finishes loading
   // inputActive (v2.20.2): whether Ring hover/select processing actually ran
-  // this frame — VR_SCENE_RING_ENABLED && vrRingEnabled && !fading &&
+  // this frame — VR_SCENE_RING_ENABLED && items exist && !fading &&
   // !minimapExpanded, mirrored here so the Debug panel (which can't see
   // _updateVrSceneRing()'s local vars) can show "Scene Ring input active".
   const vrRingDebug = { hoveredLeft: '-', hoveredRight: '-', selectedName: '-', lastError: '-', inputActive: false };
 
-  // ---- VR Scene Ring visibility toggle (v2.17.1) ----
-  // VR-session-local only — reset to true every time the ring is (re)built
-  // and discarded on dispose; never persisted to project JSON/ZIP. Bound to
-  // Left Menu (button[12]), the only button/hand combination this project's
-  // own measured Quest Touch Plus mapping (README.md / docs/vr.html —
-  // "左コントローラーのMenu（button[12]）") documents as unused and
-  // unambiguous (there is no measured right-hand Menu button, so there is no
-  // handedness ambiguity to resolve here the way there was for Trigger).
-  let vrRingEnabled = true;
-  // Independent per-gamepad-object edge state for the toggle button, kept
-  // separate from vrRingTrigger (Trigger, button[0]) and from
-  // vrPrevButtonState (button[4]/[5]) above.
-  const vrRingTogglePrevPressed = new WeakMap();
+  // v2.24 (B5-2): the v2.17.1 ring-visibility toggle is gone along with its
+  // Left Menu binding and per-gamepad edge state. Now that ring items are
+  // built from the current scene's links, "is there a ring" is answered by
+  // whether that scene has any — vrRingItems.length — so a manual on/off
+  // switch has nothing left to express, and button[12] stays the minimap
+  // control it became in v2.20.2 rather than being taken back.
 
   // ---- VR Floor Navigation (v2.19) ----
   // Floors are existing FloorMap floor plans (projectState.floorplans); no
@@ -543,15 +537,14 @@ function init() {
   const vrMinimapCompactHovered = { left: false, right: false }; // compact mode: whole-panel hit | not
   let vrMinimapPendingFloorChange = false; // set in _updateVrRingFade's 'out' stage, consumed at fade-in completion
   // ---- VR Minimap Left Menu toggle (v2.20.2) ----
-  // With Scene Ring suspended (VR_SCENE_RING_ENABLED), Left Menu
-  // (button[12]) is repurposed from "toggle ring visibility" to "toggle
-  // minimap compact/expanded" — this is now the primary open/close control
-  // (compact-panel Trigger remains a secondary way to expand). Same
-  // armed/pressed edge-detection shape as vrRingTrigger/vrFloorStick so a
-  // held Menu button can never repeat-toggle. Entirely separate from
-  // vrRingTogglePrevPressed (left untouched below, in the Ring section) so
-  // Scene Ring's own Menu binding can be restored with a one-line change if
-  // VR_SCENE_RING_ENABLED is ever flipped back on.
+  // Left Menu (button[12]) toggles the minimap between compact and expanded
+  // — the primary open/close control (compact-panel Trigger remains a
+  // secondary way to expand). Same armed/pressed edge-detection shape as
+  // vrRingTrigger/vrFloorStick so a held Menu button can never
+  // repeat-toggle. v2.24 (B5-2): this is now the button's only meaning.
+  // Scene Ring, which held button[12] before v2.20.2, was re-enabled
+  // WITHOUT taking it back — the ring has no visibility toggle any more, it
+  // simply shows the current scene's links and is empty when there are none.
   const vrMinimapMenuToggle = { pressed: false, armed: false };
   const vrMinimapDebug = {
     mode: 'compact', floorName: '-', markerCount: 0, imageLoaded: false, imageBounds: '-',
@@ -4038,7 +4031,7 @@ function init() {
       vrBtn.title = 'VRモードは通常表示のみ対応です';
     } else {
       vrBtn.disabled = false;
-      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。右下に表示される小さいミニマップは、左コントローラーのMenuボタン（button[12]）で拡大／縮小を切り替えられます（ミニマップ自体へのレイでのTriggerでも拡大できます）。拡大中はコントローラーのレーザーが表示され、マーカーを狙ってトリガー（button[0]）で選択するとそのシーンへ移動します。マーカー以外でのトリガーでも縮小表示に戻ります。現段階ではシーンリング機能（VR Scene Ring Navigation）は一時停止中です。';
+      vrBtn.title = 'Meta Quest Browserなど、WebXR対応ブラウザで現在シーンをVR表示します。PC画面拡張ではなく、Quest側ブラウザでの利用を推奨します。VR中はQuest Touch Plusコントローラーの右Aボタン（button[4]）で次のシーンへ、左Xボタン（button[4]）で前のシーンへ、右Bボタン（button[5]）でHUD表示切替、左Yボタン（button[5]）でDebug Panelの詳細/簡易切替ができます。右下に表示される小さいミニマップは、左コントローラーのMenuボタン（button[12]）で拡大／縮小を切り替えられます（ミニマップ自体へのレイでのTriggerでも拡大できます）。拡大中はコントローラーのレーザーが表示され、マーカーを狙ってトリガー（button[0]）で選択するとそのシーンへ移動します。マーカー以外でのトリガーでも縮小表示に戻ります。現在のシーンからリンクが設定されている場合は、そのリンク先の方向にシーンリング（VR Scene Ring Navigation）が表示され、レーザーで狙ってトリガー（button[0]）を引くとそのシーンへ移動します。リンクが無いシーンではリングは表示されません。';
     }
     vrBtn.classList.toggle('active', inVrSession);
   }
@@ -4130,17 +4123,17 @@ function init() {
   // simple/detailed split, so it shows/hides with the HUD (vrHudVisible)
   // and is unaffected by the Left Y detail toggle. Pure Canvas 2D drawing:
   // no new DOM element, no input handling, no change to button mapping —
-  // it only *reads* vrRingEnabled to grey out the Trigger affordance.
+  // it only *reads* the ring item count to grey out the Trigger affordance.
   // Internal button indices (#0/#4/#5/#12) are intentionally not printed
   // here; they remain in docs/vr.html for reference. Shape/layout follows a
   // reference diagram supplied by the project owner: a tracking-ring
   // silhouette with a keyring-style loop at the top (Trigger → シーン選択)
   // and a 2x2 button grid inside the ring (thumbstick + 3 labeled buttons
   // per hand). v2.20.2: the Menu icon's label was changed from
-  // "リンク先 ON・OFF" (Scene Ring visibility, now suspended — see
-  // VR_SCENE_RING_ENABLED) to "マップ 拡大/縮小" (minimap compact/expanded
-  // toggle, its new meaning); shape/color/other button labels are
-  // unchanged.
+  // "リンク先 ON・OFF" (Scene Ring visibility) to "マップ 拡大/縮小"
+  // (minimap compact/expanded toggle); shape/color/other button labels are
+  // unchanged. v2.24 (B5-2) keeps it that way — the re-enabled ring has no
+  // visibility toggle to label.
   function _drawVrHudButtonDot(ctx, x, y, symbol, labelX, labelY, label, active, color, iconType) {
     ctx.beginPath();
     ctx.arc(x, y, 15, 0, Math.PI * 2);
@@ -4252,7 +4245,7 @@ function init() {
   }
 
   function _drawVrHudControllerGuide(ctx) {
-    const ringEnabled = vrRingEnabled;
+    const ringEnabled = vrRingItems.length > 0;
     // v2.19: stick-click floor navigation is only meaningful with 2+ valid
     // floors — on a single/zero-floor project the labels below stay drawn
     // (layout is stable) but greyed out, same convention as the Trigger
@@ -4556,25 +4549,32 @@ function init() {
     return sprite;
   }
 
-  // Places one ring item per nav-order scene other than the current one, on
-  // a fixed-radius circle around the wearer (no per-scene 3D position exists
-  // in project data, so this reuses the same order — marker.order on the
-  // active floorplan, falling back to plain scene order — as
-  // nextScene()/prevScene()/FloorMap via _getNavOrder(), rather than adding
-  // new positional data; item positions are synthetic and unrelated to
-  // FloorMap pin coordinates).
+  // v2.24 (B5-2): one ring item per NAVIGABLE LINK out of the current scene,
+  // placed in that link's real direction. This replaces the v2.17 layout,
+  // which put one item per other scene on an evenly-spaced circle — a
+  // synthetic arrangement unrelated to where anything actually was, and the
+  // reason the ring was suspended in v2.20.2.
+  //
+  // Both the placement and the membership come from B5-1's pure helpers, so
+  // the ring shows exactly what the B4 Viewer navigation list shows (enabled
+  // links whose target still resolves, in `order`) and sits where
+  // _sceneLinkRingPosition() says. A scene with no links produces no items
+  // at all — deliberately NOT a fallback to the old synthetic ring, which is
+  // the behaviour that had to be withdrawn.
+  //
+  // Items hold `targetSceneId`, never a scene index: an index is a stale
+  // identity the moment scenes are reordered or deleted, so selection
+  // re-resolves it at activation time (see _selectVrRingItem).
   function _populateVrRingItems() {
-    const order = _getNavOrder();
-    const others = order.filter((idx) => idx !== currentIdx);
-    others.forEach((sceneIdx, i) => {
-      const scn = scenes[sceneIdx];
-      if (!scn) return;
+    _sceneLinkRingLayout(VR_RING_RADIUS).forEach((entry) => {
+      const target = scenes.find(s => s.id === entry.targetSceneId);
+      if (!target) return; // already filtered by the layout; belt and braces
+      // A link's own label wins, falling back to the target scene's name.
       // ZIP/JSON-restored scenes may have an empty/missing name — normalize
       // to a displayable string before any .length/.slice access.
-      const safeName = String(scn.name || scn.title || `Scene ${sceneIdx + 1}`);
-      const angle = (i / others.length) * Math.PI * 2;
-      const x = Math.sin(angle) * VR_RING_RADIUS;
-      const z = -Math.cos(angle) * VR_RING_RADIUS;
+      const safeName = String(entry.label || target.name || target.title || 'Scene');
+      const x = entry.x;
+      const z = entry.z;
       const normalTexture = _buildRingItemTexture(safeName, false);
       const hoverTexture = _buildRingItemTexture(safeName, true);
       // THREE.Sprite always faces the camera (billboard) and scales with
@@ -4591,7 +4591,10 @@ function init() {
       sprite.position.set(x, VR_RING_HEIGHT, z);
       sprite.renderOrder = 998;
       vrRingGroup.add(sprite);
-      vrRingItems.push({ mesh: sprite, sceneIdx, name: safeName, normalTexture, hoverTexture, baseScale });
+      vrRingItems.push({
+        mesh: sprite, linkId: entry.linkId, targetSceneId: entry.targetSceneId,
+        name: safeName, normalTexture, hoverTexture, baseScale,
+      });
     });
   }
 
@@ -4638,30 +4641,12 @@ function init() {
     vrRingTrigger.right.armed = false;
   }
 
-  // Ring visibility toggle (v2.17.1, Left Menu / button[12]). Turning the
-  // ring back on always re-arms safely (see _resetVrRingTriggerState) so a
-  // trigger that happened to be held while the ring was hidden can't fire an
-  // immediate selection the instant it reappears.
-  function _toggleVrRingEnabled() {
-    vrRingEnabled = !vrRingEnabled;
-    console.log('[VR Ring]', 'enabled ->', vrRingEnabled);
-    if (vrRingEnabled) {
-      _resetVrRingTriggerState();
-    } else {
-      _updateRingHandHover('left', null);
-      _updateRingHandHover('right', null);
-    }
-    _vrShowHud();
-  }
-
-  // v2.20.2: Left Menu (button[12]) now calls this instead of
-  // _toggleVrRingEnabled() above — see VR_SCENE_RING_ENABLED. Reuses
-  // _setVrMinimapMode so a Menu-driven transition shares the exact same
-  // hover-reset/redraw/laser-reset path as the Trigger-driven
+  // Left Menu (button[12]) toggles the minimap's compact/expanded state.
+  // Reuses _setVrMinimapMode so a Menu-driven transition shares the exact
+  // same hover-reset/redraw/laser-reset path as the Trigger-driven
   // compact<->expanded transitions; only the recorded toggle source differs.
-  // To restore the old binding once Scene Ring is re-enabled, swap this
-  // function back for _toggleVrRingEnabled() at the button[12] call site in
-  // _updateVrSceneRing() — nothing else needs to change.
+  // v2.24 (B5-2): this binding is permanent — re-enabling Scene Ring did not
+  // take button[12] back, because the ring no longer has a visibility toggle.
   function _toggleVrMinimapModeViaMenu() {
     if (!vrMinimapMesh || vrRingFadeState !== 'idle') return;
     _setVrMinimapMode(vrMinimapMode === 'expanded' ? 'compact' : 'expanded', 'menu');
@@ -4676,7 +4661,6 @@ function init() {
       console.log('[VR Ring]', 'skipped (single scene)');
       return;
     }
-    vrRingEnabled = true;
     _resetVrRingTriggerState();
     try {
       vrRingGroup = new THREE.Group();
@@ -4782,7 +4766,6 @@ function init() {
     vrRingFadeSphereRef = null;
     vrRingFadeLoadFrames = 0;
     _resetVrRingTriggerState();
-    vrRingEnabled = true; // discard the session-local toggle; next VR session always starts with the ring visible
     vrRingDebug.hoveredLeft = '-';
     vrRingDebug.hoveredRight = '-';
     vrRingDebug.selectedName = '-';
@@ -4809,12 +4792,28 @@ function init() {
     vrRingDebug[hand === 'left' ? 'hoveredLeft' : 'hoveredRight'] = record ? record.name : '-';
   }
 
+  // v2.24 (B5-2): the target is resolved HERE, not when the item was built.
+  // A ring item can outlive the scene it points at (a delete during the same
+  // VR session cascades the link away, but the sprite for it may still be
+  // hovered in the frame that follows), and a scene index captured at build
+  // time would by then address a different scene or none at all. A target
+  // that no longer resolves is a silent no-op: no navigation and, crucially,
+  // no fade — starting one would black the view out for a jump that is never
+  // going to happen. Returns whether a fade was actually started.
   function _selectVrRingItem(record) {
-    if (vrRingFadeState !== 'idle') return;
-    vrRingPendingSceneIdx = record.sceneIdx;
+    if (vrRingFadeState !== 'idle') return false;
+    const idx = scenes.findIndex(s => s.id === record.targetSceneId);
+    if (idx < 0) {
+      vrRingDebug.lastError = 'select: target scene gone ' + record.targetSceneId;
+      console.warn('[VR Ring]', 'target scene gone', record.targetSceneId);
+      return false;
+    }
+    if (idx === currentIdx) return false; // already there
+    vrRingPendingSceneIdx = idx;
     vrRingDebug.selectedName = record.name;
-    console.log('[VR Ring]', 'selected', record.name, 'sceneIdx', record.sceneIdx);
+    console.log('[VR Ring]', 'selected', record.name, 'sceneIdx', idx);
     vrRingFadeState = 'out';
+    return true;
   }
 
   // Fade Out -> Texture Load -> Fade In, driven once per frame from
@@ -5445,7 +5444,7 @@ function init() {
       // バック: 「expanded中にController laserが見えず照準位置が分からな
       // い」への対応）。
       const fading = vrRingFadeState !== 'idle';
-      const ringVisible = VR_SCENE_RING_ENABLED && vrRingEnabled && !fading && !minimapExpanded;
+      const ringVisible = VR_SCENE_RING_ENABLED && vrRingItems.length > 0 && !fading && !minimapExpanded;
       vrRingGroup.visible = ringVisible;
       vrRingDebug.inputActive = ringVisible;
       const laserVisible = !fading && (ringVisible || minimapExpanded);
@@ -5623,8 +5622,7 @@ function init() {
         if (!gamepad || !gamepad.buttons) return;
 
         // v2.20.2: same armed/pressed edge-detection shape as
-        // vrRingTrigger/vrFloorStick below (not the older prevPressed
-        // WeakMap _toggleVrRingEnabled used) — a held Menu button can never
+        // vrRingTrigger/vrFloorStick below — a held Menu button can never
         // repeat-toggle, and it only re-arms once observed released.
         if (handedness === 'left' && gamepad.buttons[12]) {
           const menuPressed = !!gamepad.buttons[12].pressed;
@@ -5680,7 +5678,7 @@ function init() {
             if (minimapPanelHits[handedness]) {
               _setVrMinimapMode('expanded', 'compact-trigger');
               st.armed = false;
-            } else if (VR_SCENE_RING_ENABLED && vrRingEnabled && vrRingHovered[handedness]) {
+            } else if (VR_SCENE_RING_ENABLED && vrRingHovered[handedness]) {
               _selectVrRingItem(vrRingHovered[handedness]);
               st.armed = false;
             }
@@ -7773,6 +7771,29 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     layout:         (radius) => _sceneLinkRingLayout(radius),
     radius:         () => VR_RING_RADIUS,
     featureEnabled: () => VR_SCENE_RING_ENABLED,
+    // B5-2. A WebXR session cannot be created headlessly, so these run the
+    // real _populateVrRingItems()/_selectVrRingItem() outside one rather
+    // than letting a test reimplement them. What they cannot show is how any
+    // of it looks in a headset — that stays a Quest 3 human gate.
+    buildItemsForTests: () => {
+      if (!threeScene) return null;
+      const hadGroup = !!vrRingGroup;
+      if (!hadGroup) { vrRingGroup = new THREE.Group(); threeScene.add(vrRingGroup); }
+      _disposeVrRingSprites();
+      _populateVrRingItems();
+      const snapshot = vrRingItems.map(h => ({
+        linkId: h.linkId, targetSceneId: h.targetSceneId, name: h.name,
+        x: h.mesh.position.x, y: h.mesh.position.y, z: h.mesh.position.z,
+        hasSceneIdx: Object.prototype.hasOwnProperty.call(h, 'sceneIdx'),
+      }));
+      _disposeVrRingSprites();
+      if (!hadGroup) { threeScene.remove(vrRingGroup); vrRingGroup = null; }
+      return snapshot;
+    },
+    selectForTests:   (record) => _selectVrRingItem(record),
+    fadeState:        () => vrRingFadeState,
+    pendingSceneIdx:  () => vrRingPendingSceneIdx,
+    ringToggleExists: () => typeof _toggleVrRingEnabled !== 'undefined',
   };
 
 
