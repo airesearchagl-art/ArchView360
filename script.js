@@ -1274,12 +1274,14 @@ function init() {
 
   function disposeCurrentSphere() { disposeMesh(sphere, threeScene); sphere = null; }
 
+  // The DEFAULT is a mirrored sample, not the identity — see buildSphere()
+  // for why. flipH=true is therefore the identity here.
   function applyFlip(mesh, flipH) {
     if (!mesh?.material?.map) return;
     const tex = mesh.material.map;
     tex.wrapS = THREE.RepeatWrapping;
-    tex.repeat.x = flipH ? -1 : 1;
-    tex.offset.x = flipH ? 1 : 0;
+    tex.repeat.x = flipH ? 1 : -1;
+    tex.offset.x = flipH ? 0 : 1;
     tex.needsUpdate = true;
   }
 
@@ -2577,12 +2579,35 @@ function init() {
     );
   }
 
+  // Panorama orientation (v2.24).
+  //
+  // three.js SphereGeometry carries a leading minus on x
+  // (vertex.x = -r*cos(phi)*sin(theta)), and `side: BackSide` only changes
+  // which faces are culled — it moves no vertex and rewrites no UV. So an
+  // untouched texture on a BackSide sphere samples u = 0.5 - theta/360:
+  // turning right walks LEFT through the source image, i.e. the panorama is
+  // mirrored. (The canonical three.js equirectangular example avoids this
+  // with geometry.scale(-1,1,1) on a FrontSide sphere, which differs from
+  // plain BackSide by exactly one horizontal mirror.)
+  //
+  // The fix is applied on the texture rather than by switching to
+  // scale(-1,1,1), because that form also rotates the mapping by 180 degrees
+  // and would move the initial view from the image centre to its left edge.
+  // Mirroring the sample instead gives u = 0.5 + theta/360: upright, and
+  // theta=0 still shows the centre, so existing framing is untouched.
+  //
+  // Consequently flipH=true is the IDENTITY sample and flipH=false is the
+  // mirrored one. flipH now means what the UI always claimed it meant — a
+  // user-requested left/right mirror — instead of silently cancelling the
+  // renderer's own mirror. The heading sign convention in
+  // thetaToFloorRotation()/_sceneLinkThetaDeg()/_sceneLinkRingPosition() is
+  // inverted in lockstep; see thetaToFloorRotation() for why that keeps
+  // every stored marker.rotation and sceneLink.heading valid.
   function buildSphere(texture, flipH) {
     disposeCurrentSphere();
-    if (flipH) {
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.repeat.x = -1; texture.offset.x = 1;
-    }
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.repeat.x = flipH ? 1 : -1;
+    texture.offset.x = flipH ? 0 : 1;
     const geo = new THREE.SphereGeometry(500, 60, 40);
     const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
     sphere = new THREE.Mesh(geo, mat);
@@ -2604,10 +2629,11 @@ function init() {
       s.blobUrl,
       (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
-        if (s.flipH) {
-          texture.wrapS = THREE.RepeatWrapping;
-          texture.repeat.x = -1; texture.offset.x = 1;
-        }
+        // Same orientation convention as buildSphere() — compare panes must
+        // never disagree with the single view about which way round a scene is.
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.repeat.x = s.flipH ? 1 : -1;
+        texture.offset.x = s.flipH ? 0 : 1;
         const mesh = new THREE.Mesh(
           new THREE.SphereGeometry(500, 60, 40),
           new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide })
@@ -6393,12 +6419,22 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // FloorMap Navigator
   // ============================================================
 
-  // Convert camera yaw (theta radians) to floor plan arrow direction (degrees).
-  // sign(theta) drives the arrow CW/CCW. Empirically validated:
-  //   non-flipped: +theta gives correct correspondence with panorama drag direction.
-  //   flipped: image is mirrored so the sign is negated to maintain same visual feel.
+  // Convert camera yaw (theta radians) to floor plan arrow direction
+  // (degrees). The sign compensates for the panorama's texture orientation,
+  // so it must always be the inverse of which flipH state is the mirrored
+  // one: flipH=false is mirrored (buildSphere()), hence -1 there and +1 for
+  // flipH=true.
+  //
+  // Why the stored numbers survived the v2.24 orientation fix without
+  // migration: with the mirrored state the real-world azimuth is
+  // 180 - theta, and with the upright state it is 180 + theta, so this
+  // function yields (180 - azimuth) in BOTH cases. That value is a property
+  // of the real world, not of the rendering convention — which is exactly
+  // why inverting the texture default and this sign TOGETHER leaves every
+  // saved marker.rotation and sceneLink.heading meaning what it always did.
+  // Changing only one of the two would silently invert every stored angle.
   function thetaToFloorRotation(theta, flipH) {
-    const sign = flipH ? -1 : 1;
+    const sign = flipH ? 1 : -1;
     return ((sign * theta * 180 / Math.PI) % 360 + 360) % 360;
   }
 
@@ -6987,7 +7023,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   // Directed scene-to-scene links. `heading` is stored in the SAME
   // marker-space degrees as marker.rotation — heading = normalize(sign · θ°)
-  // with sign = flipH ? -1 : 1, exactly what thetaToFloorRotation() produces.
+  // with sign = flipH ? 1 : -1, exactly what thetaToFloorRotation() produces.
   // marker-space is NOT world space: every world/VR consumer must first
   // recover θ° = normalize(sign · heading) (docs section 6.2). B2 only
   // stores, validates and migrates the value — nothing renders it yet (the
@@ -7009,7 +7045,9 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // direction rather than on the stored number.
   function _sceneLinkThetaDeg(link) {
     const src = scenes.find(s => s.id === link.sourceSceneId);
-    const sign = (src && src.flipH) ? -1 : 1;
+    // Must stay identical to thetaToFloorRotation()'s sign — the two are one
+    // convention, and splitting them corrupts every heading round trip.
+    const sign = (src && src.flipH) ? 1 : -1;
     return _normDeg(sign * link.heading);
   }
 
@@ -7705,7 +7743,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
 
   // heading (marker-space) -> a point on the ring circle, in world metres.
   //
-  //   sign  = source scene flipH ? -1 : 1
+  //   sign  = source scene flipH ? 1 : -1
   //   theta = normalize(sign * heading)   <- world direction, RECOVERED first
   //   a     = normalize(theta + 90)
   //   x     = sin(a) * R,  z = -cos(a) * R
@@ -7725,7 +7763,7 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     const R    = Number.isFinite(radius) ? radius : VR_RING_RADIUS;
     const deg  = Number((link && link.heading));
     const head = _normDeg(Number.isFinite(deg) ? deg : 0);
-    const sign = (sourceScene && sourceScene.flipH) ? -1 : 1;
+    const sign = (sourceScene && sourceScene.flipH) ? 1 : -1;
     const theta = _normDeg(sign * head);
     const a     = _normDeg(theta + 90);
     const rad   = a * Math.PI / 180;
@@ -7768,6 +7806,32 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // These two functions have no production caller yet by design — B5-2 is
   // what wires them into _populateVrRingItems() — so this seam is the only
   // way to pin the contract before a headset is involved.
+  // Test-only hook for the panorama orientation convention, same
+  // never-read-by-production rule as the hooks above. sampledUAt() raycasts
+  // the REAL sphere the app built and reports the texture u actually
+  // sampled (repeat/offset applied), so a test measures the effective
+  // mapping instead of restating the formula it is meant to check.
+  window.__panoramaOrientationTestHooks = {
+    sampledUAt: (thetaDeg, side) => {
+      const mesh = side === 'a' ? sphereA : side === 'b' ? sphereB : sphere;
+      if (!mesh || !mesh.material || !mesh.material.map) return null;
+      const t = thetaDeg * Math.PI / 180;
+      const dir = new THREE.Vector3(Math.cos(t), 0, Math.sin(t)); // equator
+      const rc = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), dir, 0.1, 10000);
+      const hits = rc.intersectObject(mesh, false);
+      if (!hits.length || !hits[0].uv) return null;
+      const map = mesh.material.map;
+      const sampled = map.offset.x + map.repeat.x * hits[0].uv.x;
+      return ((sampled % 1) + 1) % 1;
+    },
+    floorRotationFor: (thetaDeg, flipH) =>
+      Math.round(thetaToFloorRotation(thetaDeg * Math.PI / 180, flipH)),
+    setThetaDegForTests: (thetaDeg) => { theta = thetaDeg * Math.PI / 180; },
+    thetaFromHeadingForTests: (heading, sourceSceneId) =>
+      _sceneLinkThetaDeg({ heading, sourceSceneId }),
+    orientationVersion: () => PANORAMA_ORIENTATION_VERSION,
+  };
+
   window.__sceneLinkRingTestHooks = {
     position:       (link, sourceScene, radius) => _sceneLinkRingPosition(link, sourceScene, radius),
     layout:         (radius) => _sceneLinkRingLayout(radius),
@@ -8432,10 +8496,19 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   // ============================================================
   // JSON Export
   // ============================================================
+  // Identifies which panorama orientation convention a project was written
+  // under. Version 1 (the absent value) is everything exported before the
+  // v2.24 fix, when the default sphere sample was mirrored and scene.flipped
+  // therefore meant the opposite of what it does now. Deliberately a single
+  // narrow field rather than a schema-wide version: it only has to answer
+  // "does scene.flipped need inverting on the way in".
+  const PANORAMA_ORIENTATION_VERSION = 2;
+
   function _buildProjectData() {
     return {
       appVersion:  '2.23.0',
       exportedAt:  new Date().toISOString(),
+      panoramaOrientationVersion: PANORAMA_ORIENTATION_VERSION,
       projectName: projectState.projectName,
       projectInfo: { ...projectState.projectInfo },
       scenes: scenes.map(s => ({
@@ -8649,13 +8722,31 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
     // Restore scenes
     let restoredScenes = 0;
     const newScenes = [];
+    // v2.24 orientation migration. A project written before the fix was
+    // saved under the mirrored default, where flipped=true was the UPRIGHT
+    // state; under the corrected convention that is flipped=false. Inverting
+    // the flag on the way in is what makes such a project keep looking
+    // exactly as it did.
+    //
+    // marker.rotation and sceneLink.heading are deliberately NOT touched:
+    // they store (180 - real azimuth), which is independent of the
+    // convention, and the sign in thetaToFloorRotation() flipped along with
+    // the texture default — so they stay correct untouched, and rewriting
+    // them would double-correct.
+    //
+    // applySceneFlip() is likewise NOT used here. It re-encodes outgoing
+    // sceneLink headings because a USER flip must preserve world direction;
+    // a migration is not a flip of the scene, it is the same scene described
+    // in the new convention, so re-encoding would corrupt every heading.
+    const _legacyOrientation = (_importData.panoramaOrientationVersion || 1) < PANORAMA_ORIENTATION_VERSION;
     (_importData.scenes || []).forEach(sd => {
       const file = fileMap[sd.fileName];
       if (!file) return;
       const blobUrl = URL.createObjectURL(file);
+      const storedFlip = sd.flipped || false;
       const scene = {
         id: sd.id, name: sd.name, fileName: sd.fileName, blobUrl, file, // v2.12: retained for ZIP package export
-        flipH: sd.flipped || false, thumbUrl: null,
+        flipH: _legacyOrientation ? !storedFlip : storedFlip, thumbUrl: null,
         floorplanId: sd.floorplanId || null, // v2.5
         groupId:     sd.groupId     || null, // v2.5
       };

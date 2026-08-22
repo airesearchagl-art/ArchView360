@@ -11,12 +11,15 @@
 // ring on is B5-2 and is gated on Quest 3 verification.
 //
 // The direction contract these tests pin (section 6.2.1):
-//   sign  = source scene flipH ? -1 : 1
+//   sign  = source scene flipH ? 1 : -1
 //   theta = normalize(sign * heading)      <- world direction, recovered
 //   a     = normalize(theta + 90)
 //   x     = sin(a) * R,  z = -cos(a) * R
 // The naive a = heading + 90 is what these tests exist to rule out: it agrees
-// for flipH=false and mirrors by 180 degrees for flipH=true.
+// for the scene whose sign is +1 and mirrors by 180 degrees for the other.
+// v2.24: the sign was inverted along with the panorama texture default (see
+// buildSphere()), so the discriminating case is now flipH=FALSE — sign -1
+// there, +1 when the user has mirrored the scene.
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const { gotoApp, expectNoErrors, dirtyIndicator, enterEditor } = require('./helpers');
@@ -76,45 +79,53 @@ test.describe('sceneLink VR ring: direction mapping', () => {
     const R = await ringRadius(page);
     expect(R).toBeGreaterThan(0);
 
+    // sign -1 for an unmirrored scene.
     // heading 0 -> theta 0 -> a 90 -> +X
     let p = await ringPos(page, 0, false);
     expect(p.x).toBeCloseTo(R, 6);
     expect(p.z).toBeCloseTo(0, 6);
 
-    // heading 90 -> theta 90 -> a 180 -> +Z
+    // heading 90 -> theta 270 -> a 0 -> -Z.
+    // The naive a = heading + 90 = 180 would give +Z: exactly 180 degrees
+    // wrong, which is the disorientation that suspended the ring.
     p = await ringPos(page, 90, false);
     expect(p.x).toBeCloseTo(0, 6);
-    expect(p.z).toBeCloseTo(R, 6);
+    expect(p.z).toBeCloseTo(-R, 6);
 
     // heading 180 -> theta 180 -> a 270 -> -X
     p = await ringPos(page, 180, false);
     expect(p.x).toBeCloseTo(-R, 6);
     expect(p.z).toBeCloseTo(0, 6);
 
-    // heading 270 -> theta 270 -> a 0 -> -Z
+    // heading 270 -> theta 90 -> a 180 -> +Z
     p = await ringPos(page, 270, false);
     expect(p.x).toBeCloseTo(0, 6);
-    expect(p.z).toBeCloseTo(-R, 6);
+    expect(p.z).toBeCloseTo(R, 6);
 
     expectNoErrors(errors);
   });
 
-  test('flipH=true mirrors the heading through theta, not through a', async ({ page }) => {
+  test('flipH=true recovers theta with the opposite sign from an unmirrored scene', async ({ page }) => {
     const errors = await gotoApp(page);
     await loadThreeScenes(page);
     const R = await ringRadius(page);
 
-    // heading 90, sign -1 -> theta 270 -> a 0 -> -Z.
-    // The naive a = heading + 90 = 180 would give +Z: exactly 180 degrees
-    // wrong, which is the disorientation that suspended the ring.
+    // heading 90, sign +1 -> theta 90 -> a 180 -> +Z. The mirror image of
+    // the flipH=false case above: the same stored heading must land on the
+    // opposite side, which is what makes the recovery step load-bearing.
     let p = await ringPos(page, 90, true);
+    expect(p.x).toBeCloseTo(0, 6);
+    expect(p.z).toBeCloseTo(R, 6);
+
+    // heading 270, sign +1 -> theta 270 -> a 0 -> -Z
+    p = await ringPos(page, 270, true);
     expect(p.x).toBeCloseTo(0, 6);
     expect(p.z).toBeCloseTo(-R, 6);
 
-    // heading 270, sign -1 -> theta 90 -> a 180 -> +Z
-    p = await ringPos(page, 270, true);
-    expect(p.x).toBeCloseTo(0, 6);
-    expect(p.z).toBeCloseTo(R, 6);
+    // The two flipH states must genuinely disagree for a non-fixed-point
+    // heading — a sign that did nothing would make these identical.
+    const unmirrored = await ringPos(page, 90, false);
+    expect(unmirrored.z).toBeCloseTo(-R, 6);
 
     expectNoErrors(errors);
   });
@@ -144,7 +155,7 @@ test.describe('sceneLink VR ring: direction mapping', () => {
     for (const heading of [450, -270, 90.4]) {
       const p = await ringPos(page, heading, false); // all normalize to 90
       expect(p.x).toBeCloseTo(0, 6);
-      expect(p.z).toBeCloseTo(R, 6);
+      expect(p.z).toBeCloseTo(-R, 6);
     }
 
     // A missing/unusable heading falls back to 0 rather than producing NaN.
@@ -181,12 +192,12 @@ test.describe('sceneLink VR ring: direction mapping', () => {
     let layout = await ringLayout(page);
     expect(layout).toHaveLength(1);
     expect(layout[0].x).toBeCloseTo(0, 6);
-    expect(layout[0].z).toBeCloseTo(R, 6);   // flipH=false -> +Z
+    expect(layout[0].z).toBeCloseTo(-R, 6);  // flipH=false, sign -1 -> -Z
 
     // Flipping the source scene re-encodes the stored heading (B2 migration)
     // so the WORLD direction is preserved: the ring position must not move.
     await page.click('#flip-btn', { force: true });
-    await expect.poll(async () => (await ringLayout(page))[0].z).toBeCloseTo(R, 6);
+    await expect.poll(async () => (await ringLayout(page))[0].z).toBeCloseTo(-R, 6);
     layout = await ringLayout(page);
     expect(layout[0].x).toBeCloseTo(0, 6);
     expect(layout[0].heading).toBe(270);     // stored value did change
