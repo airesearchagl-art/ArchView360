@@ -7688,6 +7688,95 @@ ring: ${vrRingGroup ? vrRingItems.length + ' items' : 'off'} / last ring error: 
   };
 
   // ============================================================
+  // sceneLink -> VR Scene Ring mapping — B5-1
+  // (docs/SceneLink_TourGraph_Investigation.md sections 6.2.1 and 10)
+  // ============================================================
+  // The Scene Ring was suspended in v2.20.2 (see VR_SCENE_RING_ENABLED)
+  // because _populateVrRingItems() spaces its items evenly — a synthetic
+  // layout with no relation to where the linked scenes actually are, which
+  // reads as disorienting in a headset. This is the replacement geometry and
+  // the replacement notion of "which links belong on the ring", written as
+  // pure functions so both can be pinned by Playwright without a headset.
+  //
+  // NOTHING here is wired into the VR runtime yet. VR_SCENE_RING_ENABLED
+  // stays false, _populateVrRingItems() is untouched, no controller binding
+  // moves and the minimap is unchanged — switching the ring over is B5-2 and
+  // is gated on Quest 3 verification.
+
+  // heading (marker-space) -> a point on the ring circle, in world metres.
+  //
+  //   sign  = source scene flipH ? -1 : 1
+  //   theta = normalize(sign * heading)   <- world direction, RECOVERED first
+  //   a     = normalize(theta + 90)
+  //   x     = sin(a) * R,  z = -cos(a) * R
+  //
+  // The recovery step is the whole point. `heading` is stored in marker-space
+  // (section 6.2), so a = heading + 90 is only right when flipH is false; on
+  // a flipped scene it mirrors the item by 180 degrees, which is precisely
+  // the disorientation that suspended the ring. Verified in 6.2.1:
+  // flipH=true, heading=90 must land on -Z, and the naive form gives +Z.
+  //
+  // floorplan.rotationOffset is deliberately NOT applied (section 6.3): it
+  // corrects how the FloorMap IMAGE is pasted relative to north and never
+  // reaches world space, which is tied directly to camera theta.
+  //
+  // Pure: reads only its arguments, mutates nothing.
+  function _sceneLinkRingPosition(link, sourceScene, radius) {
+    const R    = Number.isFinite(radius) ? radius : VR_RING_RADIUS;
+    const deg  = Number((link && link.heading));
+    const head = _normDeg(Number.isFinite(deg) ? deg : 0);
+    const sign = (sourceScene && sourceScene.flipH) ? -1 : 1;
+    const theta = _normDeg(sign * head);
+    const a     = _normDeg(theta + 90);
+    const rad   = a * Math.PI / 180;
+    return { x: Math.sin(rad) * R, z: -Math.cos(rad) * R, theta, a };
+  }
+
+  // The links that belong on the ring, in ring order, each with the position
+  // above and the identity B5-2 needs to act on a selection.
+  //
+  // Membership is NOT defined here: it delegates to the same
+  // _navigableLinksForCurrentScene() the B4 Viewer navigation list uses, so
+  // the two surfaces cannot drift apart (enabled only, target must still
+  // resolve, current scene as source, `order`). A scene with nothing to walk
+  // to yields [] — section 10 point 5 chose "show no ring" over falling back
+  // to the synthetic layout, since that layout is what was disorienting.
+  //
+  // Entries carry targetSceneId rather than a scene index: an index is a
+  // stale identity the moment scenes are reordered or deleted, so selection
+  // must re-resolve it at activation time (the same rule B4 navigation
+  // follows).
+  function _sceneLinkRingLayout(radius) {
+    const src = _currentSceneForLinks();
+    if (!src) return [];
+    return _navigableLinksForCurrentScene().map(l => {
+      const pos = _sceneLinkRingPosition(l, src, radius);
+      return {
+        linkId:        l.id,
+        targetSceneId: l.targetSceneId,
+        heading:       l.heading,
+        label:         l.label || '',
+        x:             pos.x,
+        z:             pos.z,
+        theta:         pos.theta,
+        a:             pos.a,
+      };
+    });
+  }
+
+  // Test-only hook, same never-read-by-production rule as the hooks above.
+  // These two functions have no production caller yet by design — B5-2 is
+  // what wires them into _populateVrRingItems() — so this seam is the only
+  // way to pin the contract before a headset is involved.
+  window.__sceneLinkRingTestHooks = {
+    position:       (link, sourceScene, radius) => _sceneLinkRingPosition(link, sourceScene, radius),
+    layout:         (radius) => _sceneLinkRingLayout(radius),
+    radius:         () => VR_RING_RADIUS,
+    featureEnabled: () => VR_SCENE_RING_ENABLED,
+  };
+
+
+  // ============================================================
   // Marker order swap — U3: Undo/Redo expansion
   // (docs/UndoRedo_Expansion_Implementation_Plan.md U3: マーカー番号swap)
   // ============================================================
