@@ -55,6 +55,14 @@ async function ringLayout(page) {
   return page.evaluate(() => window.__sceneLinkRingTestHooks.layout());
 }
 
+// Runs the real _populateVrRingItems() outside an XR session and returns a
+// snapshot of the sprites it produced. WebXR cannot start headless, so this
+// is the only way to exercise the production builder itself rather than a
+// reimplementation of it.
+async function buildRingItems(page) {
+  return page.evaluate(() => window.__sceneLinkRingTestHooks.buildItemsForTests());
+}
+
 async function makeLink(page, fromIdx, toIdx, { heading = 0, label = '', enabled = true } = {}) {
   return page.evaluate(
     ([f, t, h, l, en]) => {
@@ -311,13 +319,246 @@ test.describe('sceneLink VR ring: which links go on the ring', () => {
   });
 });
 
-test.describe('sceneLink VR ring: nothing about VR changes yet', () => {
-  test('the Scene Ring feature flag is still off', async ({ page }) => {
+// B5-2 turns the ring back on and rebuilds its items from the sceneLink
+// layout above. WebXR sessions cannot be created in this headless
+// environment, so these tests drive the REAL _populateVrRingItems() and
+// _selectVrRingItem() through a hook that stands up the ring group outside a
+// session — the production functions run unmodified. What genuinely cannot
+// be checked here is how any of it LOOKS in a headset; that stays a Quest 3
+// human gate and is deliberately not simulated.
+test.describe('sceneLink VR ring: ring items are built from the links', () => {
+  test('the Scene Ring feature flag is on', async ({ page }) => {
     const errors = await gotoApp(page);
     await loadThreeScenes(page);
 
-    // B5-1 fixes the maths only. Re-enabling is B5-2, gated on Quest 3.
-    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.featureEnabled())).toBe(false);
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.featureEnabled())).toBe(true);
+
+    expectNoErrors(errors);
+  });
+
+  test('item positions come from the sceneLink layout, not from equal spacing', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    const R = await ringRadius(page);
+    // Three links all pointing the SAME way. The old synthetic layout spread
+    // items evenly (120 degrees apart here) regardless of direction; the
+    // sceneLink layout must stack all three on +X.
+    await makeLink(page, 0, 1, { heading: 0, label: 'one' });
+    await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      window.__sceneLinkTestHooks.forceLinkForTests({
+        id: 'lk-two', sourceSceneId: ids[0], targetSceneId: ids[2],
+        heading: 0, label: 'two', order: 2, enabled: true,
+      });
+    });
+
+    const items = await buildRingItems(page);
+    expect(items).toHaveLength(2);
+    items.forEach((it) => {
+      expect(it.x).toBeCloseTo(R, 6);
+      expect(it.z).toBeCloseTo(0, 6);
+      expect(it.y).toBeCloseTo(1.5, 6); // VR_RING_HEIGHT, unchanged
+    });
+
+    expectNoErrors(errors);
+  });
+
+  test('item positions match the B5-1 helper exactly, including flipH', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await makeLink(page, 0, 1, { heading: 90, label: 'to-b' });
+    await makeLink(page, 0, 2, { heading: 200, label: 'to-c' });
+
+    for (const flip of [false, true]) {
+      if (flip) {
+        await page.click('#flip-btn', { force: true });
+        await expect.poll(async () => (await ringLayout(page)).length).toBe(2);
+      }
+      const layout = await ringLayout(page);
+      const items  = await buildRingItems(page);
+      expect(items).toHaveLength(layout.length);
+      items.forEach((it, i) => {
+        expect(it.x).toBeCloseTo(layout[i].x, 6);
+        expect(it.z).toBeCloseTo(layout[i].z, 6);
+      });
+    }
+
+    expectNoErrors(errors);
+  });
+
+  test('a flipped source scene puts its ring item on the correct side', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    const R = await ringRadius(page);
+    await makeLink(page, 0, 1, { heading: 90, label: 'to-b' });
+
+    let items = await buildRingItems(page);
+    expect(items[0].z).toBeCloseTo(R, 6);    // flipH=false -> +Z
+
+    // Flipping re-encodes heading to 270 and the world direction is
+    // preserved, so the item must stay on +Z rather than mirroring to -Z.
+    await page.click('#flip-btn', { force: true });
+    await expect.poll(async () => (await ringLayout(page))[0].heading).toBe(270);
+    items = await buildRingItems(page);
+    expect(items[0].x).toBeCloseTo(0, 6);
+    expect(items[0].z).toBeCloseTo(R, 6);
+
+    expectNoErrors(errors);
+  });
+
+  test('only enabled links with a resolvable target become items, in order', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await makeLink(page, 0, 2, { heading: 10, label: 'first' });
+    await makeLink(page, 0, 1, { heading: 20, label: 'second' });
+    await page.evaluate(() => {
+      const ids = window.__sceneLinkTestHooks.sceneIds();
+      window.__sceneLinkTestHooks.forceLinkForTests({
+        id: 'lk-off', sourceSceneId: ids[0], targetSceneId: ids[1],
+        heading: 30, label: 'disabled', order: 3, enabled: false,
+      });
+      window.__sceneLinkTestHooks.forceLinkForTests({
+        id: 'lk-dangling', sourceSceneId: ids[0], targetSceneId: 'ghost-scene',
+        heading: 40, label: 'nowhere', order: 4, enabled: true,
+      });
+    });
+
+    const items = await buildRingItems(page);
+    expect(items.map(i => i.name)).toEqual(['first', 'second']);
+
+    expectNoErrors(errors);
+  });
+
+  test('a scene with no navigable links builds no items at all', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    expect(await buildRingItems(page)).toEqual([]);
+
+    // Disabled-only is still nothing — and specifically NOT a fallback to
+    // the synthetic ring, which would put one item per other scene.
+    await makeLink(page, 0, 1, { heading: 10, enabled: false });
+    expect(await buildRingItems(page)).toEqual([]);
+
+    expectNoErrors(errors);
+  });
+
+  test('item records carry link identity and no scene index', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    const id = await makeLink(page, 0, 1, { heading: 45, label: 'to-b' });
+    const ids = await page.evaluate(() => window.__sceneLinkTestHooks.sceneIds());
+
+    const items = await buildRingItems(page);
+    expect(items).toHaveLength(1);
+    expect(items[0].linkId).toBe(id);
+    expect(items[0].targetSceneId).toBe(ids[1]);
+    // A scene index would go stale the moment scenes are reordered/deleted.
+    expect(items[0].hasSceneIdx).toBe(false);
+
+    expectNoErrors(errors);
+  });
+});
+
+test.describe('sceneLink VR ring: selection re-resolves its target', () => {
+  test('selecting a live target starts the shared fade', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await makeLink(page, 0, 1, { heading: 10, label: 'to-b' });
+    const ids = await page.evaluate(() => window.__sceneLinkTestHooks.sceneIds());
+
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.fadeState())).toBe('idle');
+    const started = await page.evaluate(
+      (t) => window.__sceneLinkRingTestHooks.selectForTests({ targetSceneId: t, name: 'to-b' }),
+      ids[1]
+    );
+    expect(started).toBe(true);
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.fadeState())).toBe('out');
+
+    expectNoErrors(errors);
+  });
+
+  test('selecting an item whose target scene is gone is a no-op and starts no fade', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    // The record still names a scene that no longer exists — exactly what a
+    // ring item built before a deletion would hold.
+    const started = await page.evaluate(() =>
+      window.__sceneLinkRingTestHooks.selectForTests({ targetSceneId: 'ghost-scene', name: 'gone' }));
+
+    expect(started).toBe(false);
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.fadeState())).toBe('idle');
+    // No black plane left covering the view, no pending index.
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.pendingSceneIdx())).toBe(-1);
+
+    expectNoErrors(errors);
+  });
+
+  test('a deleted target scene leaves no stale ring item behind', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    await makeLink(page, 0, 1, { heading: 10, label: 'to-b' });
+    expect(await buildRingItems(page)).toHaveLength(1);
+
+    // Deleting the target cascades the link away (B2), so the ring has
+    // nothing to rebuild.
+    await sceneItems(page).nth(1).locator('.scene-delete-btn').click({ force: true });
+    await expect(sceneItems(page)).toHaveCount(2);
+
+    expect(await buildRingItems(page)).toEqual([]);
+
+    expectNoErrors(errors);
+  });
+
+  test('selecting the scene already open is a no-op', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+    const ids = await page.evaluate(() => window.__sceneLinkTestHooks.sceneIds());
+
+    const started = await page.evaluate(
+      (t) => window.__sceneLinkRingTestHooks.selectForTests({ targetSceneId: t, name: 'self' }),
+      ids[0]
+    );
+    expect(started).toBe(false);
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.fadeState())).toBe('idle');
+
+    expectNoErrors(errors);
+  });
+});
+
+test.describe('sceneLink VR ring: controller and copy', () => {
+  test('the VR button copy matches what the controls now do', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    // WebXR is unsupported in this headless browser, so #vr-btn only ever
+    // shows its "not supported" title here and the real instructions are
+    // unreachable through the DOM. Assert against the served script instead
+    // — still the shipped artifact, no production hook invented for a test.
+    await expect(page.locator('#vr-btn')).toHaveAttribute('title', /対応していません/);
+    const src = await (await page.request.get('/script.js')).text();
+
+    // The suspension notice must be gone now that the ring is back.
+    expect(src).not.toContain('シーンリング機能（VR Scene Ring Navigation）は一時停止中です');
+    // Trigger selects a link; Menu stays the minimap, not a ring toggle.
+    expect(src).toContain('リンク先の方向にシーンリング');
+    expect(src).toContain('トリガー（button[0]）を引くとそのシーンへ移動します');
+    expect(src).toContain('リンクが無いシーンではリングは表示されません');
+    expect(src).toContain('Menuボタン（button[12]）で拡大／縮小');
+
+    expectNoErrors(errors);
+  });
+
+  test('no ring-visibility toggle is exposed any more', async ({ page }) => {
+    const errors = await gotoApp(page);
+    await loadThreeScenes(page);
+
+    // button[12] stays the minimap control: the ring has no toggle of its
+    // own, it simply appears when the current scene has links to show.
+    expect(await page.evaluate(() => typeof window.__sceneLinkRingTestHooks.ringToggleExists))
+      .toBe('function');
+    expect(await page.evaluate(() => window.__sceneLinkRingTestHooks.ringToggleExists())).toBe(false);
 
     expectNoErrors(errors);
   });
